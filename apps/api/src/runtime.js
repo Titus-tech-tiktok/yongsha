@@ -140,8 +140,8 @@ const ENV_API = Object.freeze({
   imageModel: String(process.env.CAISHEN_IMAGE_MODEL || 'gpt-image-2').trim(),
   analysisModel: String(process.env.CAISHEN_REVERSE_PROMPT_MODEL || 'gpt-5-3').trim(),
   analysisWireApi: String(process.env.CAISHEN_ANALYSIS_WIRE_API || 'chat_completions').trim(),
-  responseFormat: String(process.env.CAISHEN_IMAGE_RESPONSE_FORMAT || 'b64_json').trim(),
-  requestTimeoutSeconds: Number(process.env.CAISHEN_API_TIMEOUT_SECONDS || 120)
+  responseFormat: String(process.env.CAISHEN_IMAGE_RESPONSE_FORMAT || 'url').trim(),
+  requestTimeoutSeconds: Number(process.env.CAISHEN_API_TIMEOUT_SECONDS || 300)
 });
 let runtimeApiSettings = { version: 2, ...ENV_API };
 const FILE_TOKEN_SECRET = String(process.env.CAISHEN_FILE_TOKEN_SECRET || ENV_API.imageKey || 'local-development-only');
@@ -267,13 +267,13 @@ function normalizeModelName(value, fallback) {
   return text;
 }
 
-function normalizeResponseFormat(value, fallback = 'b64_json') {
-  const text = String(value || fallback || 'b64_json').trim();
+function normalizeResponseFormat(value, fallback = 'url') {
+  const text = String(value || fallback || 'url').trim();
   if (!['b64_json', 'url'].includes(text)) throw new Error('图片响应格式不支持');
   return text;
 }
 
-function normalizeRequestTimeoutSeconds(value, fallback = 120) {
+function normalizeRequestTimeoutSeconds(value, fallback = 300) {
   const number = Number(value ?? fallback);
   if (!Number.isFinite(number) || number < 15 || number > 600) throw new Error('请求超时必须在 15 到 600 秒之间');
   return Math.round(number);
@@ -1143,7 +1143,7 @@ async function generateImage(prompt, imagePaths, options = {}) {
           { name: 'n', value: '1' },
           { name: 'size', value: options.size || '1024x1024' },
           { name: 'quality', value: options.quality || 'high' },
-          { name: 'response_format', value: api.responseFormat || 'b64_json' }
+          { name: 'response_format', value: api.responseFormat || 'url' }
         ];
         const files = [];
         for (const file of imagePaths) {
@@ -1169,7 +1169,7 @@ async function generateImage(prompt, imagePaths, options = {}) {
           signal: options.signal,
           _powershellMultipart: { fields, files }
         };
-      }, (api.requestTimeoutSeconds || 120) * 1000);
+      }, (api.requestTimeoutSeconds || 300) * 1000);
       const result = extractImageResult(body);
       let bytes;
       if (result.type === 'base64') bytes = Buffer.from(result.value, 'base64');
@@ -1556,7 +1556,7 @@ async function analyzeTemplateJob(job, options = {}) {
       ]
     }],
     max_tokens: 700
-  }, (api.requestTimeoutSeconds || 120) * 1000, { description: '套图模板 AI 分析', reference: job.relativePath });
+  }, (api.requestTimeoutSeconds || 300) * 1000, { description: '套图模板 AI 分析', reference: job.relativePath });
   const choice = body?.choices?.[0] || {};
   const content = choice?.message?.content ?? choice?.delta?.content ?? choice?.text ?? body?.output_text ?? body?.content;
   const analysis = analysisContentToString(content);
@@ -1699,7 +1699,7 @@ async function analyzeProductProfile(productPath) {
     model: api.analysisModel,
     imageDataUrl: await imageAsDataUrl(productPath),
     prompt: await getPromptValue('productProfileAnalysis')
-  }), (api.requestTimeoutSeconds || 120) * 1000, { description: '商品图片理解', reference: path.basename(productPath) });
+  }), (api.requestTimeoutSeconds || 300) * 1000, { description: '商品图片理解', reference: path.basename(productPath) });
   return parseProductProfileChatResponse(response);
 }
 
@@ -1828,7 +1828,7 @@ async function writeTemplateSizedImage(job, bytes) {
   const width = Number(metadata.width || 0);
   const height = Number(metadata.height || 0);
   let image = sharp(bytes);
-  if (width && height) image = image.resize(width, height, { fit: 'contain', background: '#ffffff' });
+  if (width && height) image = image.resize(width, height, { fit: 'cover', position: 'centre' });
   const extension = path.extname(job.outputPath).toLowerCase();
   if (extension === '.jpg' || extension === '.jpeg') image = image.jpeg({ quality: 94 });
   else image = image.png();
@@ -1862,7 +1862,7 @@ async function auditGeneratedTemplate(masterImage, job, templateAnalysis) {
   try {
     const response = await analysisApiJson(api,
       buildTemplateAuditPayload({ ...common, model: api.analysisModel, promptTemplate: firstPromptTemplate }),
-      (api.requestTimeoutSeconds || 120) * 1000,
+      (api.requestTimeoutSeconds || 300) * 1000,
       { description: '生成结果 AI 质检', reference: job.relativePath });
     rawText = String(response?.choices?.[0]?.message?.content || '').trim();
     first = parseTemplateAuditResult(rawText);
@@ -1876,7 +1876,7 @@ async function auditGeneratedTemplate(masterImage, job, templateAnalysis) {
     try {
       const response = await analysisApiJson(api,
         buildTemplateAuditRecheckPayload({ ...common, model: api.analysisModel, firstAudit: first, promptTemplate: recheckPromptTemplate }),
-        (api.requestTimeoutSeconds || 120) * 1000,
+        (api.requestTimeoutSeconds || 300) * 1000,
         { description: '生成结果 AI 复核', reference: job.relativePath });
       const content = String(response?.choices?.[0]?.message?.content || '').trim();
       const recheck = parseTemplateAuditResult(content);

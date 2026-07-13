@@ -50,7 +50,7 @@ test('template generation retries temporary image API failures and regeneration 
   const printPath = path.join(runtime.WORKSPACE_ROOT, 'assets', 'prints', 'print.png');
   await fs.mkdir(templateRoot, { recursive: true });
   await fs.mkdir(path.dirname(printPath), { recursive: true });
-  const templateImage = await sharp({ create: { width: 40, height: 40, channels: 3, background: '#f7f7f7' } }).png().toBuffer();
+  const templateImage = await sharp({ create: { width: 40, height: 20, channels: 3, background: '#f7f7f7' } }).png().toBuffer();
   await fs.writeFile(path.join(templateRoot, '1.png'), templateImage);
   await fs.writeFile(printPath, resultPng);
   await runtime.saveConfig({ outputPath: outputRoot, auditMode: 'economy' });
@@ -76,6 +76,11 @@ test('template generation retries temporary image API failures and regeneration 
   });
   const outputFile = path.join(generated.folder, '1.png');
   await fs.access(outputFile);
+  const outputMetadata = await sharp(outputFile).metadata();
+  assert.equal(outputMetadata.width, 40);
+  assert.equal(outputMetadata.height, 20);
+  const outputPixel = await sharp(outputFile).raw().toBuffer();
+  assert.deepEqual([...outputPixel.slice(0, 3)], [0x88, 0xaa, 0xee], '生成图应 cover 到套图比例，不应 contain 留白');
   assert.equal(requests, 2);
 
   await runtime.generateTemplateSetForFolder(generated.folder, true);

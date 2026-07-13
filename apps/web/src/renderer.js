@@ -2824,8 +2824,8 @@ function renderApiSettings() {
   $('#imageModel').value = settings.imageModel || 'gpt-image-2';
   $('#analysisModel').value = settings.analysisModel || 'gpt-5-3';
   $('#analysisWireApi').value = settings.analysisWireApi || 'chat_completions';
-  $('#apiResponseFormat').value = settings.responseFormat || 'b64_json';
-  $('#apiRequestTimeout').value = String(settings.requestTimeoutSeconds || 120);
+  $('#apiResponseFormat').value = settings.responseFormat || 'url';
+  $('#apiRequestTimeout').value = String(settings.requestTimeoutSeconds || 300);
   $('#imageSize').value = state.config?.imageSize || '1024x1024';
   $('#imageQuality').value = state.config?.imageQuality || 'auto';
 
