@@ -287,6 +287,7 @@ window.caishen = {
   getBillingAdmin: () => authRequest('/api/billing/admin'),
   saveBillingRules: payload => authRequest('/api/billing/rules', { method: 'PUT', body: JSON.stringify(payload) }),
   adjustBillingBalance: payload => authRequest('/api/billing/adjust', { method: 'POST', body: JSON.stringify(payload) }),
+  clearBillingLedger: () => authRequest('/api/billing/ledger', { method: 'DELETE' }),
   cancelJob,
   getConfig: () => rpc('getConfig'),
   getApiSettings: () => rpc('getApiSettings'),

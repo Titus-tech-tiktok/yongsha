@@ -5105,6 +5105,7 @@ label input, label textarea {
 .settings-card-head h3 { margin: 0; font-size: 15px; line-height: 1.4; }
 .settings-card-head p { margin: 4px 0 0; color: var(--subtle); font-size: 10px; line-height: 1.5; }
 .settings-card-head .text-button { flex: 0 0 auto; min-height: 30px; font-size: 11px; }
+.inline-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 .compact-folder-field { min-height: 64px; margin-top: 14px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .compact-folder-field b { font-size: 11px; }
 .compact-folder-field span:not(.readonly-badge) { max-width: 430px; font-size: 10px; }

@@ -2637,6 +2637,22 @@ async function saveBillingRules() {
   }
 }
 
+async function clearBillingLedger() {
+  if (!isSuperAdmin()) return toast('只有超级管理员可以清空费用流水', true);
+  if (!window.confirm('确定清空全部费用流水吗？此操作只删除明细记录，不会修改任何账号余额。')) return;
+  const button = $('#clearBillingLedgerButton');
+  button.disabled = true;
+  try {
+    const result = await window.caishen.clearBillingLedger();
+    await Promise.all([loadBillingAdmin(), loadBillingSummary()]);
+    toast(`已清空 ${Number(result?.cleared || 0)} 条费用流水`);
+  } catch (error) {
+    toast(errorText(error), true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function adjustBillingBalance(button) {
   const row = button.closest('[data-billing-user]');
   const input = row?.querySelector('input');
@@ -3264,6 +3280,7 @@ function bindEvents() {
   $('#billingDetailModal').onclick = event => { if (event.target === $('#billingDetailModal')) closeBillingDetail(); };
   $('#saveBillingRulesButton').onclick = saveBillingRules;
   $('#refreshBillingButton').onclick = loadBillingAdmin;
+  $('#clearBillingLedgerButton').onclick = clearBillingLedger;
   $('#billingAccountList').onclick = event => {
     const button = event.target.closest('[data-adjust-billing]');
     if (button) adjustBillingBalance(button);
