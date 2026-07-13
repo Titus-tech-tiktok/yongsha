@@ -96,3 +96,43 @@ test('multipart asset sync keeps the member workspace context', async () => {
     await removeTempWithRetry(temp);
   }
 });
+
+test('single asset upload reports a clear error when the image exceeds the configured limit', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-asset-upload-limit-'));
+  const port = 20000 + Math.floor(Math.random() * 1000);
+  process.env.CAISHEN_DATA_DIR = temp;
+  process.env.CAISHEN_WORKSPACE_ID = 'upload-limit';
+  process.env.CAISHEN_HOST = '127.0.0.1';
+  process.env.CAISHEN_UPLOAD_FILE_LIMIT_MB = '1';
+  process.env.PORT = String(port);
+  for (const modulePath of ['../src/server', '../src/runtime', '../src/auth']) {
+    delete require.cache[require.resolve(modulePath)];
+  }
+  const { startServer } = require('../src/server');
+  const server = await startServer();
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    const bootstrap = await fetch(`${base}/api/auth/bootstrap`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', displayName: 'Admin', password: 'abc147852' })
+    });
+    const cookie = bootstrap.headers.get('set-cookie')?.split(';')[0] || '';
+    assert.equal(bootstrap.status, 201);
+
+    const form = new FormData();
+    form.append('files', new Blob([Buffer.alloc(1024 * 1024 + 1)], { type: 'image/png' }), 'too-large.png');
+    form.append('relativePaths', JSON.stringify(['too-large.png']));
+    const upload = await fetch(`${base}/api/assets/files/print`, {
+      method: 'POST',
+      headers: { Cookie: cookie },
+      body: form
+    });
+    assert.equal(upload.status, 413);
+    assert.match((await upload.json()).error, /单个文件不能超过 1MB/);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+    delete process.env.CAISHEN_UPLOAD_FILE_LIMIT_MB;
+    await removeTempWithRetry(temp);
+  }
+});

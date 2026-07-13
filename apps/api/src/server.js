@@ -66,6 +66,8 @@ function canManageUser(actor, target) {
 }
 const MAX_ACTIVE_JOBS = Math.max(1, Number(process.env.CAISHEN_JOB_CONCURRENCY || 10));
 const JOB_RATE_LIMIT_PER_HOUR = Math.max(10, Number(process.env.CAISHEN_JOB_RATE_LIMIT_PER_HOUR || 120));
+const UPLOAD_FILE_LIMIT_MB = Math.max(1, Number(process.env.CAISHEN_UPLOAD_FILE_LIMIT_MB || 1024));
+const UPLOAD_FILE_LIMIT_BYTES = Math.round(UPLOAD_FILE_LIMIT_MB * 1024 * 1024);
 const pendingJobs = [];
 const jobsByClientKey = new Map();
 const activeJobControllers = new Map();
@@ -104,7 +106,7 @@ const upload = multer({
     },
     filename: (_req, _file, callback) => callback(null, `${Date.now()}-${crypto.randomBytes(10).toString('hex')}`)
   }),
-  limits: { fileSize: 50 * 1024 * 1024, files: 10000 }
+  limits: { fileSize: UPLOAD_FILE_LIMIT_BYTES, files: 10000 }
 });
 
 function safeSegment(value, fallback = 'file') {
@@ -1200,6 +1202,9 @@ async function startServer() {
 
   app.use((error, _req, res, _next) => {
     console.error(error);
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ error: `单个文件不能超过 ${UPLOAD_FILE_LIMIT_MB}MB` });
+    }
     res.status(400).json({ error: error?.message || '请求失败' });
   });
 
@@ -1218,4 +1223,4 @@ if (require.main === module) startServer().catch(error => {
   process.exitCode = 1;
 });
 
-module.exports = { addAssetFiles, canAccessRpc, createAssetThumbnail, decodeFileToken, deleteAssetFiles, isWithin, normalizedThumbnailWidth, safeRelative, startServer };
+module.exports = { addAssetFiles, canAccessRpc, createAssetThumbnail, decodeFileToken, deleteAssetFiles, isWithin, normalizedThumbnailWidth, safeRelative, startServer, UPLOAD_FILE_LIMIT_MB };
