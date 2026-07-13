@@ -177,7 +177,7 @@ function applyCurrentUser(user) {
   state.assetPreviewSizes = loadStoredAssetPreviewSizes();
   $('#currentUserName').textContent = user.displayName || user.username;
   $('#currentUserName').title = `${user.username} · ${roleLabel(user.role)}`;
-  $('#promptSettingsNav').hidden = !isSuperAdmin();
+  $('#promptSettingsNav').hidden = !canManagePrompts();
   $('[data-settings-tab="general"]').hidden = user.role === 'admin';
   $('#apiSettingsTab').hidden = !isSuperAdmin();
   $('#billingSettingsTab').hidden = !isSuperAdmin();
@@ -235,6 +235,10 @@ function isSuperAdmin() {
 
 function isTeamAdmin() {
   return ['superadmin', 'admin'].includes(state.currentUser?.role);
+}
+
+function canManagePrompts() {
+  return isTeamAdmin();
 }
 
 function feeRangeLabel(minorMin = 0, minorMax = 0) {
@@ -406,7 +410,7 @@ function shortPath(value) {
 }
 
 function setPage(name) {
-  if (name === 'prompts' && !isSuperAdmin()) name = 'settings';
+  if (name === 'prompts' && !canManagePrompts()) name = 'settings';
   if (name === 'settings') {
     if (state.currentUser?.role === 'admin') state.settingsTab = 'team';
     else if (['api', 'billing'].includes(state.settingsTab) && !isSuperAdmin()) state.settingsTab = 'general';
@@ -430,7 +434,7 @@ function setPage(name) {
     if (currentPage !== name) return;
     if (name === 'review') loadReviews({ silent: state.reviews.length > 0 });
     if (name === 'titles') loadTitlePage();
-    if (name === 'prompts' && isSuperAdmin() && !state.promptSettings) loadPromptSettings();
+    if (name === 'prompts' && canManagePrompts() && !state.promptSettings) loadPromptSettings();
     if (name === 'assets') loadAssetLibraryPreview(state.assetPreviewKey, { preserveSelection: true });
     if (name === 'settings' && isSuperAdmin() && !state.apiSettings) loadApiSettings();
   });
@@ -1520,7 +1524,7 @@ async function generateQueue() {
       renderQueue();
     }
   }
-  await Promise.all(Array.from({ length: Math.min(10, taskGroups.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(50, taskGroups.length) }, worker));
   $('#generateAllButton').disabled = false;
   const failed = runnable.filter(task => task.status === '失败').length;
   const uniqueResults = new Map();

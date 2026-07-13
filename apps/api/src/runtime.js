@@ -158,7 +158,7 @@ function requireApiConfig(channel = 'image') {
   return settings;
 }
 
-const IMAGE_API_CONCURRENCY = Math.max(1, Number(process.env.CAISHEN_IMAGE_API_CONCURRENCY || 2));
+const IMAGE_API_CONCURRENCY = Math.max(1, Number(process.env.CAISHEN_IMAGE_API_CONCURRENCY || 50));
 const IMAGE_API_STAGGER_MIN_MS = Math.max(0, Number(process.env.CAISHEN_IMAGE_API_STAGGER_MIN_MS || 5000));
 const IMAGE_API_STAGGER_MAX_MS = Math.max(IMAGE_API_STAGGER_MIN_MS, Number(process.env.CAISHEN_IMAGE_API_STAGGER_MAX_MS || 10000));
 const CPU_OVERLOAD_RETRY_MIN_MS = Math.max(0, Number(process.env.CAISHEN_IMAGE_API_RETRY_MIN_MS || 45000));
@@ -196,7 +196,6 @@ class AsyncSemaphore {
 
 const imageApiSlots = new AsyncSemaphore(IMAGE_API_CONCURRENCY);
 const warmingTemplateFolders = new Set();
-let directTemplateTaskChain = Promise.resolve();
 
 let mainWindow;
 let promptSettingsWriteChain = Promise.resolve();
@@ -2174,9 +2173,7 @@ async function generateTask(task, options = {}) {
   if (typeof options.reportProgress === 'function') {
     await options.reportProgress({ phase: 'queued', current: 0, total: 0, percent: 0, message: '已进入套图处理队列' });
   }
-  const run = directTemplateTaskChain.then(() => generateDirectTemplateTask(task, options));
-  directTemplateTaskChain = run.catch(() => {});
-  return run;
+  return generateDirectTemplateTask(task, options);
 }
 
 async function generateMaster(task, options = {}) {

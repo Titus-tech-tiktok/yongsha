@@ -31,11 +31,16 @@ test('文件令牌经过签名，篡改或旧式裸路径令牌会被拒绝', ()
   assert.equal(runtime.fileFromToken(`${token.slice(0, -1)}x`), '');
 });
 
-test('普通成员不能访问提示词和 API 管理方法', () => {
+test('role access separates prompt management from API management', () => {
   const member = { role: 'member' };
   const admin = { role: 'admin' };
   const superadmin = { role: 'superadmin' };
-  for (const method of ['getPromptSettings', 'savePromptSetting', 'getApiSettings', 'saveApiSettings']) {
+  for (const method of ['getPromptSettings', 'savePromptSetting', 'resetPromptSetting']) {
+    assert.equal(canAccessRpc(member, method), false);
+    assert.equal(canAccessRpc(admin, method), true);
+    assert.equal(canAccessRpc(superadmin, method), true);
+  }
+  for (const method of ['getApiSettings', 'saveApiSettings', 'testApiSettings', 'testAnalysisApi']) {
     assert.equal(canAccessRpc(member, method), false);
     assert.equal(canAccessRpc(admin, method), false);
     assert.equal(canAccessRpc(superadmin, method), true);

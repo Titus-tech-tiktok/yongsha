@@ -25,13 +25,18 @@ const LONG_JOB_METHODS = new Set([
   'analyzeProductProfile', 'analyzeTemplates', 'prepareTemplates', 'generateFree', 'generateTask',
   'generateTemplates', 'regenerateMaster', 'regenerateTemplate', 'analyzeTemplateItems'
 ]);
-const ADMIN_RPC_METHODS = new Set([
-  'getApiSettings', 'saveApiSettings', 'testApiSettings', 'testAnalysisApi',
+const SUPERADMIN_RPC_METHODS = new Set([
+  'getApiSettings', 'saveApiSettings', 'testApiSettings', 'testAnalysisApi'
+]);
+const TEAM_ADMIN_RPC_METHODS = new Set([
   'getPromptSettings', 'savePromptSetting', 'resetPromptSetting'
 ]);
 
 function canAccessRpc(user, method) {
-  return !ADMIN_RPC_METHODS.has(String(method || '')) || user?.role === 'superadmin';
+  const name = String(method || '');
+  if (SUPERADMIN_RPC_METHODS.has(name)) return user?.role === 'superadmin';
+  if (TEAM_ADMIN_RPC_METHODS.has(name)) return isTeamAdmin(user);
+  return true;
 }
 
 const isSuperAdmin = user => user?.role === 'superadmin';
@@ -64,7 +69,7 @@ function canManageUser(actor, target) {
   if (actor.role === 'admin') return target.role === 'member' && (!target.parentUserId || target.parentUserId === actor.id);
   return false;
 }
-const MAX_ACTIVE_JOBS = Math.max(1, Number(process.env.CAISHEN_JOB_CONCURRENCY || 10));
+const MAX_ACTIVE_JOBS = Math.max(1, Number(process.env.CAISHEN_JOB_CONCURRENCY || 50));
 const JOB_RATE_LIMIT_PER_HOUR = Math.max(10, Number(process.env.CAISHEN_JOB_RATE_LIMIT_PER_HOUR || 120));
 const UPLOAD_FILE_LIMIT_MB = Math.max(1, Number(process.env.CAISHEN_UPLOAD_FILE_LIMIT_MB || 1024));
 const UPLOAD_FILE_LIMIT_BYTES = Math.round(UPLOAD_FILE_LIMIT_MB * 1024 * 1024);
