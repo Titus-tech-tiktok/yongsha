@@ -987,6 +987,15 @@ async function startServer() {
     }
   });
 
+  app.delete('/api/billing/ledger', async (req, res) => {
+    if (!isSuperAdmin(req.user)) return res.status(403).json({ error: '只有超级管理员可以清空费用流水' });
+    try {
+      return res.json({ data: await runtime.billing.clearTransactions() });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
+
   app.post('/api/billing/adjust', async (req, res) => {
     if (!isTeamAdmin(req.user)) return res.status(403).json({ error: '只有管理员可以调整余额' });
     try {

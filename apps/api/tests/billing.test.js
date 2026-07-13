@@ -101,3 +101,16 @@ test('默认余额只在首次建立账户时发放一次', async t => {
   await billing.saveRules({ enabled: false, imageFeeMinor: 0, llmFeeMinor: 0, defaultBalanceMinor: 500 });
   assert.equal((await billing.ensureAccount('user-five')).balanceMinor, 0);
 });
+
+test('清空费用流水只删除明细，不改变账号余额', async t => {
+  const { root, billing } = await fixture();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await billing.adjustBalance('user-clear', 500, { operatorUserId: 'superadmin' });
+  assert.equal((await billing.listTransactions('', 10)).length, 1);
+
+  const result = await billing.clearTransactions();
+
+  assert.equal(result.cleared, 1);
+  assert.equal((await billing.listTransactions('', 10)).length, 0);
+  assert.equal((await billing.getSummary('user-clear')).account.balanceMinor, 500);
+});

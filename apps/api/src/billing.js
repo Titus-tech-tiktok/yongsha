@@ -405,8 +405,20 @@ function createBillingService(dataRoot) {
     return result;
   }
 
+  async function clearTransactions() {
+    let cleared = 0;
+    try {
+      const text = await fs.readFile(ledgerFile, 'utf8');
+      cleared = text.trim().split('\n').filter(Boolean).length;
+    } catch {}
+    await fs.mkdir(path.dirname(ledgerFile), { recursive: true });
+    await fs.writeFile(ledgerFile, '', 'utf8');
+    return { cleared };
+  }
+
   return {
     adjustBalance,
+    clearTransactions,
     commit,
     ensureAccount,
     getRules: readRules,
