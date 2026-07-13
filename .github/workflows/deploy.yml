@@ -59,6 +59,37 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "${{ secrets.DEPLOY_SSH_PORT || 22 }}" "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
 
+      - name: Bootstrap SSH key when needed
+        shell: bash
+        env:
+          DEPLOY_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
+        run: |
+          ssh_args=(-i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_SSH_PORT || 22 }}" -o BatchMode=yes)
+          target="${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}"
+          if ssh "${ssh_args[@]}" "$target" true; then
+            exit 0
+          fi
+
+          if [ -z "$DEPLOY_PASSWORD" ]; then
+            echo "SSH key is not authorized and DEPLOY_PASSWORD is not configured." >&2
+            exit 1
+          fi
+
+          if ! command -v sshpass >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y sshpass
+          fi
+
+          deploy_public_key="$(ssh-keygen -y -f ~/.ssh/deploy_key) github-actions-yongsha"
+          SSHPASS="$DEPLOY_PASSWORD" sshpass -e ssh \
+            -p "${{ secrets.DEPLOY_SSH_PORT || 22 }}" \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
+            "$target" \
+            "mkdir -p ~/.ssh && chmod 700 ~/.ssh && (grep -qxF '$deploy_public_key' ~/.ssh/authorized_keys 2>/dev/null || printf '%s\\n' '$deploy_public_key' >> ~/.ssh/authorized_keys) && chmod 600 ~/.ssh/authorized_keys"
+
+          ssh "${ssh_args[@]}" "$target" true
+
       - name: Update server
         shell: bash
         run: |
