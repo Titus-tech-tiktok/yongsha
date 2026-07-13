@@ -180,7 +180,7 @@ function applyCurrentUser(user) {
   $('#promptSettingsNav').hidden = !canManagePrompts();
   $('[data-settings-tab="general"]').hidden = user.role === 'admin';
   $('#apiSettingsTab').hidden = !isSuperAdmin();
-  $('#billingSettingsTab').hidden = !isSuperAdmin();
+  $('#billingSettingsTab').hidden = !isTeamAdmin();
   $('#teamSettingsTab').hidden = !isTeamAdmin();
   $('#newUserRoleLabel').hidden = !isSuperAdmin();
   $('#authGate').hidden = true;
@@ -2584,8 +2584,9 @@ async function resetAllPrompts() {
 }
 
 function renderSettingsTabs(name = state.settingsTab) {
-  if (state.currentUser?.role === 'admin') name = 'team';
-  else if (['api', 'billing'].includes(name) && !isSuperAdmin()) name = 'general';
+  if (state.currentUser?.role === 'admin' && !['team', 'billing'].includes(name)) name = 'team';
+  else if (name === 'api' && !isSuperAdmin()) name = 'general';
+  else if (name === 'billing' && !isTeamAdmin()) name = 'general';
   else if (name === 'team' && !isTeamAdmin()) name = 'general';
   state.settingsTab = name;
   $$('[data-settings-tab]').forEach(button => {
@@ -2605,6 +2606,17 @@ function renderBillingAdmin() {
   const data = state.billingAdmin;
   if (!data) return;
   const rules = data.rules || {};
+  if (!isSuperAdmin()) {
+    $('.billing-settings-grid').hidden = true;
+    $('#clearBillingLedgerButton').hidden = true;
+    $('#billingStatusBadge').textContent = '仅查看流水';
+    $('#billingStatusBadge').classList.add('ready');
+    const userMap = new Map([...(data.transactionUsers || []), ...(data.users || [])].map(user => [user.workspaceId, user]));
+    $('#billingLedgerList').innerHTML = renderBillingLedger(data.transactions || [], userMap);
+    return;
+  }
+  $('.billing-settings-grid').hidden = false;
+  $('#clearBillingLedgerButton').hidden = false;
   $('#billingEnabled').checked = rules.enabled === true;
   $('#billingImageFeeMin').value = moneyMinorToInput(rules.imageFeeMinMinor || 0);
   $('#billingImageFeeMax').value = moneyMinorToInput(rules.imageFeeMaxMinor || rules.imageFeeMinor || 0);

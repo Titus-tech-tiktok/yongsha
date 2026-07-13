@@ -965,18 +965,27 @@ async function startServer() {
   app.get('/api/billing/admin', async (req, res) => {
     if (!isTeamAdmin(req.user)) return res.status(403).json({ error: '只有管理员可以查看团队余额' });
     try {
-      const users = visibleUsersForActor(await auth.listUsers(), req.user);
+      const allUsers = await auth.listUsers();
+      const users = visibleUsersForActor(allUsers, req.user);
       const [rules, accounts, transactions] = await Promise.all([
         runtime.billing.getRules(),
         runtime.billing.listAccounts(users.map(user => user.workspaceId)),
-        runtime.billing.listTransactions(req.user.role === 'superadmin' ? '' : req.user.workspaceId, 150)
+        runtime.billing.listTransactions('', 150)
       ]);
       const byWorkspace = new Map(accounts.map(account => [account.workspaceId, account]));
       return res.json({
         data: {
-          rules,
           role: req.user.role,
+          ...(req.user.role === 'superadmin' ? { rules } : {}),
           users: users.map(user => ({ ...user, billing: byWorkspace.get(user.workspaceId) })),
+          transactionUsers: allUsers.map(user => ({
+            id: user.id,
+            username: user.username,
+            displayName: user.displayName,
+            role: user.role,
+            active: user.active,
+            workspaceId: user.workspaceId
+          })),
           transactions
         }
       });
