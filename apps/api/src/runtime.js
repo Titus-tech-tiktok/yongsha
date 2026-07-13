@@ -159,10 +159,10 @@ function requireApiConfig(channel = 'image') {
 }
 
 const IMAGE_API_CONCURRENCY = Math.max(1, Number(process.env.CAISHEN_IMAGE_API_CONCURRENCY || 2));
-const IMAGE_API_STAGGER_MIN_MS = 5000;
-const IMAGE_API_STAGGER_MAX_MS = 10000;
-const CPU_OVERLOAD_RETRY_MIN_MS = 45000;
-const CPU_OVERLOAD_RETRY_MAX_MS = 90000;
+const IMAGE_API_STAGGER_MIN_MS = Math.max(0, Number(process.env.CAISHEN_IMAGE_API_STAGGER_MIN_MS || 5000));
+const IMAGE_API_STAGGER_MAX_MS = Math.max(IMAGE_API_STAGGER_MIN_MS, Number(process.env.CAISHEN_IMAGE_API_STAGGER_MAX_MS || 10000));
+const CPU_OVERLOAD_RETRY_MIN_MS = Math.max(0, Number(process.env.CAISHEN_IMAGE_API_RETRY_MIN_MS || 45000));
+const CPU_OVERLOAD_RETRY_MAX_MS = Math.max(CPU_OVERLOAD_RETRY_MIN_MS, Number(process.env.CAISHEN_IMAGE_API_RETRY_MAX_MS || 90000));
 const CPU_OVERLOAD_MAX_ATTEMPTS = 3;
 const ANALYSIS_RETRY_BASE_MS = Math.max(1, Number(process.env.CAISHEN_ANALYSIS_RETRY_BASE_MS || 600));
 
@@ -1056,9 +1056,17 @@ function randomDelay(minimumMs, maximumMs, signal = null) {
   });
 }
 
-function isCpuOverloadedResponse(value) {
+function isRetryableImageApiFailure(status, value) {
+  const numericStatus = Number(status) || 0;
+  if ([408, 409, 425, 429].includes(numericStatus) || numericStatus >= 500) return true;
   const text = typeof value === 'string' ? value : JSON.stringify(value || '');
-  return /system_cpu_overloaded|cpu overloaded/i.test(text);
+  return /system_cpu_overloaded|cpu overloaded|temporar(?:y|ily) unavailable|upstream service|server is busy|service unavailable|rate limit|too many requests|try again|timeout/i.test(text);
+}
+
+function retryableImageApiMessage(attempt, status, value) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value || '');
+  const reason = text.trim().slice(0, 180) || `HTTP ${status}`;
+  return `第 ${attempt} 次请求返回临时错误：${reason}`;
 }
 
 async function imageApiJsonWithRetry(url, optionsOrFactory = {}, timeoutMs = 120000) {
@@ -1090,20 +1098,25 @@ async function imageApiJsonWithRetry(url, optionsOrFactory = {}, timeoutMs = 120
         let fallbackBody;
         try { fallbackBody = JSON.parse(fallbackText); } catch { fallbackBody = { error: { message: fallbackText || `HTTP ${fallback.status}` } }; }
         if (fallback.status >= 200 && fallback.status < 300) return fallbackBody;
+        if (isRetryableImageApiFailure(fallback.status, fallbackText || fallbackBody) && attempt < CPU_OVERLOAD_MAX_ATTEMPTS) {
+          lastError = retryableImageApiMessage(attempt, fallback.status, fallbackText || fallbackBody);
+          await randomDelay(CPU_OVERLOAD_RETRY_MIN_MS, CPU_OVERLOAD_RETRY_MAX_MS, null);
+          continue;
+        }
         throw new Error(fallbackBody?.error?.message || fallbackBody?.message || fallbackText || `HTTP ${fallback.status}`);
       }
       const text = await response.text();
       let body;
       try { body = JSON.parse(text); } catch { body = { error: { message: text || `HTTP ${response.status}` } }; }
       if (response.ok) return body;
-      if (isCpuOverloadedResponse(text || body) && attempt < CPU_OVERLOAD_MAX_ATTEMPTS) {
-        lastError = `第 ${attempt} 次请求返回 CPU overloaded。`;
+      if (isRetryableImageApiFailure(response.status, text || body) && attempt < CPU_OVERLOAD_MAX_ATTEMPTS) {
+        lastError = retryableImageApiMessage(attempt, response.status, text || body);
         await randomDelay(CPU_OVERLOAD_RETRY_MIN_MS, CPU_OVERLOAD_RETRY_MAX_MS, externalSignal);
         continue;
       }
       throw new Error(body?.error?.message || body?.message || text || `HTTP ${response.status}`);
     } catch (error) {
-      if (!/AbortError|fetch failed|network|socket|ECONN|ENOTFOUND|EAI_AGAIN/i.test(`${error?.name || ''} ${error?.message || error}`)) throw error;
+      if (!/AbortError|fetch failed|network|socket|ECONN|ENOTFOUND|EAI_AGAIN|temporar(?:y|ily) unavailable|upstream service|server is busy|service unavailable|rate limit|too many requests/i.test(`${error?.name || ''} ${error?.message || error}`)) throw error;
       lastError = `第 ${attempt} 次请求超时或网络异常：${error?.message || error}`;
       if (attempt >= CPU_OVERLOAD_MAX_ATTEMPTS) throw new Error(`${lastError}\n已重新发起 ${CPU_OVERLOAD_MAX_ATTEMPTS} 次新请求，仍未成功。`);
       await randomDelay(IMAGE_API_STAGGER_MIN_MS, IMAGE_API_STAGGER_MAX_MS, externalSignal);
