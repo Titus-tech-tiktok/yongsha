@@ -1,0 +1,19 @@
+{
+  "name": "caishen-web-saas",
+  "version": "8.0.0",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "concurrently -k -n API,WEB -c green,cyan \"npm run dev -w @caishen/api\" \"npm run dev -w @caishen/web\"",
+    "build": "npm run build -w @caishen/web && npm run build -w @caishen/api",
+    "start": "npm run start -w @caishen/api",
+    "test": "npm run test -w @caishen/api",
+    "check": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "concurrently": "10.0.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

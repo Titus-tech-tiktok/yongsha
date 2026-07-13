@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: caishen:; style-src 'self'; script-src 'self'">
+  <title>财神测款机 V8</title>
+  <link rel="icon" href="/caishen-logo.png" type="image/png">
+  <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+  <div class="auth-gate" id="authGate">
+    <section class="auth-card" aria-labelledby="authTitle">
+      <div class="auth-brand"><img src="/caishen-logo.png" alt=""><div><span>TEAM WORKSPACE</span><b>财神测款机 V8.0</b></div></div>
+      <div class="auth-copy"><span id="authEyebrow">团队账号</span><h1 id="authTitle">登录自己的工作区</h1><p id="authDescription">每位美工的素材、任务、提示词和输出配置互相独立。</p></div>
+      <form id="authForm">
+        <label id="authDisplayNameField" hidden>姓名或昵称<input id="authDisplayName" autocomplete="name" maxlength="40" placeholder="例如：小林"></label>
+        <label>账号<input id="authUsername" autocomplete="username" maxlength="32" required placeholder="输入团队账号"></label>
+        <label>密码<input id="authPassword" type="password" autocomplete="current-password" minlength="8" maxlength="128" required placeholder="至少 8 位"></label>
+        <button class="primary" id="authSubmitButton" type="submit">登录</button>
+      </form>
+      <p class="auth-hint" id="authHint">账号由管理员在系统设置中创建。</p>
+    </section>
+  </div>
+  <div class="app-shell" id="appShell" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <img src="/caishen-logo.png" alt="财神测款机">
+        <div><strong>财神测款机 V8.0</strong></div>
+      </div>
+      <nav class="nav" aria-label="主导航">
+        <button class="nav-item" data-index="01" data-page="assets">素材资产</button>
+        <button class="nav-item active" data-index="02" data-page="tasks">素材生图</button>
+        <button class="nav-item" data-index="03" data-page="review">人工筛图</button>
+        <button class="nav-item" data-index="04" data-page="titles">生成标题</button>
+        <button class="nav-item" data-index="05" data-page="free">自由生图</button>
+        <div class="nav-divider" aria-hidden="true"><span>管理设置</span></div>
+        <button class="nav-item" id="promptSettingsNav" data-index="06" data-page="prompts">提示词设置</button>
+        <button class="nav-item" data-index="07" data-page="settings">系统设置</button>
+      </nav>
+      <div class="sidebar-finance">
+        <button class="sidebar-balance" id="openBillingDetailButton" type="button"><span>账户余额</span><b id="currentBalance">读取中…</b><small id="currentBillingHint">点击查看费用明细</small></button>
+        <div class="sidebar-account"><div><span>当前账号</span><b id="currentUserName">正在读取…</b></div><button class="text-button" id="logoutButton" type="button">退出</button></div>
+      </div>
+    </header>
+
+    <main>
+      <section class="page" id="page-prompts" aria-label="提示词设置">
+        <div class="prompt-settings-layout">
+          <aside class="prompt-settings-list">
+            <div class="prompt-settings-list-head"><h2>网站提示词</h2><div><span id="promptCount">读取中…</span><button class="text-button danger-text" id="resetAllPromptsButton">全部重置</button></div></div>
+            <div id="promptSettingList"><div class="empty-inline">正在读取提示词…</div></div>
+          </aside>
+          <article class="prompt-editor-sheet">
+            <div class="prompt-editor-head"><div><span class="eyebrow" id="promptEditorGroup">PROMPT</span><h2 id="promptEditorTitle">选择一条提示词</h2><p id="promptEditorDescription">左侧列出网站当前实际使用的固定提示词。</p></div><button class="secondary" id="resetCurrentPromptButton" disabled>恢复此项默认</button></div>
+            <div class="prompt-placeholder-row" id="promptPlaceholderRow" hidden><b>可用变量</b><div id="promptPlaceholderList"></div></div>
+            <textarea id="promptEditor" aria-label="提示词内容" spellcheck="false" disabled></textarea>
+            <div class="prompt-editor-foot"><span id="promptSaveStatus">尚未选择</span><span id="promptCharacterCount">0 字</span></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="page active" id="page-tasks" aria-label="素材生图">
+        <div class="task-layout">
+          <article class="asset-panel template-picker-panel" id="templateAssetPanel">
+            <div class="panel-head"><div><span class="index">01</span><h2>选择套图</h2></div><button class="text-button" id="changeTaskTemplateFolderButton">更换文件夹</button></div>
+            <div class="task-template-folder-label"><span id="taskTemplateScopeLabel">当前文件夹</span><b id="taskTemplatePath">尚未选择套图文件夹</b><small id="taskTemplateFolderHint">选择后仅显示需要换印花的图片</small></div>
+            <div class="template-set-preview task-template-list" id="taskTemplatePreview"><div class="empty-state"><b>选择一个套图文件夹</b><span>这里只显示动作设为“换印花”的图片。</span></div></div>
+          </article>
+          <article class="asset-panel" id="productAssetPanel">
+            <div class="panel-head"><div><span class="index">01</span><h2>品类款式</h2></div><button class="text-button" data-choose="categoriesPath">上传文件夹</button></div>
+            <div class="path-line" id="categoriesPathLabel">尚未配置</div>
+            <input class="search" id="productSearch" placeholder="搜索款式名称或文件夹">
+            <div class="asset-size-row"><span id="productFolderLabel">全部文件夹</span><label>预览大小 <input id="productPreviewSize" type="range" min="92" max="190" value="112"></label></div>
+            <div class="asset-browser"><aside class="asset-folder-list" id="productFolderList"></aside><div class="asset-grid" id="productGrid"></div></div>
+          </article>
+          <article class="asset-panel" id="printAssetPanel">
+            <div class="panel-head"><div><span class="index">02</span><h2>选择印花图案</h2></div><button class="text-button" data-choose="printsPath">上传文件夹</button></div>
+            <div class="path-line" id="printsPathLabel">尚未配置</div>
+            <input class="search" id="printSearch" placeholder="按编号或名称搜索印花">
+            <div class="asset-size-row"><span id="printFolderLabel">全部文件夹</span><label>预览大小 <input id="printPreviewSize" type="range" min="80" max="190" value="86"></label></div>
+            <div class="asset-browser"><aside class="asset-folder-list" id="printFolderList"></aside><div class="asset-grid" id="printGrid"></div></div>
+          </article>
+          <aside class="queue-panel">
+            <div class="panel-head"><div><span class="index">03</span><h2>待生成</h2></div><div class="queue-head-actions"><span class="queue-count" id="queueCount">0 项</span><button class="primary" id="generateAllButton">开始生成</button></div></div>
+            <div class="template-config"><div><b>套图文件夹</b><span>使用上方当前套图</span></div><div class="template-apply-actions"><button class="secondary" id="applyTemplateToSelectedQueueButton">套用到选中任务</button><button class="secondary" id="applyTemplateToAllQueueButton">套用到全部任务</button></div></div>
+            <p class="queue-guide" id="generationModeHint">点击左侧印花即可加入这里。</p>
+            <details class="advanced-task-settings"><summary>高级设置</summary><div class="generation-mode-row"><label>生成模式<select id="generationMode"><option value="template_print" selected>模板换印花</option><option value="master">母版生成</option></select></label></div><div class="selection-preview"><div class="preview-slot" id="selectedProduct"><span>款式</span><b>未选择</b></div><div class="join-mark">×</div><div class="preview-slot" id="selectedPrint"><span>印花</span><b>未选择</b></div></div><textarea id="taskNote" rows="3" placeholder="提示词补充（可选）"></textarea><button class="secondary full" id="addTaskButton">用当前印花创建任务</button></details>
+            <details class="queue-manage" id="queueManageDetails" hidden><summary>批量管理</summary><div class="queue-tools queue-tools-wrap"><button class="text-button" id="selectAllQueueButton">全选</button><button class="text-button" id="clearQueueSelectionButton">取消</button><button class="text-button" id="duplicateQueueButton">复制选中</button><button class="text-button danger-text" id="deleteSelectedQueueButton">删除选中</button><button class="text-button danger-text" id="clearQueueButton">清空</button></div></details>
+            <div class="queue-list" id="queueList"></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="page" id="page-review" aria-label="人工筛图">
+        <div class="review-layout">
+          <aside class="review-sidebar"><div class="review-sidebar-head"><h2>人工筛图</h2><div><button class="text-button" id="openCurrentReviewButton">任务文件</button><button class="text-button" id="refreshReviewsButton">刷新</button></div></div><input class="search" id="reviewSearch" placeholder="搜索任务"><select id="reviewFilter"><option>全部图片</option><option>待生成</option><option>AI不通过</option><option>待人工确认</option><option>已通过</option><option>直接套模板</option></select><div class="mini-actions review-mini-actions"><button class="secondary" id="selectAllReviewButton">全选</button><button class="secondary" id="clearReviewSelectionButton">取消</button><button class="secondary danger-outline" id="deleteSelectedReviewsButton">删除</button></div><div class="review-list" id="reviewList"></div></aside>
+          <article class="review-stage" id="reviewStage"><div class="empty-state"><b>选择一个任务</b><span>点击左侧任务卡片查看套图生成结果。</span></div></article>
+          <aside class="review-log"><div class="review-log-head"><h2>任务动态</h2><span>生成中自动刷新</span></div><div id="reviewOperationLog"><span>选择任务后显示处理进度和操作记录。</span></div></aside>
+        </div>
+        <div class="review-bottom-actions"><button class="secondary danger-outline" id="stopReviewGenerationButton" title="立即停止当前正在等待的生成请求" disabled>立即停止当前任务</button><button class="primary" id="downloadSelectedReviewsButton" title="下载左侧已勾选任务；未勾选时下载当前打开任务">下载任务 ZIP</button><button class="primary" id="generateMissingTemplatesButton" title="只处理当前打开任务中缺失的图片">补生成缺失图片</button><button class="primary" id="batchGenerateMissingButton" title="处理当前搜索和筛选结果中的全部可见任务">批量补生成</button><button class="primary" id="regenerateTemplateSetButton" title="只处理当前打开的任务">重新生成整套图</button><button class="primary" id="batchApproveReviewsButton" title="处理当前搜索和筛选结果中的全部可见任务">批量确认通过</button></div>
+      </section>
+
+      <section class="page" id="page-titles" aria-label="生成标题">
+        <div class="title-workbench">
+          <article class="title-library-sheet">
+            <div class="section-head"><h2>批量生成标题</h2><button class="text-button" id="refreshTitleLibraryButton">刷新任务</button></div>
+            <p>导入关键词表，填写多个开头词根，生成后先在列表中选择，再导出 Excel。</p>
+            <div class="title-controls">
+              <input id="titlePrefixes" placeholder="多个开头词根，例如：餐边柜 储物柜 玄关柜">
+              <button class="secondary" id="saveTitleSetupButton">保存词根</button>
+              <input class="count-input" id="titleCount" type="number" min="1" max="200" value="30">
+              <button class="primary" id="importTitleLibraryButton">导入/替换词库</button>
+              <button class="secondary" id="generateTitlesButton">生成标题</button>
+            </div>
+            <div class="required-title-label">必选词：勾选后每个标题都会优先包含；如果总字数放不下，会按顺序尽量保留。</div>
+            <div class="required-root-panel" id="requiredRootPanel"><span>请先导入关键词表。</span></div>
+            <div class="library-status" id="titleLibraryStatus">还没有导入关键词表。</div>
+          </article>
+          <div class="title-lower-grid">
+            <section class="title-output-card">
+              <div class="title-result-head"><div><span class="section-number">01</span><h2>最近生成的标题</h2></div><div id="titleActionBar" hidden><button class="secondary" id="selectAllTitlesButton">全选</button><button class="secondary" id="clearTitleSelectionButton">取消</button><button class="primary" id="exportTitlesButton">导出选中 Excel</button></div></div>
+              <div class="title-summary" id="titleSummary">填写开头词根后点击“生成标题”。</div>
+              <article class="title-results expanded" id="titleResults"><div class="title-empty-state"><span>01</span><b>还没有生成标题</b><p>填写开头词根并选择必选词，然后点击上方“生成标题”。</p></div></article>
+            </section>
+            <section class="title-output-card">
+              <div class="title-result-head title-task-head"><div><span class="section-number">02</span><h2>可生成标题的任务</h2></div><span id="readyTitleTaskSummary">正在读取人工筛图结果…</span></div>
+              <article class="title-task-list" id="readyTitleTaskList"><div class="title-empty-state"><span>02</span><b>正在读取任务</b><p>人工筛图全部通过的任务会显示在这里。</p></div></article>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="page-free" aria-label="自由生图">
+        <div class="free-layout">
+          <div class="free-controls"><article class="drop-zone" id="freeSource"><div class="empty-state"><b>选择一张源图片</b><span>支持 JPG、PNG、WebP、BMP</span><button class="secondary" id="chooseFreeImageButton">选择图片</button></div></article>
+          <article class="prompt-sheet"><label>提示词<textarea id="freePrompt" rows="12" placeholder="例如：保持商品完全不变，替换为温暖的奶油风客厅背景，画面比例 1:1。"></textarea></label><div class="prompt-note">商品结构、印花和比例越重要，描述越明确。</div><button class="primary full" id="freeGenerateButton">开始生成</button></article></div>
+          <article class="result-zone result-with-action"><div id="freeResult"><div class="empty-state"><b>等待生成</b><span>完成后可下载结果图片。</span></div></div><button class="secondary result-download" id="revealFreeResultButton" disabled>下载结果图片</button></article>
+        </div>
+      </section>
+
+      <section class="page" id="page-assets" aria-label="素材资产">
+        <div class="asset-library-workspace">
+          <div class="asset-library-tabs-bar"><div class="asset-preview-tabs" role="tablist" aria-label="素材类型"><button class="active" role="tab" aria-selected="true" data-asset-preview="detailSetsPath">套图模板</button><button role="tab" aria-selected="false" data-asset-preview="printsPath">印花素材</button></div><span>点击标签切换素材库</span></div>
+          <div class="asset-source-panels">
+            <div class="asset-source-row" data-asset-source="printsPath" hidden><div class="asset-source-copy"><b>印花素材文件夹</b><span id="settingPrintsPath">尚未配置</span><small id="assetStagePrintsPath">需要批量导入时，选择整个文件夹并开始扫描。</small></div><div class="asset-source-actions"><button class="secondary" data-stage-asset="printsPath">导入文件夹</button><button class="primary" data-sync-asset="printsPath" disabled>开始扫描</button></div></div>
+            <div class="asset-source-row template-library-source" data-asset-source="detailSetsPath"><div class="asset-source-copy"><b>套图模板文件夹</b><span id="settingDetailSetsPath">尚未导入套图文件夹</span><small id="assetStageDetailSetsPath">可以连续导入多个文件夹；点击下方文件夹后查看其中图片。</small></div><div class="asset-source-actions"><button class="secondary" data-stage-asset="detailSetsPath">导入新文件夹</button><button class="primary" data-sync-asset="detailSetsPath" disabled>开始导入</button></div><div class="template-folder-browser" id="templateFolderBrowser"><div class="template-folder-empty">正在读取套图文件夹…</div></div></div>
+          </div>
+          <div class="asset-scan-progress" id="assetScanProgress" hidden><div><b id="assetScanProgressTitle">正在扫描素材</b><span id="assetScanProgressText"></span></div><progress id="assetScanProgressBar" max="100" value="0"></progress></div>
+          <div class="asset-preview-head"><div><h2 id="assetPreviewTitle">套图模板</h2><span id="assetPreviewSummary">正在读取素材库…</span></div><div class="asset-preview-actions"><label class="asset-preview-size-control">预览大小 <input id="assetManagementPreviewSize" type="range" min="110" max="240" value="138" aria-label="素材预览大小"></label><span id="assetSelectedCount">支持拖拽添加 · 未选择</span><button class="secondary" id="selectAllAssetsButton">全选</button><button class="primary" id="batchAnalyzeAssetsButton" hidden>批量 AI 分析</button><button class="secondary" id="addAssetFilesButton">添加文件</button><button class="secondary danger-outline" id="deleteSelectedAssetsButton" disabled>删除选中</button></div></div>
+          <div class="asset-template-filter" id="assetTemplateFilter" hidden><span>按分析动作筛选</span><div role="toolbar" aria-label="套图分析动作筛选"></div></div>
+          <div class="asset-management-grid" id="assetManagementGrid"><div class="empty-inline">尚未配置素材库</div></div>
+          <div class="settings-foot asset-workspace-foot"><span>扫描一次后素材会保存在主电脑工作区，其他美工刷新网站即可使用。</span></div>
+        </div>
+      </section>
+
+      <section class="page settings-page" id="page-settings" aria-label="系统设置">
+        <div class="settings-workspace">
+          <div class="settings-toolbar"><div class="settings-tabs" role="tablist" aria-label="设置分类"><button class="active" role="tab" aria-selected="true" data-settings-tab="general">基础设置</button><button role="tab" aria-selected="false" data-settings-tab="api" id="apiSettingsTab">API 设置 <span id="apiTabStatus">未配置</span></button><button role="tab" aria-selected="false" data-settings-tab="billing" id="billingSettingsTab" hidden>计费管理</button><button role="tab" aria-selected="false" data-settings-tab="team" id="teamSettingsTab" hidden>团队账号</button></div><div class="settings-toolbar-actions"><button class="secondary" id="resetSettingsButton">重置基础设置</button><button class="primary" id="saveSettingsButton">保存设置</button></div></div>
+          <section class="settings-panel" data-settings-panel="general">
+            <div class="settings-panel-head"><div><h2>基础设置</h2><p>影响任务命名、输出和审核方式，不会修改已上传素材。</p></div></div>
+            <div class="settings-card-grid">
+              <section class="settings-card">
+                <div class="settings-card-head"><div><h3>任务与输出</h3><p>用于任务编号和文件归档。</p></div></div>
+                <label>运营缩写<input id="operatorCode" maxlength="20" placeholder="ys"></label>
+                <label class="output-path-setting">成品输出文件夹<div class="settings-path-input"><input id="settingOutputPathInput" type="text" placeholder="填写主电脑上的绝对文件夹路径" spellcheck="false"><button class="secondary" id="resetOutputPathButton" type="button">使用默认</button></div><small id="settingOutputPathHint">新任务会按原套图目录和文件名保存；重新生成会覆盖同名图片。</small></label>
+                <div class="folder-field compact-folder-field"><div><b>默认输出位置</b><span id="settingWorkspaceRoot">正在读取…</span></div><span class="readonly-badge">可恢复</span></div>
+              </section>
+              <section class="settings-card">
+                <div class="settings-card-head"><div><h3>AI 审核方式</h3><p>按任务量选择，后续可以随时切换。</p></div></div>
+                <div class="audit-choice-grid"><button class="secondary audit-button" data-audit="saving"><b>省钱模式</b><span>生成后由人工确认</span></button><button class="secondary audit-button" data-audit="quality"><b>质检模式</b><span>生成后自动调用 AI 审核</span></button></div>
+                <span class="setting-current-status" id="auditModeStatus"></span>
+              </section>
+            </div>
+            <div class="settings-foot"><span>成品输出目录只影响之后创建的新任务；已有任务仍保留在原位置，切回原目录可继续查看。</span></div>
+          </section>
+          <section class="settings-panel api-settings-panel" data-settings-panel="api" hidden>
+            <div class="settings-panel-head api-panel-head"><div><h2>API 设置</h2><p>配置连接、分配模型和图片输出规则。</p></div><span class="api-status-badge" id="apiStatusBadge">未配置</span></div>
+            <form id="apiSettingsForm">
+              <input type="text" name="username" value="API" autocomplete="username" hidden aria-hidden="true" tabindex="-1">
+              <div class="api-layout-grid">
+                <section class="settings-card api-connection-card api-common-card">
+                  <div class="settings-card-head"><div><h3>Change2Pro 网关</h3><p>文字分析和 Image2 共用网关地址，密钥分别保存于服务端。</p></div></div>
+                  <label>API 地址<input id="apiBaseUrl" type="url" placeholder="https://api.change2pro.com" spellcheck="false"></label>
+                </section>
+                <section class="settings-card api-connection-card">
+                  <div class="settings-card-head"><div><h3>文字分析 API</h3><p>用于套图分析、商品识别、标题生成和 AI 质检。</p></div><button class="text-button" id="openAnalysisModelsButton" type="button" hidden>查看模型</button></div>
+                  <label>文字分析密钥<div class="password-input"><input id="analysisApiKey" type="password" placeholder="输入文字模型分组密钥" autocomplete="new-password" spellcheck="false"><button class="text-button" data-toggle-secret="analysisApiKey" type="button">显示</button></div><small id="analysisApiKeyHint">尚未保存文字密钥</small></label>
+                  <label>分析模型<input id="analysisModel" list="analysisModelOptions" placeholder="请先读取文字模型" spellcheck="false"></label>
+                  <div class="api-test-stack">
+                    <div class="api-test-row"><div><b id="analysisModelsTitle">文字模型列表</b><span id="analysisModelsStatus">使用文字密钥读取 GET /v1/models。</span></div><button class="secondary" id="testAnalysisModelsButton" type="button">读取模型</button></div>
+                    <div class="api-test-row"><div><b id="analysisConnectionTitle">分析接口</b><span id="analysisConnectionStatus">检测 Change2Pro Responses API 和上游登录状态。</span></div><button class="secondary" id="testAnalysisApiButton" type="button">测试分析</button></div>
+                  </div>
+                </section>
+                <section class="settings-card api-connection-card api-model-card">
+                  <div class="settings-card-head"><div><h3>Image2 生图 API</h3><p>用于套图加印花、自由生图、补生成和重新生成。</p></div><button class="text-button" id="openImageModelsButton" type="button" hidden>查看模型</button></div>
+                  <label>Image2 密钥<div class="password-input"><input id="imageApiKey" type="password" placeholder="输入 Image2 分组密钥" autocomplete="new-password" spellcheck="false"><button class="text-button" data-toggle-secret="imageApiKey" type="button">显示</button></div><small id="imageApiKeyHint">尚未保存图片密钥</small></label>
+                  <div class="api-model-fields">
+                    <label>图片模型<input id="imageModel" list="imageModelOptions" placeholder="gpt-image-2" spellcheck="false"></label>
+                    <label>默认图片尺寸<select id="imageSize"><option value="1024x1024">1024 × 1024</option><option value="1024x1536">1024 × 1536</option><option value="1536x1024">1536 × 1024</option></select></label>
+                    <label>图片质量<select id="imageQuality"><option value="auto">自动</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label>
+                  </div>
+                  <div class="api-test-stack"><div class="api-test-row"><div><b id="apiConnectionTitle">Image2 模型列表</b><span id="apiConnectionStatus">使用图片密钥读取 GET /v1/models。</span></div><button class="secondary" id="testApiButton" type="button">读取模型</button></div></div>
+                </section>
+              </div>
+              <datalist id="analysisModelOptions"></datalist>
+              <datalist id="imageModelOptions"></datalist>
+              <details class="api-advanced-settings">
+                <summary>其他参数 <span>保持默认即可</span></summary>
+                <div class="api-advanced-grid">
+                  <label>文字接口协议<select id="analysisWireApi"><option value="chat_completions">Chat Completions（推荐）</option><option value="responses">Responses API</option></select></label>
+                  <label>图片响应格式<select id="apiResponseFormat"><option value="b64_json">Base64（推荐）</option><option value="url">图片链接</option></select></label>
+                  <label>请求超时<select id="apiRequestTimeout"><option value="60">60 秒</option><option value="120">120 秒</option><option value="180">180 秒</option><option value="300">300 秒</option></select></label>
+                  <div class="api-fixed-parameter"><b>单任务生成数量</b><span>固定 1 张；批量数量由生成任务列表控制。</span></div>
+                </div>
+              </details>
+            </form>
+            <div class="settings-foot"><span>API 地址、模型和密钥修改后，后续新任务立即使用新配置。</span></div>
+          </section>
+          <section class="settings-panel team-settings-panel" data-settings-panel="team" hidden>
+            <div class="settings-panel-head"><div><h2>团队账号</h2><p>每个账号都有独立素材库、任务、提示词和输出配置。</p></div></div>
+            <div class="team-settings-grid">
+              <section class="settings-card team-create-card">
+                <div class="settings-card-head"><div><h3>添加美工账号</h3><p>创建后把账号和初始密码单独发给成员。</p></div></div>
+                <form id="createUserForm"><label>姓名或昵称<input id="newUserDisplayName" autocomplete="name" maxlength="40" required placeholder="例如：美工小林"></label><label>登录账号<input id="newUsername" autocomplete="username" maxlength="32" required placeholder="例如：xiaolin"></label><label id="newUserRoleLabel">账号角色<select id="newUserRole"><option value="member">成员</option><option value="admin">管理员</option></select></label><label>初始密码<input id="newUserPassword" type="password" autocomplete="new-password" minlength="3" maxlength="128" required placeholder="至少 3 位"></label><button class="primary" id="createUserButton" type="submit">创建账号</button></form>
+              </section>
+              <section class="settings-card team-list-card">
+                <div class="settings-card-head"><div><h3>账号列表</h3><p>停用后该成员会立即无法再次登录，素材不会删除。</p></div><span id="teamUserCount">0 人</span></div>
+                <div class="team-user-list" id="teamUserList"><div class="empty-inline">正在读取团队账号…</div></div>
+              </section>
+            </div>
+            <div class="settings-foot"><span>浏览器只负责上传本机文件；服务器不会读取成员电脑上的原始路径。</span></div>
+          </section>
+          <section class="settings-panel billing-settings-panel" data-settings-panel="billing" hidden>
+            <div class="settings-panel-head"><div><h2>计费管理</h2><p>按成功结果扣费；失败、超时和自动重试不重复收费。</p></div><span class="api-status-badge" id="billingStatusBadge">未启用</span></div>
+            <div class="billing-settings-grid">
+              <section class="settings-card billing-rule-card">
+                <div class="settings-card-head"><div><h3>计费规则</h3><p>金额以美元计算，支持 6 位小数，保存后只影响后续调用。</p></div></div>
+                <label class="billing-toggle"><span><b>启用余额计费</b><small>关闭时保留余额和流水，但不检查或扣除费用。</small></span><input id="billingEnabled" type="checkbox"></label>
+                <div class="billing-price-grid">
+                  <label>成功生图最低 / 张<div class="money-input"><span>$</span><input id="billingImageFeeMin" type="number" min="0" max="1000000" step="0.000001" value="0.000000"></div></label>
+                  <label>成功生图最高 / 张<div class="money-input"><span>$</span><input id="billingImageFeeMax" type="number" min="0" max="1000000" step="0.000001" value="0.000000"></div></label>
+                  <label>语言模型最低 / 次<div class="money-input"><span>$</span><input id="billingLlmFeeMin" type="number" min="0" max="1000000" step="0.000001" value="0.000000"></div></label>
+                  <label>语言模型最高 / 次<div class="money-input"><span>$</span><input id="billingLlmFeeMax" type="number" min="0" max="1000000" step="0.000001" value="0.000000"></div></label>
+                  <label>新账号初始余额<div class="money-input"><span>$</span><input id="billingDefaultBalance" type="number" min="0" max="1000000" step="0.000001" value="0.000000"></div></label>
+                </div>
+                <button class="primary" id="saveBillingRulesButton" type="button">保存计费规则</button>
+              </section>
+              <section class="settings-card billing-account-card">
+                <div class="settings-card-head"><div><h3>团队余额</h3><p>输入正数充值，输入负数扣减。</p></div><span id="billingAccountCount">0 个账号</span></div>
+                <div class="billing-account-list" id="billingAccountList"><div class="empty-inline">正在读取账户余额…</div></div>
+              </section>
+            </div>
+            <section class="settings-card billing-ledger-card">
+              <div class="settings-card-head"><div><h3>最近费用流水</h3><p>记录成功生图、成功模型调用和管理员调账。</p></div><button class="text-button" id="refreshBillingButton" type="button">刷新</button></div>
+              <div class="billing-ledger-list" id="billingLedgerList"><div class="empty-inline">暂无费用流水</div></div>
+            </section>
+            <div class="settings-foot"><span>余额不足时不会调用上游模型；并发任务会先占用预计费用，完成后才正式扣款。</span></div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="modal-backdrop" id="taskTemplateFolderModal" hidden>
+    <section class="modal-card task-template-folder-modal" role="dialog" aria-modal="true" aria-labelledby="taskTemplateFolderModalTitle">
+      <div class="modal-head"><div><span class="eyebrow">TEMPLATE FOLDERS</span><h2 id="taskTemplateFolderModalTitle">更换套图文件夹</h2><p>选择素材资产中已经导入的文件夹，确认后左侧会显示其中需要换印花的图片。</p></div><button class="icon-button" id="closeTaskTemplateFolderModalButton" aria-label="关闭">×</button></div>
+      <div class="task-template-folder-list" id="taskTemplateFolderList"><div class="empty-inline">正在读取套图文件夹…</div></div>
+      <div class="modal-foot"><span>需要新文件夹时，请先到“素材资产”页面导入。</span><div><button class="secondary" id="openTemplateAssetsButton" type="button">前往素材资产</button></div></div>
+    </section>
+  </div>
+  <div class="modal-backdrop" id="billingDetailModal" hidden>
+    <section class="modal-card billing-detail-modal" role="dialog" aria-modal="true" aria-labelledby="billingDetailTitle">
+      <div class="modal-head"><div><span class="eyebrow">ACCOUNT BILLING</span><h2 id="billingDetailTitle">余额与费用明细</h2><p id="billingDetailSummary">正在读取当前账户费用。</p></div><button class="icon-button" id="closeBillingDetailButton" aria-label="关闭">×</button></div>
+      <div class="billing-detail-rates" id="billingDetailRates"></div>
+      <div class="billing-ledger-list billing-detail-list" id="billingDetailList"><div class="empty-inline">正在读取费用明细…</div></div>
+      <div class="modal-foot"><span>只有成功的模型调用会扣费。</span><div><button class="secondary" id="refreshBillingDetailButton" type="button">刷新</button></div></div>
+    </section>
+  </div>
+  <div class="modal-backdrop" id="apiModelModal" hidden>
+    <section class="modal-card api-model-modal" role="dialog" aria-modal="true" aria-labelledby="apiModelModalTitle">
+      <div class="modal-head"><div><span class="eyebrow">AVAILABLE MODELS</span><h2 id="apiModelModalTitle">选择 API 模型</h2><p id="apiModelModalDescription">模型列表严格来自当前通道的密钥分组。</p></div><button class="icon-button" id="closeApiModelModalButton" aria-label="关闭">×</button></div>
+      <div class="api-model-modal-tools"><input id="apiModelSearch" type="search" placeholder="搜索模型名称或所属方"><span id="apiModelCount">0 个</span></div>
+      <section class="api-model-browser" id="apiModelBrowser" hidden><div class="api-model-list" id="apiModelList"></div></section>
+      <div class="modal-foot api-model-modal-foot"><span id="selectedApiModel">尚未选择</span><div><button class="primary" id="applyApiModelButton" type="button">使用此模型</button></div></div>
+    </section>
+  </div>
+  <div class="modal-backdrop" id="templateConfigModal" hidden>
+    <section class="modal-card template-result-modal" role="dialog" aria-modal="true" aria-labelledby="templateConfigTitle">
+      <div class="modal-head"><div><span class="eyebrow">ANALYSIS RESULT</span><h2 id="templateConfigTitle">分析结果</h2><p id="templateConfigPath">AI 分析与运营调整会保存在当前工作区。</p></div><button class="icon-button" id="closeTemplateConfigButton" aria-label="关闭">×</button></div>
+      <div class="template-result-content" id="templateAnalysisResult"><div class="empty-state"><b>正在读取分析结果</b><span>请稍候。</span></div></div>
+      <div class="modal-foot"><span id="templateConfigStatus">正在读取…</span><div><button class="primary" id="saveTemplateConfigButton">保存分析结果</button></div></div>
+    </section>
+  </div>
+  <div class="modal-backdrop" id="regionEditorModal" hidden>
+    <section class="modal-card region-modal" role="dialog" aria-modal="true" aria-labelledby="regionEditorTitle">
+      <div class="modal-head"><div><span class="eyebrow">MASK EDITOR</span><h2 id="regionEditorTitle">修改标注区域</h2><p>矩形框大面积，画笔补异形边缘，橡皮擦掉人物、把手、文字和背景。</p></div><button class="icon-button" id="closeRegionEditorButton" aria-label="关闭">×</button></div>
+      <div class="region-tools"><button class="secondary active" data-region-mode="rect">矩形</button><button class="secondary" data-region-mode="brush">画笔</button><button class="secondary" data-region-mode="erase">橡皮</button><label>画笔大小 <input id="regionBrushSize" type="number" min="6" max="120" value="28"></label><button class="secondary" id="undoRegionButton">撤销</button><button class="secondary danger-outline" id="clearRegionButton">清空</button></div>
+      <div class="region-canvas-wrap"><canvas id="regionCanvas"></canvas></div>
+      <div class="modal-foot"><span id="regionEditorStatus">白色蒙版区域允许换印花，其他区域禁止改动。</span><div><button class="secondary" id="cancelRegionButton">取消</button><button class="primary" id="saveRegionButton">保存标注</button></div></div>
+    </section>
+  </div>
+  <div class="modal-backdrop" id="productProfileModal" hidden>
+    <section class="modal-card profile-modal" role="dialog" aria-modal="true" aria-labelledby="productProfileTitle">
+      <div class="modal-head"><div><span class="eyebrow">PRODUCT PROFILE</span><h2 id="productProfileTitle">填写套图规格资料</h2><p id="productProfilePath">资料保存在当前工作区，后续任务会自动复用。</p></div><button class="icon-button" id="closeProductProfileButton" aria-label="关闭">×</button></div>
+      <div class="profile-form"><label>尺寸<input id="profileDimensions" placeholder="例如：宽 140cm × 深 40cm × 高 80cm"></label><button class="secondary" id="analyzeProductProfileButton">从当前品类图 AI 识别</button><label>材质<input id="profileMaterial" placeholder="仅填写有依据的材质"></label><label>备注（仅运营查看）<textarea id="profileNotes" rows="4" placeholder="缺少信息时可以留空"></textarea></label></div>
+      <div class="modal-foot"><span>至少填写尺寸或材质；缺资料的尺寸/材质页会保守处理。</span><div><button class="secondary" id="cancelProductProfileButton">取消</button><button class="primary" id="saveProductProfileButton">保存</button></div></div>
+    </section>
+  </div>
+  <div class="image-hover-preview" id="imageHoverPreview" aria-hidden="true"><img id="imageHoverPreviewImage" alt=""><span id="imageHoverPreviewCaption"></span></div>
+  <div class="toast" id="toast" role="status"></div>
+  <script type="module" src="/src/api-bridge.js"></script>
+  <script type="module" src="/src/renderer.js"></script>
+</body>
+</html>
