@@ -968,9 +968,9 @@ async function startServer() {
       const allUsers = await auth.listUsers();
       const users = visibleUsersForActor(allUsers, req.user);
       const [rules, accounts, transactions] = await Promise.all([
-        runtime.billing.getRules(),
+        req.user.role === 'superadmin' ? runtime.billing.getRules() : Promise.resolve(undefined),
         runtime.billing.listAccounts(users.map(user => user.workspaceId)),
-        runtime.billing.listTransactions('', 150)
+        req.user.role === 'superadmin' ? runtime.billing.listTransactions('', 150) : Promise.resolve([])
       ]);
       const byWorkspace = new Map(accounts.map(account => [account.workspaceId, account]));
       return res.json({
@@ -978,14 +978,16 @@ async function startServer() {
           role: req.user.role,
           ...(req.user.role === 'superadmin' ? { rules } : {}),
           users: users.map(user => ({ ...user, billing: byWorkspace.get(user.workspaceId) })),
-          transactionUsers: allUsers.map(user => ({
-            id: user.id,
-            username: user.username,
-            displayName: user.displayName,
-            role: user.role,
-            active: user.active,
-            workspaceId: user.workspaceId
-          })),
+          ...(req.user.role === 'superadmin' ? {
+            transactionUsers: allUsers.map(user => ({
+              id: user.id,
+              username: user.username,
+              displayName: user.displayName,
+              role: user.role,
+              active: user.active,
+              workspaceId: user.workspaceId
+            }))
+          } : {}),
           transactions
         }
       });
@@ -1028,7 +1030,8 @@ async function startServer() {
         if (!canManageUser(req.user, user)) return res.status(403).json({ error: '只能给自己的成员账号划拨余额' });
         if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) return res.status(400).json({ error: '管理员只能输入正数划拨余额' });
         result = await runtime.billing.transferBalance(req.user.workspaceId, user.workspaceId, amountMinor, {
-          description: '管理员划拨余额',
+          debitDescription: '成员账户划拨',
+          creditDescription: '账户充值到账',
           operatorUserId: req.user.id
         });
       }

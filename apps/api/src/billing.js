@@ -218,7 +218,7 @@ function createBillingService(dataRoot) {
     const workspaceId = normalizeWorkspaceId(workspaceIdValue);
     const amountMinor = Number(amountMinorValue);
     if (!Number.isSafeInteger(amountMinor) || amountMinor === 0 || Math.abs(amountMinor) > 1_000_000_000_000) {
-      throw new Error('余额调整金额必须是非零的美元 6 位小数单位整数');
+      throw new Error('账户金额变更必须是非零的美元 6 位小数单位整数');
     }
     return mutate(async () => {
       const [rules, state] = await Promise.all([readRules(), readAccounts()]);
@@ -236,7 +236,7 @@ function createBillingService(dataRoot) {
         amountScale: BILLING_SCALE,
         amountMinor,
         balanceMinor: next,
-        description: String(metadata.description || (amountMinor > 0 ? '管理员充值' : '管理员扣减')).slice(0, 160),
+        description: String(metadata.description || (amountMinor > 0 ? '账户充值到账' : '账户余额扣减')).slice(0, 160),
         operatorUserId: String(metadata.operatorUserId || '').slice(0, 80),
         createdAt: account.updatedAt
       };
@@ -352,7 +352,7 @@ function createBillingService(dataRoot) {
         amountScale: BILLING_SCALE,
         amountMinor: -amountMinor,
         balanceMinor: from.balanceMinor,
-        description: String(metadata.description || '管理员划拨给成员').slice(0, 160),
+        description: String(metadata.debitDescription || metadata.description || '成员账户划拨').slice(0, 160),
         operatorUserId: String(metadata.operatorUserId || '').slice(0, 80),
         targetWorkspaceId: toWorkspaceId,
         createdAt: now
@@ -365,7 +365,7 @@ function createBillingService(dataRoot) {
         amountScale: BILLING_SCALE,
         amountMinor,
         balanceMinor: to.balanceMinor,
-        description: String(metadata.description || '管理员划拨余额').slice(0, 160),
+        description: String(metadata.creditDescription || metadata.description || '账户充值到账').slice(0, 160),
         operatorUserId: String(metadata.operatorUserId || '').slice(0, 80),
         sourceWorkspaceId: fromWorkspaceId,
         createdAt: now

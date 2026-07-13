@@ -180,7 +180,7 @@ function applyCurrentUser(user) {
   $('#promptSettingsNav').hidden = !canManagePrompts();
   $('[data-settings-tab="general"]').hidden = user.role === 'admin';
   $('#apiSettingsTab').hidden = !isSuperAdmin();
-  $('#billingSettingsTab').hidden = !isTeamAdmin();
+  $('#billingSettingsTab').hidden = !isSuperAdmin();
   $('#teamSettingsTab').hidden = !isTeamAdmin();
   $('#newUserRoleLabel').hidden = !isSuperAdmin();
   $('#authGate').hidden = true;
@@ -258,7 +258,7 @@ function moneyMinorToInput(minor = 0) {
 }
 
 function billingKindName(kind) {
-  return { image: '成功生图', llm: '语言模型调用', adjustment: '余额调整' }[kind] || '费用记录';
+  return { image: '成功生图', llm: '语言模型调用', adjustment: '账户充值到账', transfer: '账户划拨' }[kind] || '费用记录';
 }
 
 function renderBillingLedger(entries = [], userMap = new Map()) {
@@ -267,7 +267,8 @@ function renderBillingLedger(entries = [], userMap = new Map()) {
     const amount = Number(entry.amountMinor) || 0;
     const user = userMap.get(entry.workspaceId);
     const owner = user ? `${user.displayName || user.username} · ` : '';
-    return `<div class="billing-ledger-row"><div><b>${escapeHtml(entry.description || billingKindName(entry.kind))}</b><span>${escapeHtml(owner + billingKindName(entry.kind))}${entry.reference ? ` · ${escapeHtml(entry.reference)}` : ''}</span><small>${escapeHtml(new Date(entry.createdAt).toLocaleString('zh-CN', { hour12: false }))}</small></div><div class="billing-ledger-amount ${amount >= 0 ? 'credit' : 'debit'}">${amount >= 0 ? '+' : '-'}${formatMoney(Math.abs(amount))}</div></div>`;
+    const label = entry.description || (entry.kind === 'adjustment' && amount < 0 ? '账户余额扣减' : billingKindName(entry.kind));
+    return `<div class="billing-ledger-row"><div><b>${escapeHtml(label)}</b><span>${escapeHtml(owner + billingKindName(entry.kind))}${entry.reference ? ` · ${escapeHtml(entry.reference)}` : ''}</span><small>${escapeHtml(new Date(entry.createdAt).toLocaleString('zh-CN', { hour12: false }))}</small></div><div class="billing-ledger-amount ${amount >= 0 ? 'credit' : 'debit'}">${amount >= 0 ? '+' : '-'}${formatMoney(Math.abs(amount))}</div></div>`;
   }).join('');
 }
 
@@ -2584,9 +2585,9 @@ async function resetAllPrompts() {
 }
 
 function renderSettingsTabs(name = state.settingsTab) {
-  if (state.currentUser?.role === 'admin' && !['team', 'billing'].includes(name)) name = 'team';
+  if (state.currentUser?.role === 'admin') name = 'team';
   else if (name === 'api' && !isSuperAdmin()) name = 'general';
-  else if (name === 'billing' && !isTeamAdmin()) name = 'general';
+  else if (name === 'billing' && !isSuperAdmin()) name = 'general';
   else if (name === 'team' && !isTeamAdmin()) name = 'general';
   state.settingsTab = name;
   $$('[data-settings-tab]').forEach(button => {
@@ -2606,15 +2607,6 @@ function renderBillingAdmin() {
   const data = state.billingAdmin;
   if (!data) return;
   const rules = data.rules || {};
-  if (!isSuperAdmin()) {
-    $('.billing-settings-grid').hidden = true;
-    $('#clearBillingLedgerButton').hidden = true;
-    $('#billingStatusBadge').textContent = '仅查看流水';
-    $('#billingStatusBadge').classList.add('ready');
-    const userMap = new Map([...(data.transactionUsers || []), ...(data.users || [])].map(user => [user.workspaceId, user]));
-    $('#billingLedgerList').innerHTML = renderBillingLedger(data.transactions || [], userMap);
-    return;
-  }
   $('.billing-settings-grid').hidden = false;
   $('#clearBillingLedgerButton').hidden = false;
   $('#billingEnabled').checked = rules.enabled === true;
@@ -2696,7 +2688,7 @@ async function adjustBillingBalance(button) {
       userId: button.dataset.adjustBilling,
       amountMinor,
       amountUsd: amount,
-      description: amountMinor > 0 ? '管理员充值' : '管理员扣减'
+      description: amountMinor > 0 ? '账户充值到账' : '账户余额扣减'
     });
     await Promise.all([loadBillingAdmin(), loadBillingSummary()]);
     toast(amountMinor > 0 ? '余额已充值' : '余额已扣减');
@@ -2806,7 +2798,7 @@ async function transferTeamBalance(button) {
       userId: button.dataset.transferBilling,
       amountMinor: Math.round(amount * BILLING_AMOUNT_SCALE),
       amountUsd: amount,
-      description: '管理员划拨余额'
+      description: '账户充值到账'
     });
     if (input) input.value = '';
     await Promise.all([loadTeamUsers(), loadBillingSummary()]);
