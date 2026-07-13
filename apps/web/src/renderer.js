@@ -2061,9 +2061,9 @@ function renderTemplateAnalysisResult() {
   $('#templateConfigPath').textContent = item.relativePath;
   $('#templateConfigStatus').textContent = failed
     ? `AI 分析失败：${item.analysisError || '请单独重新运行 AI 分析'}`
-    : pending ? '这张图片尚未完成 AI 分析，可以关闭后点击“AI 分析”。'
+    : pending ? '这张图片尚未完成 AI 分析，可以直接修改并保存为人工配置。'
       : `已分析 · 置信度 ${Number(item.confidence || 0).toFixed(2)}`;
-  $('#saveTemplateConfigButton').disabled = pending;
+  $('#saveTemplateConfigButton').disabled = false;
   container.innerHTML = `<div class="template-result-layout">
     <figure><img src="${escapeHtml(item.previewUrl || item.templateUrl)}" alt="${escapeHtml(item.relativePath)}"><figcaption>${escapeHtml(item.relativePath)}</figcaption></figure>
     <div class="template-result-fields" data-template-index="${itemIndex}">
