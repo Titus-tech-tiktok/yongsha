@@ -24,6 +24,20 @@ function sleep(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
+function createClientId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map(value => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 async function runJob(method, args = [], clientKey = '', onProgress = () => {}) {
   const response = await fetch('/api/jobs', {
     method: 'POST',
@@ -314,13 +328,13 @@ window.caishen = {
   listImages: (root, query) => rpc('listImages', root, query),
   listTemplateFolders: () => rpc('listTemplateFolders'),
   deleteTemplateFolder: folder => rpc('deleteTemplateFolder', folder),
-  generateTask: (task, onProgress) => runJob('generateTask', [task], `${task?.id || crypto.randomUUID()}:${task?.runAttempt || 1}`, onProgress),
+  generateTask: (task, onProgress) => runJob('generateTask', [task], `${task?.id || createClientId()}:${task?.runAttempt || 1}`, onProgress),
   listTemplates: folder => rpc('listTemplates', folder),
   getTemplatePreparation: folder => rpc('getTemplatePreparation', folder),
   prepareTemplates: folder => runJob('prepareTemplates', [folder]),
   saveTemplateConfig: payload => rpc('saveTemplateConfig', payload),
   analyzeTemplates: folder => runJob('analyzeTemplates', [folder]),
-  analyzeTemplateItems: (payload, onProgress) => runJob('analyzeTemplateItems', [payload], `template-analysis:${Date.now()}:${crypto.randomUUID()}`, onProgress),
+  analyzeTemplateItems: (payload, onProgress) => runJob('analyzeTemplateItems', [payload], `template-analysis:${Date.now()}:${createClientId()}`, onProgress),
   saveTemplateMask: payload => rpc('saveTemplateMask', payload),
   getProductProfile: folder => rpc('getProductProfile', folder),
   analyzeProductProfile: path => runJob('analyzeProductProfile', [path]),
@@ -329,7 +343,7 @@ window.caishen = {
   listReviews: () => rpc('listReviews'),
   approveReview: folder => rpc('approveReview', folder),
   setReviewStatus: payload => rpc('setReviewStatus', payload),
-  generateTemplates: (payload, onProgress) => runJob('generateTemplates', [payload], `review-generation:${Date.now()}:${crypto.randomUUID()}`, onProgress),
+  generateTemplates: (payload, onProgress) => runJob('generateTemplates', [payload], `review-generation:${Date.now()}:${createClientId()}`, onProgress),
   regenerateMaster: folder => runJob('regenerateMaster', [folder]),
   regenerateTemplate: payload => runJob('regenerateTemplate', [payload]),
   batchApproveReviews: folders => rpc('batchApproveReviews', folders),

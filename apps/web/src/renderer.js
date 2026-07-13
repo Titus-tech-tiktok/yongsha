@@ -4,6 +4,20 @@ const REVIEW_VIEWED_STORAGE_KEY = 'caishen-web-viewed-review-jobs-v1';
 let storageScope = 'anonymous';
 const scopedStorageKey = key => `${key}:${storageScope}`;
 
+function createClientId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map(value => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function loadStoredQueue() {
   try {
     const items = JSON.parse(localStorage.getItem(scopedStorageKey(QUEUE_STORAGE_KEY)) || '[]');
@@ -1224,7 +1238,7 @@ function addTask(silent = false) {
   if (generationMode === 'master' && !state.selectedProduct) return toast('母版模式需要先选择款式图', true);
   if (!state.config.detailSetsPath) return toast('请先选择套图文件夹', true);
   const baseTaskNumber = state.queue.reduce((maximum, task) => Math.max(maximum, Number(task.taskNumber) || 0), 0) + 1;
-  const batchId = crypto.randomUUID();
+  const batchId = createClientId();
   const note = $('#taskNote').value.trim();
   const common = {
     printPath: state.selectedPrint.path,
@@ -1244,7 +1258,7 @@ function addTask(silent = false) {
     const existing = new Set(state.queue.map(task => `${task.templateFolderPath}|${task.templateRelativePath || ''}|${task.printPath}`));
     tasks = templates.filter(item => !existing.has(`${templateFolderPathForItem(item)}|${item.relativePath}|${state.selectedPrint.path}`)).map((item, index) => ({
       ...common,
-      id: crypto.randomUUID(),
+      id: createClientId(),
       batchId,
       taskNumber: baseTaskNumber + index,
       productPath: '',
@@ -1260,7 +1274,7 @@ function addTask(silent = false) {
   } else {
     tasks = [{
       ...common,
-      id: crypto.randomUUID(),
+      id: createClientId(),
       taskNumber: baseTaskNumber,
       productPath: state.selectedProduct?.path || '',
       productName: state.selectedProduct?.name || '模板原款',
@@ -3181,10 +3195,10 @@ function bindEvents() {
     let taskNumber = state.queue.reduce((maximum, task) => Math.max(maximum, Number(task.taskNumber) || 0), 0) + 1;
     const duplicatedBatches = new Map();
     for (const task of selected) {
-      if (task.batchId && !duplicatedBatches.has(task.batchId)) duplicatedBatches.set(task.batchId, crypto.randomUUID());
+      if (task.batchId && !duplicatedBatches.has(task.batchId)) duplicatedBatches.set(task.batchId, createClientId());
       state.queue.push({
         ...task,
-        id: crypto.randomUUID(),
+        id: createClientId(),
         batchId: task.batchId ? duplicatedBatches.get(task.batchId) : undefined,
         taskNumber: taskNumber++,
         selected: false,
