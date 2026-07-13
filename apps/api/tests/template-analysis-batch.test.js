@@ -73,3 +73,70 @@ test('单张和批量 AI 分析失败会重试三次并持久显示最终状态'
   await new Promise(resolve => server.close(resolve));
   await fs.rm(temp, { recursive: true, force: true });
 });
+
+test('paid analysis responses are not shown as failed when content needs local fallback', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-template-analysis-paid-'));
+  let mode = 'array';
+  let requests = 0;
+  const validAnalysis = {
+    version: 6,
+    action: 'replace_print',
+    confidence: 0.93,
+    reason: 'cabinet front panels can receive print',
+    replace_area: 'front white cabinet panels',
+    forbidden_area: 'text, background, handles and cabinet structure',
+    replace_regions: []
+  };
+  const server = http.createServer((req, res) => {
+    if (req.url !== '/v1/chat/completions') return res.writeHead(404).end();
+    requests += 1;
+    req.resume();
+    req.on('end', () => {
+      res.setHeader('Content-Type', 'application/json');
+      if (mode === 'array') {
+        return res.end(JSON.stringify({
+          choices: [{ message: { content: [{ type: 'text', text: JSON.stringify(validAnalysis) }] } }]
+        }));
+      }
+      return res.end(JSON.stringify({ choices: [{ message: { content: '' } }] }));
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+
+  process.env.CAISHEN_DATA_DIR = temp;
+  process.env.CAISHEN_WORKSPACE_ID = 'template-analysis-paid';
+  process.env.CAISHEN_API_BASE_URL = `http://127.0.0.1:${server.address().port}/v1`;
+  process.env.CAISHEN_API_KEY = 'test-key';
+  process.env.CAISHEN_ANALYSIS_API_KEY = 'test-key';
+  process.env.CAISHEN_ANALYSIS_WIRE_API = 'chat_completions';
+  process.env.CAISHEN_ANALYSIS_RETRY_BASE_MS = '1';
+  const runtimePath = require.resolve('../src/runtime');
+  delete require.cache[runtimePath];
+  const runtime = require('../src/runtime');
+  const { templateCachePaths } = require('../src/core/template-regions');
+  const folder = path.join(runtime.WORKSPACE_ROOT, 'assets', 'template', 'set');
+  await fs.mkdir(folder, { recursive: true });
+  await Promise.all(['array.png', 'empty.png'].map(name => sharp({ create: { width: 24, height: 24, channels: 3, background: '#d8c59b' } }).png().toFile(path.join(folder, name))));
+
+  const arrayResult = await runtime.analyzeTemplateItems({ folder, relativePaths: ['array.png'] });
+  const arrayItem = arrayResult.items.find(item => item.relativePath === 'array.png');
+  assert.equal(arrayResult.failed, 0);
+  assert.equal(arrayItem.analysisStatus, 'success');
+  assert.equal(arrayItem.action, 'replace_print');
+
+  mode = 'empty';
+  const emptyResult = await runtime.analyzeTemplateItems({ folder, relativePaths: ['empty.png'] });
+  const emptyItem = emptyResult.items.find(item => item.relativePath === 'empty.png');
+  assert.equal(emptyResult.failed, 0);
+  assert.equal(emptyItem.analysisStatus, 'success');
+  assert.equal(emptyItem.action, 'manual_check');
+
+  const emptyCache = templateCachePaths(folder, 'empty.png');
+  await fs.writeFile(`${emptyCache.analysisFile}.status.json`, JSON.stringify({ status: 'failed', attempts: 4, error: 'old failed status' }), 'utf8');
+  const listed = await runtime.listTemplates(folder);
+  assert.equal(listed.find(item => item.relativePath === 'empty.png').analysisStatus, 'success');
+  assert.equal(requests, 2);
+
+  await new Promise(resolve => server.close(resolve));
+  await fs.rm(temp, { recursive: true, force: true });
+});

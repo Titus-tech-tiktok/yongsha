@@ -1001,6 +1001,29 @@ function normalizeAnalysisResponse(body, wireApi) {
   };
 }
 
+function analysisContentToString(content) {
+  if (typeof content === 'string') return content.trim();
+  if (content == null) return '';
+  if (Array.isArray(content)) {
+    return content.map(item => analysisContentToString(item)).filter(Boolean).join('\n').trim();
+  }
+  if (typeof content === 'object') {
+    const candidates = [
+      content.text,
+      content.value,
+      content.content,
+      content.message,
+      content.output_text,
+      content?.text?.value
+    ];
+    for (const candidate of candidates) {
+      const value = analysisContentToString(candidate);
+      if (value) return value;
+    }
+  }
+  return '';
+}
+
 async function analysisApiJson(api, chatPayload, timeoutMs, metadata = null) {
   const wireApi = normalizeAnalysisWireApi(api.analysisWireApi, 'chat_completions');
   const pathName = wireApi === 'responses' ? '/responses' : '/chat/completions';
@@ -1301,9 +1324,11 @@ async function collectTemplateItems(templateRoot) {
     const stat = await fsp.stat(job.templatePath).catch(() => null);
     const version = stat ? `${Math.trunc(stat.mtimeMs)}-${stat.size}` : '1';
     const recordedStatus = await readJsonFile(templateAnalysisStatusFile(job), {});
-    const analysisStatus = recordedStatus.status === 'failed' || recordedStatus.status === 'running'
-      ? recordedStatus.status
-      : cached ? 'success' : 'idle';
+    const analysisStatus = cached
+      ? 'success'
+      : recordedStatus.status === 'failed' || recordedStatus.status === 'running'
+        ? recordedStatus.status
+        : 'idle';
     items.push({
       relativePath: job.relativePath,
       templatePath: job.templatePath,
@@ -1520,9 +1545,28 @@ async function analyzeTemplateJob(job, options = {}) {
     }],
     max_tokens: 700
   }, (api.requestTimeoutSeconds || 120) * 1000, { description: '套图模板 AI 分析', reference: job.relativePath });
-  const content = body?.choices?.[0]?.message?.content;
-  const analysis = typeof content === 'string' ? content.trim() : '';
-  if (!analysis) throw new Error(`AI 没有返回模板分析：${job.relativePath}`);
+  const choice = body?.choices?.[0] || {};
+  const content = choice?.message?.content ?? choice?.delta?.content ?? choice?.text ?? body?.output_text ?? body?.content;
+  const analysis = analysisContentToString(content);
+  if (!analysis) {
+    const fallbackCache = templateCachePaths(job.templateRoot, job.relativePath);
+    const fallback = createManualTemplateAnalysis({
+      action: 'manual_check',
+      reason: 'AI 接口已返回但没有可读取的分析文本，请人工确认。',
+      replaceArea: '不确定',
+      forbiddenArea: '背景、文字、墙面、地面、柜脚、把手、抽屉内侧、柜门内侧、包装、留白等非可印花面板区域',
+      regions: []
+    });
+    await writeTemplateAnalysisCache({
+      cacheFile: fallbackCache.analysisFile,
+      templateRoot: job.templateRoot,
+      templateImagePath: job.templatePath,
+      relativeTemplatePath: job.relativePath,
+      analysis: JSON.stringify(fallback),
+      manualOverride: false
+    });
+    return parseTemplateAnalysisSummary(fallback);
+  }
   const cache = templateCachePaths(job.templateRoot, job.relativePath);
   await writeTemplateAnalysisCache({
     cacheFile: cache.analysisFile,
