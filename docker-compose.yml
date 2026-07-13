@@ -1,6 +1,9 @@
 services:
   caishen-web:
-    build: .
+    build:
+      context: .
+      args:
+        APP_COMMIT_SHA: ${APP_COMMIT_SHA:-unknown}
     ports:
       - "8788:8788"
     env_file:
@@ -8,6 +11,7 @@ services:
     environment:
       CAISHEN_HOST: 0.0.0.0
       CAISHEN_DATA_DIR: /data
+      APP_COMMIT_SHA: ${APP_COMMIT_SHA:-unknown}
     volumes:
       - ./data:/data
     restart: unless-stopped

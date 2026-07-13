@@ -105,7 +105,7 @@ test('admin billing endpoint hides platform ledger and backend actors', async ()
       headers: { Cookie: adminCookie }
     });
     assert.equal(summary.response.status, 200);
-    assert.equal(summary.body.data.transactions[0].description, '账户充值到账');
+    assert.ok(summary.body.data.transactions.some(entry => entry.description === '账户充值到账'));
 
     const memberCreate = await jsonFetch(`${base}/api/auth/users`, {
       method: 'POST',

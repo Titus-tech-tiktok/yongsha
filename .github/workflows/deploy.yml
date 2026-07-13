@@ -72,7 +72,18 @@ jobs:
             else
               git checkout --force "${DEPLOY_REF}"
             fi
+            export APP_COMMIT_SHA="$(git rev-parse HEAD)"
             docker compose up -d --build
             docker image prune -f
             docker compose ps
+            for attempt in $(seq 1 30); do
+              health="$(curl -fsS http://127.0.0.1:8788/api/health 2>/dev/null || true)"
+              if printf '%s' "$health" | grep -Fq "\"commit\":\"${APP_COMMIT_SHA}\""; then
+                printf 'Deployment verified at %s\n' "$APP_COMMIT_SHA"
+                exit 0
+              fi
+              sleep 2
+            done
+            printf 'Deployment health check did not report commit %s\n' "$APP_COMMIT_SHA" >&2
+            exit 1
           EOF

@@ -862,6 +862,7 @@ function metadataPaths(outputFolder, relativePath = '') {
     operationLog: path.join(metadataFolder, 'review-operation-log.json'),
     generationErrors: path.join(metadataFolder, 'template-generation-errors.json'),
     generationProgress: path.join(metadataFolder, 'template-generation-progress.json'),
+    imageApiEvents: path.join(metadataFolder, 'image-api-events.jsonl'),
     manualReview: relativePath ? path.join(metadataFolder, `${name}.manual-review.json`) : '',
     templateAudit: relativePath ? path.join(metadataFolder, `${name}.template-audit-action-v2.json`) : '',
     apiResponse: relativePath ? path.join(metadataFolder, `${name}.api-response.json`) : '',

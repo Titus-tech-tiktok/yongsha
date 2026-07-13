@@ -2006,6 +2006,7 @@ input:focus, textarea:focus, select:focus {
 .review-progress-metrics i.api { background: var(--teal); }
 .review-progress-metrics i.copied { background: var(--gold); }
 .review-progress-metrics i.skipped { background: #969b96; }
+.review-progress-metrics i.waiting { background: #bd9650; }
 .review-progress-metrics i.failed { background: var(--red); }
 .review-progress-metrics i.pending { background: #d7d8d1; }
 

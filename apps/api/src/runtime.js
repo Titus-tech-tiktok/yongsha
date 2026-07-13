@@ -87,6 +87,15 @@ const {
   renderPromptTemplate
 } = require('./core/prompt-settings');
 const { isSameOrChildPath } = require('./core/path-utils');
+const {
+  AdaptiveImageScheduler,
+  RetryableRequestError,
+  parseRetryAfterMs
+} = require('./core/adaptive-image-scheduler');
+const {
+  createImageReferenceCache,
+  imageApiSizeForDimensions
+} = require('./core/image-reference-cache');
 const { createBillingService } = require('./billing');
 
 
@@ -158,44 +167,50 @@ function requireApiConfig(channel = 'image') {
   return settings;
 }
 
-const IMAGE_API_CONCURRENCY = Math.max(1, Number(process.env.CAISHEN_IMAGE_API_CONCURRENCY || 50));
-const IMAGE_API_STAGGER_MIN_MS = Math.max(0, Number(process.env.CAISHEN_IMAGE_API_STAGGER_MIN_MS || 5000));
-const IMAGE_API_STAGGER_MAX_MS = Math.max(IMAGE_API_STAGGER_MIN_MS, Number(process.env.CAISHEN_IMAGE_API_STAGGER_MAX_MS || 10000));
-const CPU_OVERLOAD_RETRY_MIN_MS = Math.max(0, Number(process.env.CAISHEN_IMAGE_API_RETRY_MIN_MS || 45000));
-const CPU_OVERLOAD_RETRY_MAX_MS = Math.max(CPU_OVERLOAD_RETRY_MIN_MS, Number(process.env.CAISHEN_IMAGE_API_RETRY_MAX_MS || 90000));
-const CPU_OVERLOAD_MAX_ATTEMPTS = 3;
+const IMAGE_API_CONCURRENCY = Math.min(50, Math.max(1, Number(
+  process.env.CAISHEN_IMAGE_API_MAX_CONCURRENCY
+  || 50
+)));
+const IMAGE_API_INITIAL_CONCURRENCY = Math.min(IMAGE_API_CONCURRENCY, Math.max(1, Number(
+  process.env.CAISHEN_IMAGE_API_INITIAL_CONCURRENCY || 4
+)));
+const IMAGE_API_START_INTERVAL_MS = Math.max(0, Number(
+  process.env.CAISHEN_IMAGE_API_START_INTERVAL_MS
+  || 500
+));
+const IMAGE_API_MAX_ATTEMPTS = Math.max(1, Number(process.env.CAISHEN_IMAGE_API_MAX_ATTEMPTS || 8));
+const IMAGE_API_BACKOFF_BASE_MS = Math.max(0, Number(
+  process.env.CAISHEN_IMAGE_API_BACKOFF_BASE_MS
+  || 1000
+));
+const IMAGE_API_BACKOFF_MAX_MS = Math.max(IMAGE_API_BACKOFF_BASE_MS, Number(
+  process.env.CAISHEN_IMAGE_API_BACKOFF_MAX_MS
+  || 120000
+));
+const IMAGE_API_TIMEOUT_MS = Math.max(1000, Number(process.env.CAISHEN_IMAGE_API_TIMEOUT_MS || 300000));
+const IMAGE_URL_TIMEOUT_MS = Math.max(1000, Number(process.env.CAISHEN_IMAGE_URL_TIMEOUT_MS || 300000));
 const ANALYSIS_RETRY_BASE_MS = Math.max(1, Number(process.env.CAISHEN_ANALYSIS_RETRY_BASE_MS || 600));
-
-class AsyncSemaphore {
-  constructor(limit) {
-    this.limit = Math.max(1, Number(limit) || 1);
-    this.active = 0;
-    this.waiters = [];
-  }
-
-  async acquire() {
-    if (this.active < this.limit) {
-      this.active += 1;
-      return;
-    }
-    await new Promise(resolve => this.waiters.push(resolve));
-    this.active += 1;
-  }
-
-  release() {
-    this.active = Math.max(0, this.active - 1);
-    this.waiters.shift()?.();
-  }
-
-  async use(worker) {
-    await this.acquire();
-    try { return await worker(); }
-    finally { this.release(); }
-  }
-}
-
-const imageApiSlots = new AsyncSemaphore(IMAGE_API_CONCURRENCY);
+const imageApiScheduler = new AdaptiveImageScheduler({
+  initialConcurrency: IMAGE_API_INITIAL_CONCURRENCY,
+  maxConcurrency: IMAGE_API_CONCURRENCY,
+  minStartIntervalMs: IMAGE_API_START_INTERVAL_MS,
+  healthyWindowSize: 10,
+  healthySuccessRatio: 0.9,
+  maxAttempts: IMAGE_API_MAX_ATTEMPTS,
+  baseBackoffMs: IMAGE_API_BACKOFF_BASE_MS,
+  maxBackoffMs: IMAGE_API_BACKOFF_MAX_MS
+});
+const imageReferenceCache = createImageReferenceCache({
+  cacheRoot: path.join(SYSTEM_STATE_ROOT, 'image-reference-cache'),
+  maxEdge: 2048,
+  jpegQuality: 92,
+  conversionConcurrency: 2
+});
 const warmingTemplateFolders = new Set();
+
+function getImageSchedulerSnapshot() {
+  return imageApiScheduler.snapshot();
+}
 
 let mainWindow;
 let promptSettingsWriteChain = Promise.resolve();
@@ -1062,129 +1077,186 @@ function isRetryableImageApiFailure(status, value) {
   return /system_cpu_overloaded|cpu overloaded|temporar(?:y|ily) unavailable|upstream service|server is busy|service unavailable|rate limit|too many requests|try again|timeout/i.test(text);
 }
 
-function retryableImageApiMessage(attempt, status, value) {
+function imageApiFailureMessage(status, value) {
   const text = typeof value === 'string' ? value : JSON.stringify(value || '');
-  const reason = text.trim().slice(0, 180) || `HTTP ${status}`;
-  return `第 ${attempt} 次请求返回临时错误：${reason}`;
+  return text.trim().slice(0, 500) || `HTTP ${status}`;
 }
 
-async function imageApiJsonWithRetry(url, optionsOrFactory = {}, timeoutMs = 120000) {
-  let lastError = '';
-  for (let attempt = 1; attempt <= CPU_OVERLOAD_MAX_ATTEMPTS; attempt += 1) {
-    const controller = new AbortController();
-    const preOptions = typeof optionsOrFactory === 'function' ? null : optionsOrFactory;
-    await randomDelay(IMAGE_API_STAGGER_MIN_MS, IMAGE_API_STAGGER_MAX_MS, preOptions?.signal || null);
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let externalSignal = null;
-    let abortFromExternal = null;
+async function adaptiveImageApiJsonOnce(url, options, timeoutMs, externalSignal) {
+  const controller = new AbortController();
+  const abortFromExternal = () => controller.abort();
+  if (externalSignal?.aborted) controller.abort();
+  else externalSignal?.addEventListener?.('abort', abortFromExternal, { once: true });
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const { signal: _ignoredSignal, _powershellMultipart, ...fetchOptions } = options || {};
+  try {
+    let response;
     try {
-      const options = typeof optionsOrFactory === 'function' ? await optionsOrFactory() : optionsOrFactory;
-      externalSignal = options?.signal || null;
-      abortFromExternal = () => controller.abort();
-      if (externalSignal?.aborted) controller.abort();
-      else externalSignal?.addEventListener?.('abort', abortFromExternal, { once: true });
-      const { signal: _ignoredSignal, _powershellMultipart, ...fetchOptions } = options || {};
-      let response;
-      try {
-        response = await fetch(url, { ...fetchOptions, signal: controller.signal });
-      } catch (error) {
-        if (!_powershellMultipart || !shouldUsePowerShellApiFallback(url, error)) throw error;
-        const fallback = await powershellMultipartJsonRequest(url, {
-          headers: fetchOptions.headers || {},
-          ..._powershellMultipart
-        }, timeoutMs);
-        const fallbackText = fallback.body || '';
-        let fallbackBody;
-        try { fallbackBody = JSON.parse(fallbackText); } catch { fallbackBody = { error: { message: fallbackText || `HTTP ${fallback.status}` } }; }
-        if (fallback.status >= 200 && fallback.status < 300) return fallbackBody;
-        if (isRetryableImageApiFailure(fallback.status, fallbackText || fallbackBody) && attempt < CPU_OVERLOAD_MAX_ATTEMPTS) {
-          lastError = retryableImageApiMessage(attempt, fallback.status, fallbackText || fallbackBody);
-          await randomDelay(CPU_OVERLOAD_RETRY_MIN_MS, CPU_OVERLOAD_RETRY_MAX_MS, null);
-          continue;
-        }
-        throw new Error(fallbackBody?.error?.message || fallbackBody?.message || fallbackText || `HTTP ${fallback.status}`);
-      }
-      const text = await response.text();
-      let body;
-      try { body = JSON.parse(text); } catch { body = { error: { message: text || `HTTP ${response.status}` } }; }
-      if (response.ok) return body;
-      if (isRetryableImageApiFailure(response.status, text || body) && attempt < CPU_OVERLOAD_MAX_ATTEMPTS) {
-        lastError = retryableImageApiMessage(attempt, response.status, text || body);
-        await randomDelay(CPU_OVERLOAD_RETRY_MIN_MS, CPU_OVERLOAD_RETRY_MAX_MS, externalSignal);
-        continue;
-      }
-      throw new Error(body?.error?.message || body?.message || text || `HTTP ${response.status}`);
+      response = await fetch(url, { ...fetchOptions, signal: controller.signal });
     } catch (error) {
-      if (!/AbortError|fetch failed|network|socket|ECONN|ENOTFOUND|EAI_AGAIN|temporar(?:y|ily) unavailable|upstream service|server is busy|service unavailable|rate limit|too many requests/i.test(`${error?.name || ''} ${error?.message || error}`)) throw error;
-      lastError = `第 ${attempt} 次请求超时或网络异常：${error?.message || error}`;
-      if (attempt >= CPU_OVERLOAD_MAX_ATTEMPTS) throw new Error(`${lastError}\n已重新发起 ${CPU_OVERLOAD_MAX_ATTEMPTS} 次新请求，仍未成功。`);
-      await randomDelay(IMAGE_API_STAGGER_MIN_MS, IMAGE_API_STAGGER_MAX_MS, externalSignal);
+      if (!_powershellMultipart || !shouldUsePowerShellApiFallback(url, error)) throw error;
+      const fallback = await powershellMultipartJsonRequest(url, {
+        headers: fetchOptions.headers || {},
+        ..._powershellMultipart
+      }, timeoutMs);
+      const fallbackText = fallback.body || '';
+      let fallbackBody;
+      try { fallbackBody = JSON.parse(fallbackText); }
+      catch { fallbackBody = { error: { message: fallbackText || `HTTP ${fallback.status}` } }; }
+      if (fallback.status >= 200 && fallback.status < 300) return fallbackBody;
+      const message = fallbackBody?.error?.message || fallbackBody?.message || imageApiFailureMessage(fallback.status, fallbackText);
+      if (isRetryableImageApiFailure(fallback.status, fallbackText || fallbackBody)) {
+        throw new RetryableRequestError(message, { status: fallback.status });
+      }
+      const failure = new Error(message);
+      failure.status = fallback.status;
+      throw failure;
+    }
+
+    const text = await response.text();
+    let body;
+    try { body = JSON.parse(text); }
+    catch { body = { error: { message: text || `HTTP ${response.status}` } }; }
+    if (response.ok) return body;
+    const message = body?.error?.message || body?.message || imageApiFailureMessage(response.status, text);
+    if (isRetryableImageApiFailure(response.status, text || body)) {
+      throw new RetryableRequestError(message, {
+        status: response.status,
+        retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after'))
+      });
+    }
+    const failure = new Error(message);
+    failure.status = response.status;
+    throw failure;
+  } catch (error) {
+    if (error instanceof RetryableRequestError || externalSignal?.aborted) throw error;
+    const description = `${error?.name || ''} ${error?.message || error}`;
+    if (/AbortError|fetch failed|network|socket|ECONN|ENOTFOUND|EAI_AGAIN|temporar(?:y|ily) unavailable|upstream service|server is busy|service unavailable|rate limit|too many requests|timeout/i.test(description)) {
+      throw new RetryableRequestError(error?.message || String(error), { code: error?.code });
+    }
+    throw error;
+  } finally {
+    externalSignal?.removeEventListener?.('abort', abortFromExternal);
+    clearTimeout(timer);
+  }
+}
+
+async function adaptiveImageApiJson(url, optionsOrFactory = {}, timeoutMs = IMAGE_API_TIMEOUT_MS, scheduling = {}) {
+  return imageApiScheduler.schedule(async ({ attempt, signal }) => {
+    const options = typeof optionsOrFactory === 'function'
+      ? await optionsOrFactory({ attempt, signal })
+      : optionsOrFactory;
+    return adaptiveImageApiJsonOnce(url, options, timeoutMs, signal);
+  }, {
+    signal: scheduling.signal,
+    onState: scheduling.onState
+  });
+}
+
+async function downloadGeneratedImage(url, signal) {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const controller = new AbortController();
+    const abortFromExternal = () => controller.abort();
+    if (signal?.aborted) controller.abort();
+    else signal?.addEventListener?.('abort', abortFromExternal, { once: true });
+    const timer = setTimeout(() => controller.abort(), IMAGE_URL_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw new Error(`Image download failed: HTTP ${response.status}`);
+      return Buffer.from(await response.arrayBuffer());
+    } catch (error) {
+      lastError = error;
+      if (signal?.aborted || attempt >= 3) throw error;
+      await randomDelay(500 * attempt, 1000 * attempt, signal);
     } finally {
-      if (externalSignal && abortFromExternal) externalSignal.removeEventListener?.('abort', abortFromExternal);
+      signal?.removeEventListener?.('abort', abortFromExternal);
       clearTimeout(timer);
     }
   }
-  throw new Error(lastError || 'API 重试次数已用完。');
+  throw lastError || new Error('Image download failed');
 }
 
 async function generateImage(prompt, imagePaths, options = {}) {
   const api = requireApiConfig('image');
-  return imageApiSlots.use(async () => {
-    const reservation = await billing.reserve(currentWorkspaceId(), 'image', {
-      description: options.billingDescription || '图片生成',
-      reference: options.billingReference || ''
-    });
-    try {
-      const body = await imageApiJsonWithRetry(apiEndpoint(api.baseUrl, '/images/edits'), async () => {
-        if (options.signal?.aborted) throw new Error('任务已停止');
-        const fields = [
-          { name: 'model', value: api.imageModel },
-          { name: 'prompt', value: String(prompt || '') },
-          { name: 'n', value: '1' },
-          { name: 'size', value: options.size || '1024x1024' },
-          { name: 'quality', value: options.quality || 'high' },
-          { name: 'response_format', value: api.responseFormat || 'url' }
-        ];
-        const files = [];
-        for (const file of imagePaths) {
-          if (!isImagePath(file)) throw new Error(`涓嶆敮鎸佺殑鍥剧墖鏍煎紡锛?{path.basename(file)}`);
-          files.push({
-            name: 'image',
-            path: file,
-            fileName: path.basename(file),
-            contentType: imageMimeType(file)
-          });
-        }
-        const form = new FormData();
-        for (const field of fields) form.set(field.name, String(field.value));
-        for (const file of imagePaths) {
-          if (!isImagePath(file)) throw new Error(`不支持的图片格式：${path.basename(file)}`);
-          const bytes = await fsp.readFile(file);
-          form.append('image', new Blob([bytes], { type: imageMimeType(file) }), path.basename(file));
-        }
-        return {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${api.imageKey}` },
-          body: form,
-          signal: options.signal,
-          _powershellMultipart: { fields, files }
-        };
-      }, (api.requestTimeoutSeconds || 300) * 1000);
-      const result = extractImageResult(body);
-      let bytes;
-      if (result.type === 'base64') bytes = Buffer.from(result.value, 'base64');
-      else {
-        const response = await fetch(result.value);
-        if (!response.ok) throw new Error(`图片下载失败：HTTP ${response.status}`);
-        bytes = Buffer.from(await response.arrayBuffer());
-      }
-      await billing.commit(reservation);
-      return bytes;
-    } catch (error) {
-      await billing.release(reservation).catch(() => {});
-      throw error;
-    }
+  const preparedImages = await Promise.all(imagePaths.map(file => {
+    if (!isImagePath(file)) throw new Error(`Unsupported image format: ${path.basename(file)}`);
+    return imageReferenceCache.prepare(file);
+  }));
+  const preparation = {
+    originalBytes: preparedImages.reduce((total, item) => total + item.originalBytes, 0),
+    preparedBytes: preparedImages.reduce((total, item) => total + item.preparedBytes, 0)
+  };
+  const reservation = await billing.reserve(currentWorkspaceId(), 'image', {
+    description: options.billingDescription || 'Image generation',
+    reference: options.billingReference || ''
   });
+  try {
+    const attemptStartedAt = new Map();
+    const body = await adaptiveImageApiJson(apiEndpoint(api.baseUrl, '/images/edits'), async ({ signal }) => {
+      if (signal?.aborted) throw new Error('Task stopped');
+      const fields = [
+        { name: 'model', value: api.imageModel },
+        { name: 'prompt', value: String(prompt || '') },
+        { name: 'n', value: '1' },
+        { name: 'size', value: options.size || '1024x1024' },
+        { name: 'quality', value: options.quality || 'high' },
+        { name: 'response_format', value: api.responseFormat || 'url' }
+      ];
+      const files = [];
+      for (const prepared of preparedImages) {
+        const file = prepared.path;
+        files.push({
+          name: 'image',
+          path: file,
+          fileName: `${path.basename(prepared.sourcePath, path.extname(prepared.sourcePath))}${path.extname(file)}`,
+          contentType: imageMimeType(file)
+        });
+      }
+      const form = new FormData();
+      for (const field of fields) form.set(field.name, String(field.value));
+      for (const prepared of preparedImages) {
+        const bytes = await fsp.readFile(prepared.path);
+        const uploadName = `${path.basename(prepared.sourcePath, path.extname(prepared.sourcePath))}${path.extname(prepared.path)}`;
+        form.append('image', new Blob([bytes], { type: imageMimeType(prepared.path) }), uploadName);
+      }
+      return {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${api.imageKey}` },
+        body: form,
+        signal,
+        _powershellMultipart: { fields, files }
+      };
+    }, IMAGE_API_TIMEOUT_MS, {
+      signal: options.signal,
+      onState: event => {
+        if (event.state === 'running') attemptStartedAt.set(event.attempt, Date.now());
+        const startedAt = attemptStartedAt.get(event.attempt);
+        options.onRequestState?.({
+          ...event,
+          ...preparation,
+          apiElapsedMs: startedAt ? Math.max(0, Date.now() - startedAt) : 0
+        });
+      }
+    });
+    const result = extractImageResult(body);
+    const downloadStartedAt = Date.now();
+    const bytes = result.type === 'base64'
+      ? Buffer.from(result.value, 'base64')
+      : await downloadGeneratedImage(result.value, options.signal);
+    options.onRequestState?.({
+      state: result.type === 'base64' ? 'decoded' : 'downloaded',
+      attempt: 0,
+      ...getImageSchedulerSnapshot(),
+      ...preparation,
+      downloadElapsedMs: Math.max(0, Date.now() - downloadStartedAt)
+    });
+    await billing.commit(reservation);
+    return bytes;
+  } catch (error) {
+    await billing.release(reservation).catch(() => {});
+    throw error;
+  }
 }
 
 async function nextTaskFolder(config) {
@@ -1767,8 +1839,9 @@ async function saveTemplateMask(payload) {
   return { maskFile: cache.maskFile, maskUrl: imageUrl(cache.maskFile), regions: payload?.regions || [] };
 }
 
-function templateOutputSize(job) {
-  return job.sectionName.includes('3：4') ? '1024x1536' : '1024x1024';
+async function templateOutputSize(job) {
+  const metadata = await sharp(job.templatePath, { failOn: 'none' }).metadata();
+  return imageApiSizeForDimensions(metadata.width, metadata.height);
 }
 
 function containsAny(value, candidates) {
@@ -1946,10 +2019,12 @@ async function generateTemplateJob(job, source, config, options = {}) {
   if (options.extraInstruction && source.generationMode === 'template_print') prompt += `\n\n本次运营补充要求：${String(options.extraInstruction).trim()}`;
   if (options.includePreviousResult && fs.existsSync(job.outputPath)) imagePaths.push(job.outputPath);
   const bytes = await generateImage(prompt, imagePaths, {
-    size: templateOutputSize(job),
+    size: await templateOutputSize(job),
     quality: config.imageQuality || 'high',
     billingDescription: options.extraInstruction ? '套图图片重新生成' : '套图换印花生图',
-    billingReference: job.relativePath
+    billingReference: job.relativePath,
+    signal: options.signal,
+    onRequestState: options.onRequestState
   });
   await writeTemplateSizedImage(job, bytes);
   await fsp.rm(paths.templateAudit, { force: true }).catch(() => {});
@@ -1995,6 +2070,7 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
       copied: Math.max(0, Number(progress.copied) || 0),
       skipped: Math.max(0, Number(progress.skipped) || 0),
       failed: Math.max(0, Number(progress.failed) || 0),
+      waitingUpstream: Math.max(0, Number(progress.waitingUpstream) || 0),
       pending: Math.max(0, Number(progress.pending) || 0),
       message: String(progress.message || ''),
       updatedAt: new Date().toISOString()
@@ -2007,19 +2083,59 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
   };
   if (!jobs.length) {
     if (!onlyMissing && !selectedPaths?.length) throw new Error('套图文件夹里没有可用图片。');
-    const summary = { total: 0, current: 0, percent: 100, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, pending: 0 };
+    const summary = { total: 0, current: 0, percent: 100, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, waitingUpstream: 0, pending: 0 };
     await publishProgress({ ...summary, phase: 'completed', message: '没有需要处理的图片' });
     return { folder, generated: 0, failures: [], summary };
   }
   const startLabel = options.initial ? '开始生成套图' : onlyMissing ? '开始补生成缺失套图' : '开始重新生成整套图';
   await addOperationLog(folder, `${startLabel}：${jobs.length} 张`);
-  const live = { total: jobs.length, current: 0, apiGenerated: 0, copied: 0, skipped: 0, failed: 0 };
+  const live = { total: jobs.length, current: 0, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, waitingUpstream: 0 };
   const liveFailures = [];
-  await publishProgress({ ...live, phase: 'preparing', message: `准备处理 ${jobs.length} 张图片` });
+  await publishProgress({ ...live, pending: jobs.length, phase: 'preparing', message: `准备处理 ${jobs.length} 张图片` });
+  const waitingUpstream = new Set();
+  let imageEventWrite = Promise.resolve();
+  const recordImageRequestState = (job, event) => {
+    if (event.state === 'retrying') waitingUpstream.add(job.relativePath);
+    else if (['running', 'succeeded', 'failed'].includes(event.state)) waitingUpstream.delete(job.relativePath);
+    live.waitingUpstream = waitingUpstream.size;
+    const diagnostic = {
+      at: new Date().toISOString(),
+      relativePath: job.relativePath,
+      attempt: Number(event.attempt) || 0,
+      state: String(event.state || ''),
+      status: Number(event.status) || undefined,
+      error: event.error ? String(event.error).slice(0, 500) : undefined,
+      currentConcurrency: Number(event.currentConcurrency) || 0,
+      maxConcurrency: Number(event.maxConcurrency) || 0,
+      active: Number(event.active) || 0,
+      queued: Number(event.queued) || 0,
+      originalBytes: Number(event.originalBytes) || 0,
+      preparedBytes: Number(event.preparedBytes) || 0,
+      apiElapsedMs: Number(event.apiElapsedMs) || 0,
+      downloadElapsedMs: Number(event.downloadElapsedMs) || 0
+    };
+    imageEventWrite = imageEventWrite.then(async () => {
+      const eventFile = metadataPaths(folder).imageApiEvents;
+      await fsp.mkdir(path.dirname(eventFile), { recursive: true });
+      await fsp.appendFile(eventFile, `${JSON.stringify(diagnostic)}\n`, 'utf8');
+    });
+    void publishProgress({
+      ...live,
+      phase: 'generating',
+      pending: Math.max(0, live.total - live.current),
+      percent: live.total ? Math.round(live.current / live.total * 100) : 0,
+      message: live.waitingUpstream
+        ? `等待上游恢复 ${live.waitingUpstream} 张，已完成 ${live.current}/${live.total}`
+        : `正在处理 ${live.current}/${live.total}`
+    }).catch(() => {});
+  };
   const results = await runWithConcurrency(jobs, IMAGE_API_CONCURRENCY, async job => {
     try {
       if (options.signal?.aborted) throw new Error('任务已停止');
-      const result = await generateTemplateJob(job, source, config, { signal: options.signal });
+      const result = await generateTemplateJob(job, source, config, {
+        signal: options.signal,
+        onRequestState: event => recordImageRequestState(job, event)
+      });
       if (result.action === 'skip_copy') live.skipped += 1;
       else if (result.action === 'copy_template') live.copied += 1;
       else live.apiGenerated += 1;
@@ -2038,11 +2154,13 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
       await publishProgress({
         ...live,
         phase: 'generating',
+        pending: Math.max(0, live.total - live.current),
         percent: Math.round(live.current / live.total * 100),
         message: `正在处理 ${live.current}/${live.total}：API 生成 ${live.apiGenerated}，直接复制 ${live.copied}，跳过 ${live.skipped}`
       });
     }
   });
+  await imageEventWrite;
   const failures = results.map((result, index) => result.ok ? null : `${jobs[index].relativePath}: ${result.error?.message || result.error}`).filter(Boolean);
   let rejected = 0;
   if (!failures.length && source.generationMode !== 'template_print' && config.auditMode === 'quality') {
@@ -2078,6 +2196,7 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
     copied: live.copied,
     skipped: live.skipped,
     failed: live.failed,
+    waitingUpstream: 0,
     pending: 0
   };
   await publishProgress({
@@ -2193,7 +2312,9 @@ async function generateMaster(task, options = {}) {
     size: config.imageSize || '1024x1024',
     quality: config.imageQuality || 'high',
     billingDescription: '母版图生成',
-    billingReference: task.id || path.basename(task.productPath)
+    billingReference: task.id || path.basename(task.productPath),
+    signal: options.signal,
+    onRequestState: options.onRequestState
   });
   const outputPath = path.join(folder, '母版图.png');
   await fsp.writeFile(outputPath, bytes);
@@ -2561,6 +2682,7 @@ const runtimeExports = {
   generateTemplateSetForFolder,
   generateTitleForTask,
   generateTitles,
+  getImageSchedulerSnapshot,
   getTemplatePreparation,
   imageUrl,
   importTitleLibrary,

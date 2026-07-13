@@ -8,7 +8,8 @@ COPY . .
 RUN npm rebuild sharp && npm run build
 
 FROM node:24-bookworm-slim
-ENV NODE_ENV=production PORT=8788 HOST=0.0.0.0 CAISHEN_DATA_DIR=/data
+ARG APP_COMMIT_SHA=unknown
+ENV NODE_ENV=production PORT=8788 HOST=0.0.0.0 CAISHEN_DATA_DIR=/data APP_COMMIT_SHA=${APP_COMMIT_SHA}
 WORKDIR /app
 COPY --from=build /app /app
 RUN npm prune --omit=dev

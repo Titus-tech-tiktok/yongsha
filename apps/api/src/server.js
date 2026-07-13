@@ -873,13 +873,18 @@ async function startServer() {
   }));
   app.use(express.json({ limit: '25mb' }));
 
-  app.get('/api/health', async (_req, res) => res.json({
-    ok: true,
-    service: '财神测款机 Web',
-    storage: 'local',
-    localAssetLibrary: true,
-    accountsConfigured: await auth.hasUsers()
-  }));
+  app.get('/api/health', (_req, res) => {
+    const queue = runtime.getImageSchedulerSnapshot();
+    return res.json({
+      ok: true,
+      commit: String(process.env.APP_COMMIT_SHA || 'unknown'),
+      uptimeSeconds: Math.floor(process.uptime()),
+      activeImageRequests: queue.active,
+      queuedImageRequests: queue.queued,
+      currentImageConcurrency: queue.currentConcurrency,
+      maxImageConcurrency: queue.maxConcurrency
+    });
+  });
 
   app.get('/api/auth/status', async (req, res) => {
     const user = await auth.userFromRequest(req);

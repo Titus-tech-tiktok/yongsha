@@ -1556,13 +1556,14 @@ function reviewGenerationSummary(item) {
     copied: Number(saved.copied) || 0,
     skipped: Number(saved.skipped) || 0,
     failed: Number(saved.failed) || 0,
+    waitingUpstream: Number(saved.waitingUpstream) || 0,
     pending: Number(saved.pending) || 0,
     phase: saved.phase || 'completed',
     message: saved.message || '',
     updatedAt: saved.updatedAt || ''
   };
   const jobs = item?.jobs || [];
-  const summary = { total: jobs.length, current: 0, percent: 0, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, pending: 0, phase: 'completed', message: '', updatedAt: '' };
+  const summary = { total: jobs.length, current: 0, percent: 0, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, waitingUpstream: 0, pending: 0, phase: 'completed', message: '', updatedAt: '' };
   for (const job of jobs) {
     if (job.status === '已跳过' || job.action === 'skip_copy') summary.skipped += 1;
     else if (!job.outputUrl) summary.pending += 1;
@@ -1759,13 +1760,15 @@ function renderReviewStage() {
   const master = item.masterImage ? `<section class="master-review-strip"><img src="${item.masterImage.url}" alt="母版图"><div><b>母版图</b><span>${escapeHtml(item.masterStatus || '母版已生成')}</span>${item.source?.generationMode !== 'template_print' ? '<button class="secondary" id="regenerateMasterButton">重新生成母版图</button>' : ''}</div></section>` : '';
   const progressTitle = running ? '正在处理套图' : needsAttention ? '套图处理完成，但有图片需要处理' : noApiGeneration ? '本任务没有调用生图 API' : '套图已生成，请逐张确认';
   const progressDetail = running
-    ? (summary.message || `已处理 ${summary.current}/${summary.total} 张，页面会自动刷新`)
+    ? (summary.message || (summary.waitingUpstream
+      ? `等待上游恢复 ${summary.waitingUpstream} 张，已处理 ${summary.current}/${summary.total} 张`
+      : `已处理 ${summary.current}/${summary.total} 张，页面会自动刷新`))
     : noApiGeneration
       ? `套图识别规则将 ${summary.copied} 张判定为直接复制，${summary.skipped} 张判定为跳过，所以很快完成。`
       : needsAttention
         ? `失败 ${summary.failed} 张，待处理 ${summary.pending} 张。先处理异常图片，再确认整套。`
         : `共 ${summary.total} 张：API 生成 ${summary.apiGenerated}，直接复制 ${summary.copied}，跳过 ${summary.skipped}。`;
-  const progressCard = `<section class="review-progress-card${running ? ' running' : needsAttention || noApiGeneration ? ' attention' : ' complete'}"><div class="review-progress-head"><div><span>${running ? '生成进度' : '本次处理摘要'}</span><b>${escapeHtml(progressTitle)}</b><p>${escapeHtml(progressDetail)}</p></div><strong>${summary.current}/${summary.total}</strong></div><progress class="review-progress-track" aria-label="套图处理进度" max="${Math.max(1, summary.total)}" value="${Math.max(0, summary.current)}"></progress><div class="review-progress-metrics"><span><i class="api"></i>API 生成 <b>${summary.apiGenerated}</b></span><span><i class="copied"></i>直接复制 <b>${summary.copied}</b></span><span><i class="skipped"></i>跳过 <b>${summary.skipped}</b></span>${summary.failed ? `<span><i class="failed"></i>失败 <b>${summary.failed}</b></span>` : ''}${summary.pending ? `<span><i class="pending"></i>待处理 <b>${summary.pending}</b></span>` : ''}</div>${noApiGeneration ? '<div class="review-progress-guidance"><span>如果原本期望替换印花，说明当前套图识别规则不符合预期。</span><button class="secondary" data-review-configure>返回检查套图规则</button></div>' : ''}</section>`;
+  const progressCard = `<section class="review-progress-card${running ? ' running' : needsAttention || noApiGeneration ? ' attention' : ' complete'}"><div class="review-progress-head"><div><span>${running ? '生成进度' : '本次处理摘要'}</span><b>${escapeHtml(progressTitle)}</b><p>${escapeHtml(progressDetail)}</p></div><strong>${summary.current}/${summary.total}</strong></div><progress class="review-progress-track" aria-label="套图处理进度" max="${Math.max(1, summary.total)}" value="${Math.max(0, summary.current)}"></progress><div class="review-progress-metrics"><span><i class="api"></i>API 生成 <b>${summary.apiGenerated}</b></span><span><i class="copied"></i>直接复制 <b>${summary.copied}</b></span><span><i class="skipped"></i>跳过 <b>${summary.skipped}</b></span>${summary.waitingUpstream ? `<span><i class="waiting"></i>等待上游恢复 <b>${summary.waitingUpstream}</b></span>` : ''}${summary.failed ? `<span><i class="failed"></i>失败 <b>${summary.failed}</b></span>` : ''}${summary.pending ? `<span><i class="pending"></i>待处理 <b>${summary.pending}</b></span>` : ''}</div>${noApiGeneration ? '<div class="review-progress-guidance"><span>如果原本期望替换印花，说明当前套图识别规则不符合预期。</span><button class="secondary" data-review-configure>返回检查套图规则</button></div>' : ''}</section>`;
   stage.innerHTML = `<div class="review-toolbar"><div><b>${escapeHtml(item.name)}</b><span class="index">${escapeHtml(item.status)}</span></div><div><button class="primary" id="approveReview"${running || needsAttention ? ' disabled' : ''}>确认整套通过</button></div></div>${progressCard}${master}<div class="review-images">${imageMarkup}</div>`;
   renderReviewTrackingLog(item, summary, running);
   stage.querySelectorAll('[data-review-job]').forEach((card, index) => {
