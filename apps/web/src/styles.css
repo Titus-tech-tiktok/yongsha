@@ -3556,12 +3556,15 @@ label input, label textarea {
 
 .asset-preview-head {
   border-bottom: 1px solid var(--line);
+  background: var(--paper);
   justify-content: space-between;
   align-items: center;
   gap: 18px;
   min-height: 65px;
   padding: 12px 22px;
   display: flex;
+  position: relative;
+  z-index: 4;
 }
 
 .asset-preview-head h2 {
@@ -3579,10 +3582,14 @@ label input, label textarea {
   border-bottom: 1px solid var(--line);
   background: #f7f6f2;
   align-items: center;
-  gap: 16px;
-  min-height: 58px;
+  gap: 12px;
+  min-height: 60px;
+  min-width: 0;
   padding: 10px 22px;
   display: flex;
+  position: relative;
+  z-index: 5;
+  box-shadow: 0 8px 16px rgba(24, 31, 42, .05);
 }
 
 .asset-template-filter > span {
@@ -3593,9 +3600,14 @@ label input, label textarea {
 }
 
 .asset-template-filter > div {
-  flex-wrap: wrap;
+  scrollbar-width: thin;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: nowrap;
   gap: 7px;
   display: flex;
+  overflow-x: auto;
+  padding: 2px 1px 6px;
 }
 
 .asset-filter-button {
@@ -3603,6 +3615,7 @@ label input, label textarea {
   background: #fdfcf9;
   color: var(--muted);
   border-radius: 8px;
+  flex: 0 0 auto;
   align-items: center;
   gap: 7px;
   min-height: 34px;
@@ -3658,6 +3671,8 @@ label input, label textarea {
   display: grid;
   overflow: auto;
   contain: layout paint;
+  position: relative;
+  z-index: 1;
 }
 
 .asset-management-card {
