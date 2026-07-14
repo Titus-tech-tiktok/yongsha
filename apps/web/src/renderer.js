@@ -1029,7 +1029,9 @@ function renderAssetManagementGrid() {
 
 function resetAssetManagementScroll() {
   const grid = $('#assetManagementGrid');
-  if (grid) grid.scrollTop = 0;
+  if (!grid) return;
+  grid.scrollTop = 0;
+  requestAnimationFrame(() => { grid.scrollTop = 0; });
 }
 
 async function refreshAssetConsumers(key) {

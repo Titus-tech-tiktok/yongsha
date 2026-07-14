@@ -3592,6 +3592,7 @@ label input, label textarea {
   position: relative;
   z-index: 5;
   box-shadow: 0 8px 16px rgba(24, 31, 42, .05);
+  margin-bottom: 16px;
 }
 
 .asset-template-filter > span {
@@ -3672,6 +3673,7 @@ label input, label textarea {
   padding: 28px 22px 18px;
   display: grid;
   overflow: auto;
+  overflow-anchor: none;
   contain: layout;
   position: relative;
   z-index: 1;
