@@ -3697,6 +3697,10 @@ label input, label textarea {
   display: block;
 }
 
+.asset-management-card.template-asset-card img {
+  object-fit: contain;
+}
+
 .asset-management-card figcaption {
   padding: 8px 9px;
 }
