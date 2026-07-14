@@ -2006,6 +2006,7 @@ input:focus, textarea:focus, select:focus {
 .review-progress-metrics i.api { background: var(--teal); }
 .review-progress-metrics i.copied { background: var(--gold); }
 .review-progress-metrics i.skipped { background: #969b96; }
+.review-progress-metrics i.cost { background: #2f6f66; }
 .review-progress-metrics i.waiting { background: #bd9650; }
 .review-progress-metrics i.failed { background: var(--red); }
 .review-progress-metrics i.pending { background: #d7d8d1; }
@@ -3668,12 +3669,13 @@ label input, label textarea {
   align-content: start;
   gap: 12px;
   min-height: 0;
-  padding: 18px 22px;
+  padding: 28px 22px 18px;
   display: grid;
   overflow: auto;
-  contain: layout paint;
+  contain: layout;
   position: relative;
   z-index: 1;
+  scroll-padding-top: 28px;
 }
 
 .asset-management-card {

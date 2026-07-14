@@ -1565,12 +1565,13 @@ function reviewGenerationSummary(item) {
     failed: Number(saved.failed) || 0,
     waitingUpstream: Number(saved.waitingUpstream) || 0,
     pending: Number(saved.pending) || 0,
+    billingCostMinor: Number(saved.billingCostMinor) || 0,
     phase: saved.phase || 'completed',
     message: saved.message || '',
     updatedAt: saved.updatedAt || ''
   };
   const jobs = item?.jobs || [];
-  const summary = { total: jobs.length, current: 0, percent: 0, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, waitingUpstream: 0, pending: 0, phase: 'completed', message: '', updatedAt: '' };
+  const summary = { total: jobs.length, current: 0, percent: 0, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, waitingUpstream: 0, pending: 0, billingCostMinor: 0, phase: 'completed', message: '', updatedAt: '' };
   for (const job of jobs) {
     const action = normalizeTemplateUiAction(job.action);
     if (job.status === '已跳过' || action === 'exclude') summary.skipped += 1;
@@ -1689,7 +1690,7 @@ function renderReviewTrackingLog(item, summary, running) {
     ? visible.map(entry => `<button type="button" class="review-track-item ${entry.state.key} ${entry.viewed ? 'viewed' : 'unread'}" data-review-log-job="${entry.index}" title="跳转到 ${escapeHtml(entry.job.relativePath)}"><i aria-hidden="true"></i><span><b>${escapeHtml(entry.job.relativePath)}</b><small>${escapeHtml(entry.state.detail)}</small></span><span class="review-track-badges"><em>${escapeHtml(entry.state.label)}</em><u>${entry.viewed ? '已查看' : '未查看'}</u></span></button>`).join('')
     : '<div class="review-track-empty">当前筛选没有图片</div>';
   const history = logs.slice().reverse().slice(0, 20).map(log => `<div class="review-log-entry"><span>${escapeHtml(log.time ? new Date(log.time).toLocaleString('zh-CN', { hour12: false }) : '')}</span><div>${escapeHtml(log.message)}</div></div>`).join('');
-  $('#reviewOperationLog').innerHTML = `<div class="review-log-summary"><b>${running ? '任务正在处理' : counts.failed ? '任务需要处理' : '任务处理完成'}</b><span>${summary.current}/${summary.total} 张已处理</span><small>完成 ${counts.completed} · 失败 ${counts.failed} · 待处理 ${counts.pending} · 未查看 ${counts.unread}</small></div><div class="review-log-filters">${filterButton('all', '全部', entries.length)}${filterButton('unread', '未查看', counts.unread)}${filterButton('completed', '完成', counts.completed)}${filterButton('failed', '失败', counts.failed)}${filterButton('pending', '待处理', counts.pending)}</div><div class="review-track-list">${items}</div><details class="review-log-history"><summary>查看任务记录</summary>${history}</details>`;
+  $('#reviewOperationLog').innerHTML = `<div class="review-log-summary"><b>${running ? '任务正在处理' : counts.failed ? '任务需要处理' : '任务处理完成'}</b><span>${summary.current}/${summary.total} 张已处理</span><small>完成 ${counts.completed} · 失败 ${counts.failed} · 待处理 ${counts.pending} · 未查看 ${counts.unread}${summary.billingCostMinor ? ` · 成本 ${formatMoney(summary.billingCostMinor)}` : ''}</small></div><div class="review-log-filters">${filterButton('all', '全部', entries.length)}${filterButton('unread', '未查看', counts.unread)}${filterButton('completed', '完成', counts.completed)}${filterButton('failed', '失败', counts.failed)}${filterButton('pending', '待处理', counts.pending)}</div><div class="review-track-list">${items}</div><details class="review-log-history"><summary>查看任务记录</summary>${history}</details>`;
 }
 
 async function loadReviews({ silent = false } = {}) {
@@ -1735,7 +1736,8 @@ function renderReviewList() {
     const detail = running
       ? `处理中 ${summary.current}/${summary.total}`
       : `API ${summary.apiGenerated} · 复制 ${summary.copied} · 跳过 ${summary.skipped}`;
-    return `<div class="review-row${state.activeReview?.folder === item.folder ? ' active' : ''}"><input type="checkbox" data-review-select="${index}"${state.selectedReviewFolders.has(item.folder) ? ' checked' : ''}><button class="review-row-main" data-review-index="${index}"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.status)} · ${summary.total || item.images.length} 张</span><small>${escapeHtml(detail)}</small><progress max="100" value="${Math.max(0, Math.min(100, summary.percent))}"></progress></button></div>`;
+    const cost = summary.billingCostMinor ? ` · 成本 ${formatMoney(summary.billingCostMinor)}` : '';
+    return `<div class="review-row${state.activeReview?.folder === item.folder ? ' active' : ''}"><input type="checkbox" data-review-select="${index}"${state.selectedReviewFolders.has(item.folder) ? ' checked' : ''}><button class="review-row-main" data-review-index="${index}"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.status)} · ${summary.total || item.images.length} 张</span><small>${escapeHtml(detail + cost)}</small><progress max="100" value="${Math.max(0, Math.min(100, summary.percent))}"></progress></button></div>`;
   }).join('') : '<div class="empty-inline">没有匹配的任务</div>';
 }
 
@@ -1777,7 +1779,7 @@ function renderReviewStage() {
       : needsAttention
         ? `失败 ${summary.failed} 张，待处理 ${summary.pending} 张。先处理异常图片，再确认整套。`
         : `共 ${summary.total} 张：API 生成 ${summary.apiGenerated}，直接复制 ${summary.copied}，跳过 ${summary.skipped}。`;
-  const progressCard = `<section class="review-progress-card${running ? ' running' : needsAttention || noApiGeneration ? ' attention' : ' complete'}"><div class="review-progress-head"><div><span>${running ? '生成进度' : '本次处理摘要'}</span><b>${escapeHtml(progressTitle)}</b><p>${escapeHtml(progressDetail)}</p></div><strong>${summary.current}/${summary.total}</strong></div><progress class="review-progress-track" aria-label="套图处理进度" max="${Math.max(1, summary.total)}" value="${Math.max(0, summary.current)}"></progress><div class="review-progress-metrics"><span><i class="api"></i>API 生成 <b>${summary.apiGenerated}</b></span><span><i class="copied"></i>直接复制 <b>${summary.copied}</b></span><span><i class="skipped"></i>跳过 <b>${summary.skipped}</b></span>${summary.waitingUpstream ? `<span><i class="waiting"></i>等待上游恢复 <b>${summary.waitingUpstream}</b></span>` : ''}${summary.failed ? `<span><i class="failed"></i>失败 <b>${summary.failed}</b></span>` : ''}${summary.pending ? `<span><i class="pending"></i>待处理 <b>${summary.pending}</b></span>` : ''}</div>${noApiGeneration ? '<div class="review-progress-guidance"><span>如果原本期望替换印花，说明当前套图识别规则不符合预期。</span><button class="secondary" data-review-configure>返回检查套图规则</button></div>' : ''}</section>`;
+  const progressCard = `<section class="review-progress-card${running ? ' running' : needsAttention || noApiGeneration ? ' attention' : ' complete'}"><div class="review-progress-head"><div><span>${running ? '生成进度' : '本次处理摘要'}</span><b>${escapeHtml(progressTitle)}</b><p>${escapeHtml(progressDetail)}</p></div><strong>${summary.current}/${summary.total}</strong></div><progress class="review-progress-track" aria-label="套图处理进度" max="${Math.max(1, summary.total)}" value="${Math.max(0, summary.current)}"></progress><div class="review-progress-metrics"><span><i class="api"></i>API 生成 <b>${summary.apiGenerated}</b></span><span><i class="copied"></i>直接复制 <b>${summary.copied}</b></span><span><i class="skipped"></i>跳过 <b>${summary.skipped}</b></span><span><i class="cost"></i>任务成本 <b>${formatMoney(summary.billingCostMinor)}</b></span>${summary.waitingUpstream ? `<span><i class="waiting"></i>等待上游恢复 <b>${summary.waitingUpstream}</b></span>` : ''}${summary.failed ? `<span><i class="failed"></i>失败 <b>${summary.failed}</b></span>` : ''}${summary.pending ? `<span><i class="pending"></i>待处理 <b>${summary.pending}</b></span>` : ''}</div>${noApiGeneration ? '<div class="review-progress-guidance"><span>如果原本期望替换印花，说明当前套图识别规则不符合预期。</span><button class="secondary" data-review-configure>返回检查套图规则</button></div>' : ''}</section>`;
   stage.innerHTML = `<div class="review-toolbar"><div><b>${escapeHtml(item.name)}</b><span class="index">${escapeHtml(item.status)}</span></div><div><button class="primary" id="approveReview"${running || needsAttention ? ' disabled' : ''}>确认整套通过</button></div></div>${progressCard}${master}<div class="review-images">${imageMarkup}</div>`;
   renderReviewTrackingLog(item, summary, running);
   stage.querySelectorAll('[data-review-job]').forEach((card, index) => {

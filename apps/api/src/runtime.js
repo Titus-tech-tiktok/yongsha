@@ -1259,7 +1259,8 @@ async function generateImage(prompt, imagePaths, options = {}) {
       ...preparation,
       downloadElapsedMs: Math.max(0, Date.now() - downloadStartedAt)
     });
-    await billing.commit(reservation);
+    const billingEntry = await billing.commit(reservation);
+    bytes.billingAmountMinor = Math.abs(Number(billingEntry?.amountMinor) || 0);
     return bytes;
   } catch (error) {
     await billing.release(reservation).catch(() => {});
@@ -2235,9 +2236,10 @@ async function generateTemplateJob(job, source, config, options = {}) {
     signal: options.signal,
     onRequestState: options.onRequestState
   });
+  const billedMinor = Math.max(0, Number(bytes.billingAmountMinor) || 0);
   await writeTemplateSizedImage(job, bytes);
   await fsp.rm(paths.templateAudit, { force: true }).catch(() => {});
-  return { action, outputPath: job.outputPath };
+  return { action, outputPath: job.outputPath, billedMinor };
 }
 
 async function runWithConcurrency(items, limit, worker) {
@@ -2283,6 +2285,7 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
       failed: Math.max(0, Number(progress.failed) || 0),
       waitingUpstream: Math.max(0, Number(progress.waitingUpstream) || 0),
       pending: Math.max(0, Number(progress.pending) || 0),
+      billingCostMinor: Math.max(0, Number(progress.billingCostMinor) || 0),
       message: String(progress.message || ''),
       updatedAt: new Date().toISOString()
     };
@@ -2294,13 +2297,13 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
   };
   if (!jobs.length) {
     if (!onlyMissing && !selectedPaths?.length) throw new Error('套图文件夹里没有可用图片。');
-    const summary = { total: 0, current: 0, percent: 100, apiGenerated: 0, composited: 0, copied: 0, excluded: Math.max(0, Number(options.excludedCount) || 0), skipped: 0, failed: 0, waitingUpstream: 0, pending: 0 };
+    const summary = { total: 0, current: 0, percent: 100, apiGenerated: 0, composited: 0, copied: 0, excluded: Math.max(0, Number(options.excludedCount) || 0), skipped: 0, failed: 0, waitingUpstream: 0, pending: 0, billingCostMinor: 0 };
     await publishProgress({ ...summary, phase: 'completed', message: '没有需要处理的图片' });
     return { folder, generated: 0, failures: [], summary };
   }
   const startLabel = options.initial ? '开始生成套图' : onlyMissing ? '开始补生成缺失套图' : '开始重新生成整套图';
   await addOperationLog(folder, `${startLabel}：${jobs.length} 张`);
-  const live = { total: jobs.length, current: 0, apiGenerated: 0, composited: 0, copied: 0, excluded: Math.max(0, Number(options.excludedCount) || 0), skipped: 0, failed: 0, waitingUpstream: 0 };
+  const live = { total: jobs.length, current: 0, apiGenerated: 0, composited: 0, copied: 0, excluded: Math.max(0, Number(options.excludedCount) || 0), skipped: 0, failed: 0, waitingUpstream: 0, billingCostMinor: 0 };
   const liveFailures = [];
   await publishProgress({ ...live, pending: jobs.length, phase: 'preparing', message: `准备处理 ${jobs.length} 张图片` });
   const waitingUpstream = new Set();
@@ -2351,6 +2354,7 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
       else if (result.action === 'copy_original' || result.action === 'copy_template') live.copied += 1;
       else if (result.localComposited) live.composited += 1;
       else live.apiGenerated += 1;
+      live.billingCostMinor += Math.max(0, Number(result.billedMinor) || 0);
       return result;
     } catch (error) {
       live.failed += 1;
@@ -2411,7 +2415,8 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
     skipped: live.skipped,
     failed: live.failed,
     waitingUpstream: 0,
-    pending: 0
+    pending: 0,
+    billingCostMinor: live.billingCostMinor
   };
   await publishProgress({
     ...summary,
@@ -2460,6 +2465,16 @@ async function regenerateSingleTemplate(payload, options = {}) {
   if (remainingFailures.length) {
     await writeJsonFile(generationErrorsFile, { ...generationErrors, updated_at: new Date().toISOString(), count: remainingFailures.length, failures: remainingFailures });
   } else await fsp.rm(generationErrorsFile, { force: true }).catch(() => {});
+  const billedMinor = Math.max(0, Number(generated.billedMinor) || 0);
+  if (billedMinor > 0) {
+    const progressFile = metadataPaths(folder).generationProgress;
+    const progress = await readJsonFile(progressFile, {});
+    await writeJsonFile(progressFile, {
+      ...(progress && typeof progress === 'object' ? progress : {}),
+      billingCostMinor: Math.max(0, Number(progress?.billingCostMinor) || 0) + billedMinor,
+      updatedAt: new Date().toISOString()
+    });
+  }
   await addOperationLog(folder, `重新生成完成：${job.relativePath}`);
   return { folder, relativePath: job.relativePath, outputPath: job.outputPath };
 }
