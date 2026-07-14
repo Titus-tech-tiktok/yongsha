@@ -44,6 +44,7 @@ function loadStoredTemplateMasterCandidates() {
     if (!Array.isArray(items)) return [];
     return items.filter(item => item && item.id && (item.masterReferencePath || item.printPath || item.masterImagePath)).map(item => ({
       ...item,
+      selected: Boolean(item.selected),
       masterStatus: ['生成中', '重新生成'].includes(item.masterStatus)
         ? (item.masterImagePath ? '已生成' : '未生成')
         : (item.masterStatus || '未生成'),
@@ -108,6 +109,7 @@ const state = {
   taskTemplateFolderView: '',
   selectedTaskTemplatePaths: new Set(),
   templateMasterCandidates: [],
+  activeTemplateMasterCandidateId: '',
   taskTemplateSelectionScope: '',
   taskTemplateExpandedGroups: new Set(),
   templateFilter: 'all',
@@ -598,10 +600,26 @@ function templateMasterCandidateForPath(path) {
   return state.templateMasterCandidates.find(candidate => candidate.masterReferencePath === path);
 }
 
+function activeTemplateMasterCandidate() {
+  return state.templateMasterCandidates.find(candidate => candidate.id === state.activeTemplateMasterCandidateId) || null;
+}
+
+function clearTemplateMasterGeneratedImage(candidate) {
+  if (!candidate) return;
+  candidate.masterImagePath = '';
+  candidate.masterImageUrl = '';
+  candidate.masterImagePreviewUrl = '';
+  candidate.masterStatus = '未生成';
+  candidate.masterError = '';
+  candidate.masterProgress = null;
+}
+
 function upsertTemplateMasterCandidateFromItem(item) {
   const candidate = templateMasterCandidateFromItem(item);
   if (!candidate) return null;
+  candidate.selected = true;
   state.templateMasterCandidates.push(candidate);
+  state.activeTemplateMasterCandidateId = candidate.id;
   persistTemplateMasterCandidates();
   toast(candidate.printPath
     ? `已创建母版任务：${candidate.masterReferenceName} + ${candidate.printName}`
@@ -619,17 +637,25 @@ function lastIncompleteTemplateMasterCandidate() {
 
 function addTemplateMasterReference(item) {
   if (!item) return null;
+  const active = activeTemplateMasterCandidate();
+  if (active) {
+    Object.assign(active, masterReferenceFromItem(item), {
+      templateFolderPath: templateFolderPathForItem(item)
+    });
+    clearTemplateMasterGeneratedImage(active);
+    active.selected = true;
+    persistTemplateMasterCandidates();
+    toast(`已更新母版底图：${active.masterReferenceName || ''}`);
+    return active;
+  }
   const incomplete = lastIncompleteTemplateMasterCandidate();
   if (incomplete && !incomplete.masterReferencePath) {
     Object.assign(incomplete, masterReferenceFromItem(item), {
       templateFolderPath: templateFolderPathForItem(item),
-      masterImagePath: '',
-      masterImageUrl: '',
-      masterImagePreviewUrl: '',
-      masterStatus: '未生成',
-      masterError: '',
-      masterProgress: null
     });
+    clearTemplateMasterGeneratedImage(incomplete);
+    incomplete.selected = true;
+    state.activeTemplateMasterCandidateId = incomplete.id;
     persistTemplateMasterCandidates();
     toast(incomplete.printPath
       ? `已补齐母版底图：${incomplete.masterReferenceName} + ${incomplete.printName}`
@@ -641,16 +667,22 @@ function addTemplateMasterReference(item) {
 
 function addTemplateMasterPrint(print) {
   if (!print) return null;
+  const active = activeTemplateMasterCandidate();
+  if (active) {
+    Object.assign(active, templateMasterPrintFields(print));
+    clearTemplateMasterGeneratedImage(active);
+    active.selected = true;
+    persistTemplateMasterCandidates();
+    toast(`已更新印花：${active.printName || ''}`);
+    return active;
+  }
   const incomplete = lastIncompleteTemplateMasterCandidate();
   if (incomplete && !incomplete.printPath) {
     Object.assign(incomplete, templateMasterPrintFields(print), {
-      masterImagePath: '',
-      masterImageUrl: '',
-      masterImagePreviewUrl: '',
-      masterStatus: '未生成',
-      masterError: '',
-      masterProgress: null
     });
+    clearTemplateMasterGeneratedImage(incomplete);
+    incomplete.selected = true;
+    state.activeTemplateMasterCandidateId = incomplete.id;
     persistTemplateMasterCandidates();
     toast(incomplete.masterReferencePath
       ? `已补齐印花：${incomplete.masterReferenceName} + ${incomplete.printName}`
@@ -658,7 +690,9 @@ function addTemplateMasterPrint(print) {
     return incomplete;
   }
   const candidate = createEmptyTemplateMasterCandidate(templateMasterPrintFields(print));
+  candidate.selected = true;
   state.templateMasterCandidates.push(candidate);
+  state.activeTemplateMasterCandidateId = candidate.id;
   persistTemplateMasterCandidates();
   toast(`已创建母版任务：${candidate.printName}，等待选择母版底图`);
   return candidate;
@@ -668,9 +702,31 @@ function removeTemplateMasterCandidate(id) {
   const index = state.templateMasterCandidates.findIndex(candidate => candidate.id === id);
   if (index < 0) return;
   const [candidate] = state.templateMasterCandidates.splice(index, 1);
+  if (state.activeTemplateMasterCandidateId === id) state.activeTemplateMasterCandidateId = '';
   persistTemplateMasterCandidates();
   renderTemplateWorkflow();
   toast(`已移除母版底图：${candidate.masterReferenceName || ''}`);
+}
+
+function selectedTemplateMasterCandidates() {
+  return state.templateMasterCandidates.filter(candidate => candidate.selected);
+}
+
+function selectAllTemplateMasterCandidates(selected = true) {
+  state.templateMasterCandidates.forEach(candidate => { candidate.selected = selected; });
+  persistTemplateMasterCandidates();
+  renderTemplateWorkflow();
+}
+
+function removeSelectedTemplateMasterCandidates() {
+  const selected = selectedTemplateMasterCandidates();
+  if (!selected.length) return toast('请先勾选要删除的母版任务', true);
+  const selectedIds = new Set(selected.map(candidate => candidate.id));
+  state.templateMasterCandidates = state.templateMasterCandidates.filter(candidate => !selectedIds.has(candidate.id));
+  if (selectedIds.has(state.activeTemplateMasterCandidateId)) state.activeTemplateMasterCandidateId = '';
+  persistTemplateMasterCandidates();
+  renderTemplateWorkflow();
+  toast(`已删除 ${selected.length} 个母版任务`);
 }
 
 function templateMasterCandidateHasImage(candidate) {
@@ -1062,7 +1118,7 @@ function renderTemplateWorkflow() {
   $('#taskTemplateFolderHint').textContent = taskViewAll
     ? `当前显示 ${replaceItems.length} 张 · 默认整套任务文件夹：${activeFolderName}`
     : `当前显示 ${replaceItems.length} 张，可点击任意图片创建母版卡`;
-  const candidateSignature = state.templateMasterCandidates.map(candidate => `${candidate.id}:${candidate.masterReferencePath}:${candidate.printPath}:${candidate.masterImagePath}:${candidate.masterStatus}`).join('|');
+  const candidateSignature = state.templateMasterCandidates.map(candidate => `${candidate.id}:${candidate.masterReferencePath}:${candidate.printPath}:${candidate.masterImagePath}:${candidate.masterStatus}:${candidate.selected ? 1 : 0}:${state.activeTemplateMasterCandidateId === candidate.id ? 1 : 0}`).join('|');
   const previewSignature = `${taskView}|${state.config.detailSetsPath || ''}|masters:${candidateSignature}|${replaceItems.map(item => `${item.path}:${item.thumbnailUrl || item.url}:${state.selectedTaskTemplatePaths.has(item.path)}`).join('|')}|${[...state.taskTemplateExpandedGroups].sort().join('|')}`;
   if (templatePreview.dataset.previewSignature !== previewSignature) {
     templatePreview.dataset.previewSignature = previewSignature;
@@ -1087,10 +1143,14 @@ function renderTemplateMasterWorkflow() {
     const running = ['生成中', '重新生成'].includes(candidate.masterStatus);
     const canCreate = templateMasterCandidateHasImage(candidate);
     const complete = Boolean(candidate.masterReferencePath && candidate.printPath);
-    return `<section class="template-master-card" data-template-master-candidate="${escapeHtml(candidate.id)}">
+    const active = state.activeTemplateMasterCandidateId === candidate.id;
+    return `<section class="template-master-card${candidate.selected ? ' is-selected' : ''}${active ? ' is-editing' : ''}" data-template-master-candidate="${escapeHtml(candidate.id)}">
       <div class="template-master-card-head">
-        <b>${escapeHtml(candidate.masterReferenceName || candidate.printName || '母版任务')}</b>
-        <button class="link-danger" type="button" data-template-master-remove="${escapeHtml(candidate.id)}"${running ? ' disabled' : ''}>删除</button>
+        <label class="template-master-check"><input type="checkbox" data-template-master-select="${escapeHtml(candidate.id)}"${candidate.selected ? ' checked' : ''}> <b>${escapeHtml(candidate.masterReferenceName || candidate.printName || '母版任务')}</b></label>
+        <div class="template-master-head-actions">
+          <button class="secondary mini" type="button" data-template-master-edit="${escapeHtml(candidate.id)}">${active ? '编辑中' : '编辑'}</button>
+          <button class="link-danger" type="button" data-template-master-remove="${escapeHtml(candidate.id)}"${running ? ' disabled' : ''}>删除</button>
+        </div>
       </div>
       <div class="template-master-flow">
         ${queuePreviewFigure(candidate.masterReferenceThumbnailUrl || '', candidate.masterReferencePreviewUrl || '', candidate.masterReferenceName || '等待底图', '母版底图')}
@@ -1112,15 +1172,19 @@ function renderTemplateMasterWorkflow() {
   panel.innerHTML = cards || '<div class="template-master-empty"><b>还没有母版任务</b><span>点击左侧底图或中间印花即可创建任务卡；顺序不限。</span></div>';
   const generateButton = $('#generateAllMastersButton');
   if (generateButton) {
-    const runnable = candidates.filter(candidate => candidate.masterReferencePath && candidate.printPath && !['生成中', '重新生成'].includes(candidate.masterStatus));
+    const selected = selectedTemplateMasterCandidates();
+    const source = selected.length ? selected : candidates;
+    const runnable = source.filter(candidate => candidate.masterReferencePath && candidate.printPath && !['生成中', '重新生成'].includes(candidate.masterStatus));
     generateButton.disabled = !runnable.length;
-    generateButton.textContent = runnable.length ? `批量生成母版（${runnable.length}）` : '批量生成母版';
+    generateButton.textContent = runnable.length ? `生成${selected.length ? '选中' : '全部'}母版（${runnable.length}）` : '生成选中母版';
   }
   const createAllButton = $('#createTasksFromAllMastersButton');
   if (createAllButton) {
-    const ready = candidates.filter(templateMasterCandidateHasImage).length;
+    const selected = selectedTemplateMasterCandidates();
+    const source = selected.length ? selected : candidates;
+    const ready = source.filter(templateMasterCandidateHasImage).length;
     createAllButton.disabled = !ready;
-    createAllButton.textContent = ready ? `批量开始整套（${ready}）` : '批量开始整套';
+    createAllButton.textContent = ready ? `开始${selected.length ? '选中' : '全部'}整套（${ready}）` : '开始选中整套';
   }
 }
 
@@ -1730,20 +1794,24 @@ async function startTemplateSetFromMasterCandidate(candidateId) {
 }
 
 async function startTemplateSetsFromAllMasters() {
-  const ready = state.templateMasterCandidates.filter(templateMasterCandidateHasImage);
+  const selectedMasters = selectedTemplateMasterCandidates();
+  const source = selectedMasters.length ? selectedMasters : state.templateMasterCandidates;
+  const ready = source.filter(templateMasterCandidateHasImage);
   if (!ready.length) return toast('没有已生成母版图的任务卡', true);
   for (const candidate of ready) {
     await ensureTaskTemplateItemsForCandidate(candidate);
     createTemplateTasksFromMasterCandidate(candidate.id, { silent: true });
   }
-  const selected = selectQueueTasksForMasterCandidates(ready.map(candidate => candidate.id));
+  const selectedTasks = selectQueueTasksForMasterCandidates(ready.map(candidate => candidate.id));
   renderQueue();
-  if (!selected) return toast('全部已生成母版对应的整套任务都已完成', true);
+  if (!selectedTasks) return toast('全部已生成母版对应的整套任务都已完成', true);
   await generateQueue();
 }
 
 async function generateAllTemplateMasterCandidates() {
-  const runnable = state.templateMasterCandidates.filter(candidate =>
+  const selected = selectedTemplateMasterCandidates();
+  const source = selected.length ? selected : state.templateMasterCandidates;
+  const runnable = source.filter(candidate =>
     candidate.masterReferencePath
     && candidate.printPath
     && !['生成中', '重新生成'].includes(candidate.masterStatus)
@@ -3633,9 +3701,32 @@ function bindEvents() {
     } catch (error) { toast(errorText(error), true); }
   };
   $('#addTaskButton').onclick = () => addTask(false);
+  $('#selectAllMastersButton').onclick = () => selectAllTemplateMasterCandidates(true);
+  $('#clearMasterSelectionButton').onclick = () => selectAllTemplateMasterCandidates(false);
+  $('#deleteSelectedMastersButton').onclick = removeSelectedTemplateMasterCandidates;
   $('#generateAllMastersButton').onclick = generateAllTemplateMasterCandidates;
   $('#createTasksFromAllMastersButton').onclick = startTemplateSetsFromAllMasters;
   $('#templateMasterWorkflow').onclick = event => {
+    const selectInput = event.target.closest('[data-template-master-select]');
+    if (selectInput) {
+      const candidate = state.templateMasterCandidates.find(item => item.id === selectInput.dataset.templateMasterSelect);
+      if (candidate) {
+        candidate.selected = selectInput.checked;
+        persistTemplateMasterCandidates();
+        renderTemplateWorkflow();
+      }
+      return;
+    }
+    const editButton = event.target.closest('[data-template-master-edit]');
+    if (editButton) {
+      const id = editButton.dataset.templateMasterEdit;
+      state.activeTemplateMasterCandidateId = state.activeTemplateMasterCandidateId === id ? '' : id;
+      const candidate = state.templateMasterCandidates.find(item => item.id === id);
+      if (candidate) candidate.selected = true;
+      persistTemplateMasterCandidates();
+      renderTemplateWorkflow();
+      return;
+    }
     const removeButton = event.target.closest('[data-template-master-remove]');
     if (removeButton) return removeTemplateMasterCandidate(removeButton.dataset.templateMasterRemove);
     const generateButton = event.target.closest('[data-template-master-generate]');

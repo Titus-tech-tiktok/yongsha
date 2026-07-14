@@ -1,5 +1,12 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Master card list usability fix
+
+- Fixed the combined master/full-set task list so the 03 panel scrolls independently and cards no longer clip actions on the right edge.
+- Added master card selection controls: select all, clear selection, delete selected, generate selected masters, and start selected full sets.
+- Added per-card edit mode. After clicking edit, the next template base image or print image click replaces that card and clears its old generated master image.
+- Verification completed: `node --check apps/web/src/renderer.js`, `npm run build -w @caishen/web`.
+
 ## 2026-07-15 Update - Combined master task workflow
 
 - Material generation UI now keeps three visible columns: template base images, print images, and a combined master/full-set task list.
