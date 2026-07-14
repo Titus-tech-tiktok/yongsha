@@ -550,8 +550,8 @@ function cleanTemplateMask({
   if (rawCount === 0) {
     return { mask: new Uint8Array(width * height), rawCount, cleanedCount, usedLightPanelFilter: false };
   }
-  const usedLightPanelFilter = cleanedCount >= Math.max(120, rawCount * 0.08);
-  let result = usedLightPanelFilter ? cleaned : raw;
+  const usedLightPanelFilter = true;
+  let result = cleaned;
   result = erodeMask(result, width, height, 2);
   result = removeSmallMaskComponents(result, width, height, Math.max(80, Math.trunc(width * height / 8000)));
   const mask = Uint8Array.from(result, value => value ? 255 : 0);
@@ -563,7 +563,8 @@ function normalizeTemplateProcessingMode(value) {
   if (action.includes('copy_original') || action.includes('copy_template') || action.includes('保留原图') || action.includes('复制')) return 'copy_original';
   if (action.includes('exclude') || action.includes('skip_copy') || action.includes('不输出') || action.includes('排除') || action.includes('跳过')) return 'exclude';
   if (action.includes('manual') || action.includes('人工') || action.includes('不确定')) return 'manual_check';
-  return 'replace_print';
+  if (action.includes('replace_print') || action.includes('换印花') || action.includes('更换印花')) return 'replace_print';
+  return 'manual_check';
 }
 
 function normalizeTemplateAction(value) {
@@ -687,6 +688,7 @@ function validateTemplateAnalysis(value, options = {}) {
     return createFallbackTemplateAnalysis();
   }
   const source = String(options.source || 'ai');
+  const sourceVersion = Number(root.version);
   let processingMode = normalizeTemplateProcessingMode(
     root.processingMode ?? root.processing_mode ?? root.action ?? root.generation_action
   );
@@ -694,10 +696,25 @@ function validateTemplateAnalysis(value, options = {}) {
   const confidence = clamp(getJsonNumber(root, 'confidence', processingMode === 'manual_check' ? 0.5 : 1), 0, 1);
   let surfaces = normalizePrintableSurfaces(root.printableSurfaces ?? root.printable_surfaces);
   const regions = normalizeRegions(root.replace_regions ?? root.replaceRegions);
-  if (!surfaces.length) surfaces = regions.map(regionToPrintableSurface).filter(Boolean);
+  if (!surfaces.length && source !== 'ai') surfaces = regions.map(regionToPrintableSurface).filter(Boolean);
   const hasMask = options.hasMask === true || surfaces.length > 0;
   const understanding = analysisText(root, 'imageUnderstanding', 'image_understanding', 'reason') || '未提供可靠的图片用途判断';
   let reason = analysisText(root, 'reason') || understanding;
+  const missingRequiredAiFields = source === 'ai'
+    && processingMode !== 'manual_check'
+    && (
+      !Number.isFinite(root.confidence)
+      || !analysisText(root, 'imageRole', 'image_role', 'category')
+      || !analysisText(root, 'imageUnderstanding', 'image_understanding')
+      || !analysisText(root, 'preserveAreas', 'preserve_areas', 'forbidden_area')
+    );
+  if (source === 'ai' && sourceVersion !== TEMPLATE_CACHE_VERSION) {
+    processingMode = 'manual_check';
+    reason = `AI 分析契约版本无效，需要 V${TEMPLATE_CACHE_VERSION}，请人工确认。`;
+  } else if (missingRequiredAiFields) {
+    processingMode = 'manual_check';
+    reason = 'AI 分析缺少置信度、图片用途判断或必须保持不变区域，请人工确认。';
+  }
   if (root.needs_manual_check === true || confidence < 0.75) processingMode = 'manual_check';
   if (processingMode === 'replace_print' && !hasMask) {
     processingMode = 'manual_check';

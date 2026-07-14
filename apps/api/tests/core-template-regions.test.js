@@ -135,6 +135,8 @@ test('分析动作使用新语义并兼容旧缓存别名', () => {
   assert.equal(normalizeTemplateProcessingMode('skip_copy'), 'exclude');
   assert.equal(normalizeTemplateProcessingMode('换印花'), 'replace_print');
   assert.equal(normalizeTemplateProcessingMode('人工确认'), 'manual_check');
+  assert.equal(normalizeTemplateProcessingMode(''), 'manual_check');
+  assert.equal(normalizeTemplateProcessingMode('unexpected_action'), 'manual_check');
 });
 
 test('严格分析契约要求换印花必须有有效面板多边形', () => {
@@ -175,6 +177,7 @@ test('严格分析契约要求换印花必须有有效面板多边形', () => {
 test('AI 不能自动排除图片且无可印花表面时默认保留原图', () => {
   const excluded = validateTemplateAnalysis({
     version: 9,
+    imageRole: '包装物流',
     includeInOutput: false,
     processingMode: 'exclude',
     confidence: 1,
@@ -185,6 +188,76 @@ test('AI 不能自动排除图片且无可印花表面时默认保留原图', ()
   assert.equal(excluded.processingMode, 'copy_original');
   assert.equal(excluded.includeInOutput, true);
   assert.equal(excluded.preserveAreas, '整张原图');
+});
+
+test('非 V9、缺失动作或旧矩形区域的 AI 返回不得直接执行换印花', () => {
+  const surface = {
+    id: 'front',
+    label: '正面白色柜门',
+    polygon: [[0.2, 0.4], [0.8, 0.4], [0.8, 0.8], [0.2, 0.8]],
+    surfaceState: '外侧闭合'
+  };
+  const base = {
+    version: 9,
+    imageRole: '主图',
+    includeInOutput: true,
+    confidence: 0.96,
+    imageUnderstanding: '正面闭合柜体，外侧白色柜门清晰可见。',
+    printableArea: '正面白色柜门',
+    printableSurfaces: [surface],
+    preserveAreas: '文字、背景、边框、门缝、把手和柜脚'
+  };
+
+  const missingAction = validateTemplateAnalysis(base, { source: 'ai' });
+  assert.equal(missingAction.action, 'manual_check');
+
+  const unknownAction = validateTemplateAnalysis({
+    ...base,
+    processingMode: 'decorate_cabinet'
+  }, { source: 'ai' });
+  assert.equal(unknownAction.action, 'manual_check');
+
+  const oldVersion = validateTemplateAnalysis({
+    ...base,
+    version: 8,
+    processingMode: 'replace_print'
+  }, { source: 'ai' });
+  assert.equal(oldVersion.action, 'manual_check');
+
+  const legacyRectangle = validateTemplateAnalysis({
+    ...base,
+    processingMode: 'replace_print',
+    printableSurfaces: [],
+    replace_regions: [{ x: 0.2, y: 0.4, width: 0.6, height: 0.4 }]
+  }, { source: 'ai' });
+  assert.equal(legacyRectangle.action, 'manual_check');
+});
+
+test('AI 可执行结果必须包含置信度、图片用途判断和保持不变区域', () => {
+  const complete = {
+    version: 9,
+    imageRole: '主图',
+    includeInOutput: true,
+    processingMode: 'replace_print',
+    confidence: 0.96,
+    imageUnderstanding: '正面闭合柜体，外侧白色柜门清晰可见。',
+    printableArea: '正面白色柜门',
+    printableSurfaces: [{
+      id: 'front',
+      label: '正面白色柜门',
+      polygon: [[0.2, 0.4], [0.8, 0.4], [0.8, 0.8], [0.2, 0.8]],
+      surfaceState: '外侧闭合'
+    }],
+    preserveAreas: '文字、背景、边框、门缝、把手和柜脚'
+  };
+
+  for (const field of ['confidence', 'imageRole', 'imageUnderstanding', 'preserveAreas']) {
+    const incomplete = { ...complete };
+    delete incomplete[field];
+    const result = validateTemplateAnalysis(incomplete, { source: 'ai' });
+    assert.equal(result.action, 'manual_check', `missing ${field} must require manual review`);
+    assert.equal(result.needs_manual_check, true);
+  }
 });
 
 test('蒙版边界按 96 阈值缩放回模板像素', () => {
@@ -228,6 +301,23 @@ test('清洁蒙版复刻浅色面板、腐蚀和小连通域规则', () => {
   assert.equal(cleaned.rawCount, 256);
   assert.equal(cleaned.cleanedCount, 256);
   assert.equal(cleaned.mask.reduce((sum, value) => sum + (value === 255 ? 1 : 0), 0), 144);
+
+  const darkTemplatePixels = new Uint8Array(width * height * 4);
+  for (let index = 0; index < width * height; index += 1) {
+    darkTemplatePixels[index * 4] = 40;
+    darkTemplatePixels[index * 4 + 1] = 40;
+    darkTemplatePixels[index * 4 + 2] = 40;
+    darkTemplatePixels[index * 4 + 3] = 255;
+  }
+  const rejectedDarkArea = cleanTemplateMask({
+    templatePixels: darkTemplatePixels,
+    maskPixels: new Uint8Array(width * height).fill(255),
+    width,
+    height
+  });
+  assert.equal(rejectedDarkArea.usedLightPanelFilter, true);
+  assert.equal(rejectedDarkArea.cleanedCount, 0);
+  assert.equal(rejectedDarkArea.mask.some(Boolean), false);
 });
 
 test('蒙版编辑数据可稳定序列化和反序列化', () => {

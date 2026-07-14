@@ -83,6 +83,7 @@ test('paid analysis responses are not shown as failed when content needs local f
   let requests = 0;
   const validAnalysis = {
     version: 9,
+    imageRole: '主图',
     processingMode: 'replace_print',
     confidence: 0.93,
     imageUnderstanding: 'cabinet front panels can receive print',
