@@ -125,7 +125,7 @@ const state = {
   selectedAssetPaths: new Set(),
   assetUploading: false,
   assetAnalysisProgress: new Map(),
-  assetAnalysisRunning: false,
+  assetAnalysisRunning: 0,
   activeTemplatePath: ''
 };
 
@@ -2151,10 +2151,10 @@ async function saveTemplateConfig() {
 }
 
 async function runAssetTemplateAnalysis(paths) {
-  if (state.assetAnalysisRunning) return toast('已有 AI 分析任务正在运行', true);
-  const selected = state.assetPreviewItems.filter(item => paths.includes(item.path));
+  const requested = new Set(paths);
+  const selected = state.assetPreviewItems.filter(item => requested.has(item.path) && !state.assetAnalysisProgress.has(item.path));
   if (!selected.length) return toast('请先选择需要 AI 分析的套图', true);
-  state.assetAnalysisRunning = true;
+  state.assetAnalysisRunning += 1;
   for (const item of selected) state.assetAnalysisProgress.set(item.path, { status: 'queued', attempt: 0 });
   renderAssetManagementGrid();
   try {
@@ -2198,7 +2198,7 @@ async function runAssetTemplateAnalysis(paths) {
     await loadAssetLibraryPreview('detailSetsPath', { preserveSelection: true, force: true }).catch(() => {});
   } finally {
     for (const item of selected) state.assetAnalysisProgress.delete(item.path);
-    state.assetAnalysisRunning = false;
+    state.assetAnalysisRunning = Math.max(0, state.assetAnalysisRunning - 1);
     if (currentPage === 'assets') {
       renderAssetManagementGrid();
       renderAssetSelectionState();
