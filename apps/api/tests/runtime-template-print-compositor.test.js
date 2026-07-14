@@ -43,7 +43,7 @@ function createBmp24(width, height, pixelAt) {
   return bytes;
 }
 
-test('template-print planner blocks manual work and local generation expands copies without image API', async (t) => {
+test('template-print planner ignores unselected manual work and local generation expands copies without image API', async (t) => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-local-template-print-'));
   t.after(() => fs.rm(temp, { recursive: true, force: true }));
   process.env.CAISHEN_DATA_DIR = path.join(temp, 'data');
@@ -97,11 +97,24 @@ test('template-print planner blocks manual work and local generation expands cop
       generationMode: 'template_print',
       printPath,
       templateFolderPath: templateRoot,
-      templateRelativePaths: ['01-main.png']
+      templateRelativePaths: ['03-side.png']
     }),
     /人工确认.*03-side\.png/
   );
-  assert.deepEqual(await fs.readdir(outputRoot), [], 'manual work must block before a task folder is created');
+  assert.deepEqual(await fs.readdir(outputRoot), [], 'selected manual work must block before a task folder is created');
+
+  const partial = await runtime.generateTask({
+    taskNumber: 1,
+    generationMode: 'template_print',
+    printPath,
+    templateFolderPath: templateRoot,
+    templateRelativePaths: ['01-main.png']
+  });
+  assert.equal(partial.summary.composited, 1);
+  assert.equal(partial.summary.copied, 1);
+  assert.equal(partial.summary.excluded, 1);
+  assert.deepEqual(await fs.readFile(path.join(partial.folder, '02-logistics.png')), await fs.readFile(copyPath));
+  await assert.rejects(fs.access(path.join(partial.folder, '03-side.png')));
 
   await runtime.saveTemplateConfiguration({
     folder: templateRoot,

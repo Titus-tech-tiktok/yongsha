@@ -700,22 +700,11 @@ function validateTemplateAnalysis(value, options = {}) {
   const hasMask = options.hasMask === true || surfaces.length > 0;
   const understanding = analysisText(root, 'imageUnderstanding', 'image_understanding', 'reason') || '未提供可靠的图片用途判断';
   let reason = analysisText(root, 'reason') || understanding;
-  const missingRequiredAiFields = source === 'ai'
-    && processingMode !== 'manual_check'
-    && (
-      !Number.isFinite(root.confidence)
-      || !analysisText(root, 'imageRole', 'image_role', 'category')
-      || !analysisText(root, 'imageUnderstanding', 'image_understanding')
-      || !analysisText(root, 'preserveAreas', 'preserve_areas', 'forbidden_area')
-    );
   if (source === 'ai' && sourceVersion !== TEMPLATE_CACHE_VERSION) {
     processingMode = 'manual_check';
     reason = `AI 分析契约版本无效，需要 V${TEMPLATE_CACHE_VERSION}，请人工确认。`;
-  } else if (missingRequiredAiFields) {
-    processingMode = 'manual_check';
-    reason = 'AI 分析缺少置信度、图片用途判断或必须保持不变区域，请人工确认。';
   }
-  if (root.needs_manual_check === true || confidence < 0.75) processingMode = 'manual_check';
+  if (root.needs_manual_check === true) processingMode = 'manual_check';
   if (processingMode === 'replace_print' && !hasMask) {
     processingMode = 'manual_check';
     reason = '没有有效的可印花面板区域，需要人工确认并标注。';
@@ -836,8 +825,7 @@ function resolveGenerationAction(value) {
     return inferGenerationAction(value, true);
   }
 
-  const confidence = getJsonNumber(root, 'confidence', 1);
-  if (root.needs_manual_check === true || confidence < 0.75) return 'manual_check';
+  if (root.needs_manual_check === true) return 'manual_check';
   const action = getJsonString(root, 'processingMode', 'processing_mode', 'action', 'generation_action');
   if (action.trim()) return normalizeGenerationAction(action);
   const category = getJsonString(root, 'category', 'template_purpose', 'template_type');

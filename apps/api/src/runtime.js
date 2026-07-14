@@ -1413,6 +1413,7 @@ async function planTemplateOutputJobs(templateFolderPath, selectedPaths = null) 
     if (selected.has(relativeKey)) matchedSelection = true;
     const enriched = { ...job, ...details, action };
     if (action === 'manual_check') {
+      if (selected.size && !selected.has(relativeKey)) continue;
       unresolved.push(job.relativePath);
       continue;
     }

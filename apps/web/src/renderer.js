@@ -1480,7 +1480,7 @@ async function generateQueue() {
   }
   const runnable = source.filter(task => task.status === '未开始' || task.status === '失败');
   if (!runnable.length) return toast('没有待生成任务', true);
-  if (runnable.some(task => task.generationMode === 'template_print' && !task.templateRelativePath) && !state.templatePreparation?.generationReady) {
+  if (runnable.some(task => task.generationMode === 'template_print' && !task.templateRelativePath) && !state.templatePreparation?.ready) {
     return toast(state.templatePreparation?.counts?.manualCheck ? '套图中还有需要人工确认的图片，请先查看识别结果' : '请先完成套图自动识别', true);
   }
   $('#generateAllButton').disabled = true;
