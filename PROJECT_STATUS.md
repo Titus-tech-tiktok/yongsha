@@ -1,5 +1,14 @@
 # PROJECT_STATUS
 
+## 2026-07-14 Update - Template AI fallback
+
+- Current pushed base before this change: `a268eb2 Allow parallel template analysis retries`.
+- New fix in progress: when template AI returns empty text or marks an obvious light cabinet-panel image as `manual_check`, the API now attempts a local visual fallback.
+- The fallback detects non-edge, light neutral cabinet door/drawer panel components with nearby dark cabinet borders, then writes `printableSurfaces` and a normal mask so these images can enter `replace_print`.
+- This targets cases like size/SKU/detail images (`5.jpg`, `638_23.jpg`) where similar images are correctly recognized as `replace_print` but isolated retries stay stuck in `manual_check`.
+- Regression added in `apps/api/tests/template-analysis-batch.test.js`: empty AI response on a plain image remains `manual_check`, while empty AI response on a synthetic cabinet panel image becomes `replace_print` with a non-empty clean mask.
+- Verification completed: `npm test -w @caishen/api -- tests/template-analysis-batch.test.js tests/core-template-regions.test.js` passed `138 pass / 0 fail`.
+
 更新日期：2026-07-14
 
 ## 项目概况

@@ -797,6 +797,155 @@ async function imageAsAnalysisDataUrl(file) {
   return `data:image/jpeg;base64,${bytes.toString('base64')}`;
 }
 
+function pixelAverage(data, index) {
+  return (Number(data[index]) + Number(data[index + 1]) + Number(data[index + 2])) / 3;
+}
+
+function pixelSaturation(data, index) {
+  const r = Number(data[index]);
+  const g = Number(data[index + 1]);
+  const b = Number(data[index + 2]);
+  return Math.max(r, g, b) - Math.min(r, g, b);
+}
+
+function countDarkBorderPixels(data, width, height, box) {
+  const x0 = Math.max(0, box.x0 - 2);
+  const y0 = Math.max(0, box.y0 - 2);
+  const x1 = Math.min(width - 1, box.x1 + 2);
+  const y1 = Math.min(height - 1, box.y1 + 2);
+  let dark = 0;
+  let total = 0;
+  for (let x = x0; x <= x1; x += 1) {
+    for (const y of [y0, y1]) {
+      const offset = (y * width + x) * 3;
+      total += 1;
+      if (pixelAverage(data, offset) < 115) dark += 1;
+    }
+  }
+  for (let y = y0 + 1; y < y1; y += 1) {
+    for (const x of [x0, x1]) {
+      const offset = (y * width + x) * 3;
+      total += 1;
+      if (pixelAverage(data, offset) < 115) dark += 1;
+    }
+  }
+  return total ? dark / total : 0;
+}
+
+async function inferPrintableSurfacesFromImage(file) {
+  const { data, info } = await sharp(file, { failOn: 'none', animated: false, limitInputPixels: 120_000_000 })
+    .rotate()
+    .resize({ width: 360, height: 360, fit: 'inside', withoutEnlargement: true })
+    .flatten({ background: '#ffffff' })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const width = info.width;
+  const height = info.height;
+  const totalPixels = width * height;
+  const candidate = new Uint8Array(totalPixels);
+  for (let y = 0; y < height; y += 1) {
+    const yNorm = y / height;
+    if (yNorm < 0.12 || yNorm > 0.9) continue;
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+      const offset = index * 3;
+      const average = pixelAverage(data, offset);
+      const saturation = pixelSaturation(data, offset);
+      if (average >= 168 && average <= 240 && saturation <= 42) candidate[index] = 1;
+    }
+  }
+
+  const visited = new Uint8Array(totalPixels);
+  const components = [];
+  const stack = [];
+  for (let start = 0; start < totalPixels; start += 1) {
+    if (!candidate[start] || visited[start]) continue;
+    visited[start] = 1;
+    stack.push(start);
+    let area = 0;
+    let x0 = width;
+    let y0 = height;
+    let x1 = 0;
+    let y1 = 0;
+    let brightness = 0;
+    while (stack.length) {
+      const index = stack.pop();
+      const x = index % width;
+      const y = Math.floor(index / width);
+      const offset = index * 3;
+      area += 1;
+      brightness += pixelAverage(data, offset);
+      x0 = Math.min(x0, x);
+      y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x);
+      y1 = Math.max(y1, y);
+      for (const next of [index - 1, index + 1, index - width, index + width]) {
+        if (next < 0 || next >= totalPixels || visited[next] || !candidate[next]) continue;
+        if ((index % width === 0 && next === index - 1) || (index % width === width - 1 && next === index + 1)) continue;
+        visited[next] = 1;
+        stack.push(next);
+      }
+    }
+    const boxWidth = x1 - x0 + 1;
+    const boxHeight = y1 - y0 + 1;
+    const boxArea = boxWidth * boxHeight;
+    const areaRatio = area / totalPixels;
+    const fillRatio = area / Math.max(1, boxArea);
+    const widthRatio = boxWidth / width;
+    const heightRatio = boxHeight / height;
+    const aspect = boxWidth / Math.max(1, boxHeight);
+    const touchesImageEdge = x0 <= 1 || y0 <= 1 || x1 >= width - 2 || y1 >= height - 2;
+    const darkBorderRatio = countDarkBorderPixels(data, width, height, { x0, y0, x1, y1 });
+    if (
+      !touchesImageEdge
+      && areaRatio >= 0.0018
+      && areaRatio <= 0.16
+      && fillRatio >= 0.45
+      && widthRatio >= 0.035
+      && heightRatio >= 0.04
+      && widthRatio <= 0.75
+      && heightRatio <= 0.65
+      && aspect >= 0.28
+      && aspect <= 5
+      && brightness / Math.max(1, area) <= 236
+      && darkBorderRatio >= 0.015
+    ) {
+      components.push({ x0, y0, x1, y1, area });
+    }
+  }
+
+  return components
+    .sort((left, right) => (right.area - left.area) || (left.y0 - right.y0) || (left.x0 - right.x0))
+    .slice(0, 12)
+    .sort((left, right) => (left.y0 - right.y0) || (left.x0 - right.x0))
+    .map((box, index) => ({
+      id: `detected-panel-${index + 1}`,
+      label: `detected light cabinet panel ${index + 1}`,
+      polygon: [
+        [box.x0 / width, box.y0 / height],
+        [(box.x1 + 1) / width, box.y0 / height],
+        [(box.x1 + 1) / width, (box.y1 + 1) / height],
+        [box.x0 / width, (box.y1 + 1) / height]
+      ],
+      surfaceState: 'visible exterior panel'
+    }));
+}
+
+async function createVisualFallbackTemplateAnalysis(job, reason) {
+  const printableSurfaces = await inferPrintableSurfacesFromImage(job.templatePath).catch(() => []);
+  if (!printableSurfaces.length) return null;
+  const analysis = createManualTemplateAnalysis({
+    action: 'replace_print',
+    reason,
+    replaceArea: 'Auto-detected light cabinet door or drawer front panels',
+    forbiddenArea: 'text, dimension marks, background, frame, seams, handles, legs, shadows and props',
+    printableSurfaces,
+    hasMask: true
+  });
+  return analysis.action === 'replace_print' ? analysis : null;
+}
+
 function shouldUsePowerShellApiFallback(url, error) {
   return process.platform === 'win32'
     && /change2pro\.com/i.test(String(url || ''))
@@ -1788,14 +1937,16 @@ async function analyzeTemplateJob(job, options = {}) {
   const analysisText = analysisContentToString(content);
   if (!analysisText) {
     const fallbackCache = templateCachePaths(job.templateRoot, job.relativePath);
-    const fallback = createManualTemplateAnalysis({
+    const visualFallback = await createVisualFallbackTemplateAnalysis(job, 'AI returned no readable template analysis; local visual panel detection was used.');
+    const fallback = visualFallback || createManualTemplateAnalysis({
       action: 'manual_check',
       reason: 'AI 接口已返回但没有可读取的分析文本，请人工确认。',
       replaceArea: '不确定',
       forbiddenArea: '背景、文字、墙面、地面、柜脚、把手、抽屉内侧、柜门内侧、包装、留白等非可印花面板区域',
       regions: []
     });
-    await removeTemplateMaskFiles(job);
+    if (fallback.action === 'replace_print') await ensureMaskFromRegions(job, fallback.replace_regions, fallback.printableSurfaces);
+    else await removeTemplateMaskFiles(job);
     await writeTemplateAnalysisCache({
       cacheFile: fallbackCache.analysisFile,
       templateRoot: job.templateRoot,
@@ -1808,6 +1959,10 @@ async function analyzeTemplateJob(job, options = {}) {
   }
   const cache = templateCachePaths(job.templateRoot, job.relativePath);
   let validated = validateTemplateAnalysis(analysisText, { source: 'ai' });
+  if (validated.action === 'manual_check') {
+    const visualFallback = await createVisualFallbackTemplateAnalysis(job, 'AI marked this template for manual check; local visual panel detection found executable light cabinet panels.');
+    if (visualFallback) validated = visualFallback;
+  }
   if (validated.action === 'replace_print') {
     try {
       await ensureMaskFromRegions(job, validated.replace_regions, validated.printableSurfaces);

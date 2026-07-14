@@ -144,6 +144,19 @@ test('paid analysis responses are not shown as failed when content needs local f
   const folder = path.join(runtime.WORKSPACE_ROOT, 'assets', 'template', 'set');
   await fs.mkdir(folder, { recursive: true });
   await Promise.all(['array.png', 'malformed.png', 'empty.png'].map(name => sharp({ create: { width: 24, height: 24, channels: 3, background: '#d8c59b' } }).png().toFile(path.join(folder, name))));
+  await sharp(Buffer.from(`
+    <svg width="320" height="220" xmlns="http://www.w3.org/2000/svg">
+      <rect width="320" height="220" fill="#ffffff"/>
+      <rect x="54" y="58" width="212" height="104" fill="#141414"/>
+      <rect x="62" y="66" width="64" height="88" fill="#dddddd"/>
+      <rect x="128" y="66" width="64" height="88" fill="#e2e2e2"/>
+      <rect x="194" y="66" width="64" height="88" fill="#dddddd"/>
+      <circle cx="126" cy="110" r="3" fill="#b59d4a"/>
+      <circle cx="194" cy="110" r="3" fill="#b59d4a"/>
+      <rect x="76" y="162" width="24" height="28" fill="#111111"/>
+      <rect x="220" y="162" width="24" height="28" fill="#111111"/>
+    </svg>
+  `)).png().toFile(path.join(folder, 'cabinet-empty.png'));
 
   const arrayResult = await runtime.analyzeTemplateItems({ folder, relativePaths: ['array.png'] });
   const arrayItem = arrayResult.items.find(item => item.relativePath === 'array.png');
@@ -175,8 +188,17 @@ test('paid analysis responses are not shown as failed when content needs local f
 
   const emptyCache = templateCachePaths(folder, 'empty.png');
   await fs.writeFile(`${emptyCache.analysisFile}.status.json`, JSON.stringify({ status: 'failed', attempts: 4, error: 'old failed status' }), 'utf8');
+  const cabinetFallbackResult = await runtime.analyzeTemplateItems({ folder, relativePaths: ['cabinet-empty.png'] });
+  const cabinetFallbackItem = cabinetFallbackResult.items.find(item => item.relativePath === 'cabinet-empty.png');
+  assert.equal(cabinetFallbackResult.failed, 0);
+  assert.equal(cabinetFallbackItem.analysisStatus, 'success');
+  assert.equal(cabinetFallbackItem.action, 'replace_print');
+  assert.ok(cabinetFallbackItem.regions.length >= 1);
+  const cabinetFallbackCache = templateCachePaths(folder, 'cabinet-empty.png');
+  const fallbackMaskPixels = await sharp(cabinetFallbackCache.cleanMaskFile).greyscale().raw().toBuffer();
+  assert.ok(fallbackMaskPixels.some(value => value >= 96), 'visual fallback mask should be nonempty');
   const listed = await runtime.listTemplates(folder);
   assert.equal(listed.find(item => item.relativePath === 'empty.png').analysisStatus, 'success');
-  assert.equal(requests, 3);
+  assert.equal(requests, 4);
 
 });
