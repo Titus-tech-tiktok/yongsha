@@ -1,5 +1,12 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Task source panel layout fix
+
+- Fixed the material generation print-source tab layout so the panel content stays horizontal and no longer compresses the title into vertical text.
+- Locked the material generation page to internal scrolling to avoid exposing extra blank page area while scrolling.
+- Reduced template source cards and master-task preview images to compact sizes; source grids are adaptive instead of forced two-column.
+- Verification completed: `node --check apps/web/src/renderer.js`, `npm run build -w @caishen/web`, `git diff --check`.
+
 ## 2026-07-15 Update - Task source tabs and direct asset import
 
 - Material generation now uses one large source panel with tabs for template images and print images, leaving more space for the master/full-set task list.

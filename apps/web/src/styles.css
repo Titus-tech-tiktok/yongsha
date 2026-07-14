@@ -704,6 +704,16 @@ h2 {
   display: grid;
 }
 
+#page-tasks.active {
+  height: calc(100vh - 32px);
+  overflow: hidden;
+}
+
+#page-tasks.active .task-layout {
+  height: 100%;
+  min-height: 0;
+}
+
 .task-layout.template-print-mode {
   grid-template:
     "source-tabs queue" auto
@@ -754,11 +764,14 @@ h2 {
 
 .task-layout.template-print-mode #templateAssetPanel {
   grid-area: source-panel;
+  min-height: 0;
   display: flex;
 }
 
 .task-layout.template-print-mode #printAssetPanel {
   grid-area: source-panel;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .task-layout.template-print-mode:not(.template-source-print-active) #printAssetPanel {
@@ -775,15 +788,25 @@ h2 {
 
 .task-layout.template-print-mode #masterQueuePanel {
   grid-area: queue;
+  min-height: 0;
 }
 
 .task-layout.template-print-mode #printAssetPanel .asset-browser {
   grid-template-columns: 72px minmax(0, 1fr);
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+
+.task-layout.template-print-mode #templateAssetPanel .template-set-preview,
+.task-layout.template-print-mode #printAssetPanel .asset-grid,
+.task-layout.template-print-mode #printAssetPanel .asset-folder-list {
+  min-height: 0;
 }
 
 .task-layout.template-print-mode #printGrid {
-  --asset-card-size: 108px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  --asset-card-size: 92px;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
 }
 
 .task-layout.template-print-mode .asset-size-row {
@@ -1003,7 +1026,7 @@ h2 {
 }
 
 .task-template-flat-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
   gap: 8px;
   display: grid;
 }
@@ -1911,10 +1934,14 @@ input:focus, textarea:focus, select:focus {
 }
 
 .template-master-flow {
-  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr) 18px minmax(0, 1fr);
+  grid-template-columns: 96px 18px 96px 18px 96px;
   align-items: center;
   gap: 8px;
   display: grid;
+}
+
+.template-master-flow .queue-preview-figure {
+  width: 96px;
 }
 
 .queue-preview-button {
