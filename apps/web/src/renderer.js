@@ -519,7 +519,9 @@ function masterReferenceFromItem(item) {
 
 function defaultMasterReferenceForFolder(folderPath) {
   const folder = String(folderPath || '');
-  const items = state.taskTemplateItems.filter(item => item.action === 'replace_print' && templateFolderPathForItem(item) === folder);
+  const selectedItems = state.taskTemplateItems.filter(item => item.action === 'replace_print' && templateFolderPathForItem(item) === folder && state.selectedTaskTemplatePaths.has(item.path));
+  if (selectedItems.length === 1) return masterReferenceFromItem(selectedItems[0]);
+  const items = selectedItems.length ? selectedItems : state.taskTemplateItems.filter(item => item.action === 'replace_print' && templateFolderPathForItem(item) === folder);
   if (!items.length) return null;
   const scored = items.map(item => {
     const text = `${item.relativePath || ''}/${item.name || ''}`.toLowerCase();
@@ -1447,11 +1449,12 @@ function renderQueueItem(task, index) {
   const masterMarkup = task.generationMode === 'template_print'
     ? `<div class="queue-master-panel">
         <div class="queue-master-images">
-          ${queuePreviewFigure(task.masterReferenceThumbnailUrl || previews.sourceThumbnailUrl, task.masterReferencePreviewUrl || previews.sourcePreviewUrl, task.masterReferenceName || previews.sourceName, '母版参考')}
+          ${queuePreviewFigure(task.masterReferenceThumbnailUrl || previews.sourceThumbnailUrl, task.masterReferencePreviewUrl || previews.sourcePreviewUrl, task.masterReferenceName || previews.sourceName, '母版底图')}
           <span class="queue-preview-plus" aria-hidden="true">→</span>
           ${queuePreviewFigure(task.masterImageUrl || task.masterImagePreviewUrl || '', task.masterImagePreviewUrl || task.masterImageUrl || '', task.masterImagePath ? '已生成母版' : '未生成母版', '母版图')}
         </div>
         <div class="queue-master-copy">
+          <span>母版底图：${escapeHtml(task.masterReferenceName || previews.sourceName || '未选择')}</span>
           <span>母版状态：${escapeHtml(task.masterStatus || '未生成')}</span>
           ${task.masterStatus === '生成中' || task.masterStatus === '重新生成'
             ? `<div class="queue-progress"><div><span>${escapeHtml(masterProgress.message || '正在生成母版图…')}</span><b>${masterPercent}%</b></div><progress max="100" value="${masterPercent}"></progress></div>`
