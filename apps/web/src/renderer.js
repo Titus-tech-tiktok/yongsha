@@ -2110,15 +2110,15 @@ function templateReferenceCandidates(item) {
 function renderTemplateReferencePanel(item) {
   const candidates = templateReferenceCandidates(item);
   if (!candidates.length) {
-    return `<aside class="template-reference-panel"><div class="template-reference-head"><b>Reference analysis</b><span>No replace_print reference is available.</span></div></aside>`;
+    return `<aside class="template-reference-panel"><div class="template-reference-head"><b>参考重析</b><span>暂无可参考的换印花图片。</span></div></aside>`;
   }
   return `<aside class="template-reference-panel">
-    <div class="template-reference-head"><b>Reference analysis</b><span>Reference helps AI judge. Coordinates are not copied.</span></div>
+    <div class="template-reference-head"><b>参考重析</b><span>参考图只帮助 AI 判断，不复制坐标。</span></div>
     <div class="template-reference-list">
       ${candidates.map(candidate => `<article class="template-reference-card">
         <img src="${escapeHtml(candidate.thumbnailUrl || candidate.previewUrl || candidate.templateUrl)}" alt="${escapeHtml(candidate.relativePath)}">
         <div><b>${escapeHtml(candidate.name)}</b><span>${escapeHtml(candidate.relativePath)}</span><small>${escapeHtml(templateRegionSummary(candidate))}</small></div>
-        <button class="secondary" type="button" data-reference-analysis="${escapeHtml(candidate.path)}">Reference re-analyze</button>
+        <button class="secondary" type="button" data-reference-analysis="${escapeHtml(candidate.path)}">参考重析</button>
       </article>`).join('')}
     </div>
   </aside>`;
@@ -2200,10 +2200,10 @@ async function saveTemplateConfig() {
 async function analyzeActiveTemplateWithReference(referencePath) {
   const item = activeTemplateItem();
   const reference = state.templateItems.find(candidate => candidate.path === referencePath);
-  if (!item || !reference) return toast('Please choose a reference image first.', true);
-  if (normalizeTemplateUiAction(reference.action) !== 'replace_print') return toast('Reference image must already be replace_print.', true);
+  if (!item || !reference) return toast('请先选择参考图片。', true);
+  if (normalizeTemplateUiAction(reference.action) !== 'replace_print') return toast('参考图必须已经识别为换印花。', true);
   const folder = templateFolderPathForItem(item);
-  $('#templateConfigStatus').textContent = `Reference analysis running with ${reference.name}`;
+  $('#templateConfigStatus').textContent = `正在参考“${reference.name}”重新分析`;
   state.assetAnalysisProgress.set(item.path, { status: 'running', attempt: 1 });
   renderAssetManagementGrid();
   try {
@@ -2214,8 +2214,8 @@ async function analyzeActiveTemplateWithReference(referencePath) {
     }, progress => {
       const attempt = Number(progress.attempt || 0);
       $('#templateConfigStatus').textContent = attempt
-        ? `Reference analysis running with ${reference.name} - attempt ${attempt}`
-        : `Reference analysis running with ${reference.name}`;
+        ? `正在参考“${reference.name}”重新分析 · 第 ${attempt} 次`
+        : `正在参考“${reference.name}”重新分析`;
     });
     state.assetPreviewCache.delete('detailSetsPath');
     await loadAssetLibraryPreview('detailSetsPath', { preserveSelection: true, force: true });
@@ -2223,8 +2223,8 @@ async function analyzeActiveTemplateWithReference(referencePath) {
     if (refreshed) state.activeTemplatePath = refreshed.path;
     renderTemplateAnalysisResult();
     if (folder === state.config.detailSetsPath) await loadTemplatePreparation();
-    $('#templateConfigStatus').textContent = 'Reference analysis completed';
-    toast('Reference analysis completed');
+    $('#templateConfigStatus').textContent = '参考重析已完成';
+    toast('参考重析已完成');
   } catch (error) {
     toast(errorText(error), true);
   } finally {

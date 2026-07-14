@@ -2037,20 +2037,20 @@ async function analyzeTemplateJobWithRetry(job, retries = 3, onProgress = async 
 
 async function analyzeTemplateItemWithReference(payload = {}, options = {}) {
   const folder = String(payload.folder || '');
-  if (!folder || !fs.existsSync(folder)) throw new Error('Template folder does not exist.');
+  if (!folder || !fs.existsSync(folder)) throw new Error('套图文件夹不存在。');
   const relativePath = String(payload.relativePath || '');
   const referenceRelativePath = String(payload.referenceRelativePath || '');
-  if (!relativePath || !referenceRelativePath) throw new Error('Target and reference image are required.');
+  if (!relativePath || !referenceRelativePath) throw new Error('缺少目标图或参考图。');
   const byKey = new Map((await buildTemplateJobs(folder)).map(job => [templateRelativeKey(job.relativePath), job]));
   const job = byKey.get(templateRelativeKey(relativePath));
   const referenceJob = byKey.get(templateRelativeKey(referenceRelativePath));
-  if (!job) throw new Error('Target template image was not found.');
-  if (!referenceJob) throw new Error('Reference template image was not found.');
+  if (!job) throw new Error('没有找到目标套图图片。');
+  if (!referenceJob) throw new Error('没有找到参考套图图片。');
   const referenceDetails = await templateAnalysisForJob(referenceJob);
   const referenceAction = normalizeTemplateProcessingMode(referenceDetails.summary.action);
-  if (referenceAction !== 'replace_print') throw new Error('Reference image must already be recognized as replace_print.');
+  if (referenceAction !== 'replace_print') throw new Error('参考图必须已经识别为换印花。');
   const report = typeof options.reportProgress === 'function' ? options.reportProgress : async () => {};
-  await report({ phase: 'queued', current: 0, total: 1, failed: 0, concurrency: 1, message: 'Reference analysis queued' });
+  await report({ phase: 'queued', current: 0, total: 1, failed: 0, concurrency: 1, message: '参考重析已排队' });
   const result = await analyzeTemplateJobWithRetry(job, 3, async progress => {
     await report({ ...progress, current: 0, total: 1, failed: 0, concurrency: 1, referenceRelativePath: referenceJob.relativePath });
   }, {
@@ -2067,7 +2067,7 @@ async function analyzeTemplateItemWithReference(payload = {}, options = {}) {
     completedRelativePath: job.relativePath,
     completedStatus: result.ok ? 'success' : 'failed',
     referenceRelativePath: referenceJob.relativePath,
-    message: result.ok ? 'Reference analysis completed' : `Reference analysis failed: ${result.error}`
+    message: result.ok ? '参考重析已完成' : `参考重析失败：${result.error}`
   });
   return {
     total: 1,
