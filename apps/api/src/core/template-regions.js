@@ -3,7 +3,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-const TEMPLATE_CACHE_VERSION = 9;
+const TEMPLATE_CACHE_VERSION = 10;
 const TEMPLATE_CACHE_FOLDER = '.caishen-template-cache';
 const DEFAULT_FORBIDDEN_AREA = '背景、文字、尺寸线、墙面、地面、柜脚、把手、门缝、抽屉缝、抽屉内侧、柜门内侧、包装、道具等非留白家具表面区域';
 
@@ -989,8 +989,7 @@ async function readTemplateAnalysisCache({ cacheFile, templateImagePath }) {
 
   const version = Number(cache.version) || 0;
   const manualOverride = cacheField(cache, 'manual_override', 'manualOverride') === true;
-  const looksManual = analysis.toLowerCase().includes('运营手动筛选') || analysis.toLowerCase().includes('运营手动确认');
-  if (version < TEMPLATE_CACHE_VERSION && !manualOverride && !looksManual) {
+  if (version < TEMPLATE_CACHE_VERSION && !manualOverride) {
     return { valid: false, analysis: '', reason: 'unsupported-cache-version', cache };
   }
   return { valid: true, analysis, reason: 'ok', cache };

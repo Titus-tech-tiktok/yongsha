@@ -1781,7 +1781,7 @@ async function analyzeTemplateJob(job, options = {}) {
         { type: 'image_url', image_url: { url: options.imageDataUrl || await imageAsAnalysisDataUrl(job.templatePath) } }
       ]
     }],
-    max_tokens: 700
+    max_tokens: 6000
   }, (api.requestTimeoutSeconds || 300) * 1000, { description: '套图模板 AI 分析', reference: job.relativePath });
   const choice = body?.choices?.[0] || {};
   const content = choice?.message?.content ?? choice?.delta?.content ?? choice?.text ?? body?.output_text ?? body?.content;

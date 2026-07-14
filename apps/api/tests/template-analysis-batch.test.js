@@ -5,6 +5,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const sharp = require('sharp');
+const { TEMPLATE_CACHE_VERSION } = require('../src/core/template-regions');
 
 test('单张和批量 AI 分析失败会重试三次并持久显示最终状态', async (t) => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-template-analysis-'));
@@ -81,8 +82,9 @@ test('paid analysis responses are not shown as failed when content needs local f
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-template-analysis-paid-'));
   let mode = 'array';
   let requests = 0;
+  let receivedMaxTokens = 0;
   const validAnalysis = {
-    version: 9,
+    version: TEMPLATE_CACHE_VERSION,
     imageRole: '主图',
     processingMode: 'replace_print',
     confidence: 0.93,
@@ -98,8 +100,10 @@ test('paid analysis responses are not shown as failed when content needs local f
   const server = http.createServer((req, res) => {
     if (req.url !== '/v1/chat/completions') return res.writeHead(404).end();
     requests += 1;
-    req.resume();
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => {
+      receivedMaxTokens = Number(JSON.parse(Buffer.concat(chunks).toString('utf8')).max_tokens) || 0;
       res.setHeader('Content-Type', 'application/json');
       if (mode === 'array') {
         return res.end(JSON.stringify({
@@ -109,7 +113,7 @@ test('paid analysis responses are not shown as failed when content needs local f
       if (mode === 'malformed') {
         return res.end(JSON.stringify({
           choices: [{ message: { content: JSON.stringify({
-            version: 9,
+            version: TEMPLATE_CACHE_VERSION,
             processingMode: 'replace_print',
             confidence: 0.96,
             imageUnderstanding: 'front cabinet image but no usable polygon was returned'
@@ -146,6 +150,7 @@ test('paid analysis responses are not shown as failed when content needs local f
   assert.equal(arrayResult.failed, 0);
   assert.equal(arrayItem.analysisStatus, 'success');
   assert.equal(arrayItem.action, 'replace_print');
+  assert.ok(receivedMaxTokens >= 4000, 'complex polygon analysis needs enough visible output tokens after model reasoning');
   const arrayCache = templateCachePaths(folder, 'array.png');
   for (const maskFile of [arrayCache.maskFile, arrayCache.cleanMaskFile]) {
     const pixels = await sharp(maskFile).greyscale().raw().toBuffer();
