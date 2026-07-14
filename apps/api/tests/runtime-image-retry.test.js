@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const sharp = require('sharp');
 
-test('local template compositing keeps all regeneration entrypoints working without image API', async (t) => {
+test('template-print regeneration entrypoints use the image API', async (t) => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-image-retry-'));
   const resultPng = await sharp({ create: { width: 32, height: 32, channels: 3, background: '#88aaee' } }).png().toBuffer();
   let requests = 0;
@@ -86,25 +86,26 @@ test('local template compositing keeps all regeneration entrypoints working with
   const outputPixel = await sharp(outputFile).removeAlpha().raw().toBuffer();
   const centerOffset = (10 * 40 + 20) * 3;
   assert.deepEqual([...outputPixel.subarray(centerOffset, centerOffset + 3)], [0x88, 0xaa, 0xee]);
-  assert.equal(requests, 0, 'standard template-print must not call the image API');
+  assert.equal(generated.summary.apiGenerated, 1);
+  assert.equal(requests, 2, 'standard template-print should call the image API and retry once');
 
   await runtime.generateTemplateSetForFolder(generated.folder, true);
-  assert.equal(requests, 0);
+  assert.equal(requests, 2);
 
   await fs.rm(outputFile, { force: true });
   await runtime.generateTemplateSetForFolder(generated.folder, true);
   await fs.access(outputFile);
-  assert.equal(requests, 0, '补生成缺失图片仍应走本地合成');
+  assert.equal(requests, 3, '补生成缺失图片仍应调用图片 API');
 
   await runtime.generateTemplateSetForFolder(generated.folder, false);
-  assert.equal(requests, 0, '重新生成整套图仍应走本地合成');
+  assert.equal(requests, 4, '重新生成整套图仍应调用图片 API');
 
   await runtime.regenerateSingleTemplate({ folder: generated.folder, relativePath: '1.png' });
-  assert.equal(requests, 0, '单张重新生成仍应走本地合成');
+  assert.equal(requests, 5, '单张重新生成仍应调用图片 API');
 
 });
 
-test('local template queue completes all thirty images instead of stopping after four', async (t) => {
+test('template-print queue completes all thirty images through the image API', async (t) => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-image-capacity-'));
   const resultPng = await sharp({ create: { width: 32, height: 32, channels: 3, background: '#44aa77' } }).png().toBuffer();
   let requests = 0;
@@ -192,14 +193,13 @@ test('local template queue completes all thirty images instead of stopping after
   });
 
   assert.equal(generated.summary.total, 30);
-  assert.equal(generated.summary.composited, 30);
-  assert.equal(generated.summary.apiGenerated, 0);
+  assert.equal(generated.summary.apiGenerated, 30);
   assert.equal(generated.summary.failed, 0);
-  assert.equal(accepted, 0);
-  assert.equal(peakAccepted, 0);
-  assert.equal(requests, 0);
+  assert.equal(accepted, 30);
+  assert.ok(peakAccepted <= 4);
+  assert.ok(requests >= 30);
   assert.deepEqual(runtime.getImageSchedulerSnapshot().active, 0);
-  assert.ok(progressEvents.every(progress => Number(progress.waitingUpstream || 0) === 0));
-  await assert.rejects(fs.access(path.join(generated.folder, '.caishen-meta', 'image-api-events.jsonl')));
+  assert.ok(progressEvents.some(progress => Number(progress.waitingUpstream || 0) > 0) || requests === 30);
+  await fs.access(path.join(generated.folder, '.caishen-meta', 'image-api-events.jsonl'));
   await Promise.all(relativePaths.map(name => fs.access(path.join(generated.folder, name))));
 });

@@ -38,10 +38,9 @@ const {
   writeTemplateAnalysisCache
 } = require('./core/template-regions');
 const {
-  composeTemplatePrint,
   readImageDimensions,
   readImageRgba
-} = require('./core/template-print-compositor');
+} = require('./core/template-image-utils');
 const {
   appendOperationLog,
   applyBatchApproval,
@@ -2382,30 +2381,6 @@ async function generateTemplateJob(job, source, config, options = {}) {
     await writeTemplateAudit(job, { passed: true, reason: '保留原图：逐字节复制套图源文件，不调用生图 API。', retry_instruction: '', action });
     return { action, outputPath: job.outputPath };
   }
-  if (source.generationMode === 'template_print' && action === 'replace_print') {
-    if (!source.printPath || !fs.existsSync(source.printPath)) throw new Error('原始印花图不存在');
-    if (!cache?.maskFile || !await maskFileHasPrintablePixels(cache.maskFile)) {
-      throw new Error(`换印花图片缺少有效蒙版：${job.relativePath}`);
-    }
-    let composition;
-    await replaceOutputFile(job.outputPath, async nextPath => {
-      composition = await composeTemplatePrint({
-        templatePath: job.templatePath,
-        printPath: source.printPath,
-        maskPath: cache.maskFile,
-        cleanMaskPath: cache.cleanMaskFile,
-        outputPath: nextPath
-      });
-    });
-    await writeTemplateAudit(job, {
-      passed: true,
-      reason: '本地高清印花合成完成：原始印花 contain 映射，蒙版外套图像素保持不变，未调用生图 API。',
-      retry_instruction: '',
-      action,
-      composition
-    });
-    return { action, outputPath: job.outputPath, localComposited: true, composition };
-  }
   if (action === 'skip_copy') {
     await writeTemplateAudit(job, { passed: true, reason: '已按模板配置跳过，不自动生成。', retry_instruction: '', action });
     return { action, outputPath: '' };
@@ -2491,7 +2466,6 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
       total: Math.max(0, Number(progress.total) || jobs.length),
       percent: Math.max(0, Math.min(100, Number(progress.percent) || 0)),
       apiGenerated: Math.max(0, Number(progress.apiGenerated) || 0),
-      composited: Math.max(0, Number(progress.composited) || 0),
       copied: Math.max(0, Number(progress.copied) || 0),
       excluded: Math.max(0, Number(progress.excluded) || 0),
       skipped: Math.max(0, Number(progress.skipped) || 0),
@@ -2510,13 +2484,13 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
   };
   if (!jobs.length) {
     if (!onlyMissing && !selectedPaths?.length) throw new Error('套图文件夹里没有可用图片。');
-    const summary = { total: 0, current: 0, percent: 100, apiGenerated: 0, composited: 0, copied: 0, excluded: Math.max(0, Number(options.excludedCount) || 0), skipped: 0, failed: 0, waitingUpstream: 0, pending: 0, billingCostMinor: 0 };
+    const summary = { total: 0, current: 0, percent: 100, apiGenerated: 0, copied: 0, excluded: Math.max(0, Number(options.excludedCount) || 0), skipped: 0, failed: 0, waitingUpstream: 0, pending: 0, billingCostMinor: 0 };
     await publishProgress({ ...summary, phase: 'completed', message: '没有需要处理的图片' });
     return { folder, generated: 0, failures: [], summary };
   }
   const startLabel = options.initial ? '开始生成套图' : onlyMissing ? '开始补生成缺失套图' : '开始重新生成整套图';
   await addOperationLog(folder, `${startLabel}：${jobs.length} 张`);
-  const live = { total: jobs.length, current: 0, apiGenerated: 0, composited: 0, copied: 0, excluded: Math.max(0, Number(options.excludedCount) || 0), skipped: 0, failed: 0, waitingUpstream: 0, billingCostMinor: 0 };
+  const live = { total: jobs.length, current: 0, apiGenerated: 0, copied: 0, excluded: Math.max(0, Number(options.excludedCount) || 0), skipped: 0, failed: 0, waitingUpstream: 0, billingCostMinor: 0 };
   const liveFailures = [];
   await publishProgress({ ...live, pending: jobs.length, phase: 'preparing', message: `准备处理 ${jobs.length} 张图片` });
   const waitingUpstream = new Set();
@@ -2565,7 +2539,6 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
       });
       if (result.action === 'exclude' || result.action === 'skip_copy') live.skipped += 1;
       else if (result.action === 'copy_original' || result.action === 'copy_template') live.copied += 1;
-      else if (result.localComposited) live.composited += 1;
       else live.apiGenerated += 1;
       live.billingCostMinor += Math.max(0, Number(result.billedMinor) || 0);
       return result;
@@ -2622,7 +2595,6 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
     current: live.current,
     percent: 100,
     apiGenerated: live.apiGenerated,
-    composited: live.composited,
     copied: live.copied,
     excluded: live.excluded,
     skipped: live.skipped,

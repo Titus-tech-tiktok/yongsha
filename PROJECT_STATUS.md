@@ -1,5 +1,14 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Restore API template generation
+
+- Removed the production local template-print compositing path.
+- `replace_print` template tasks now continue into the `templatePrint` prompt and call the configured image generation API.
+- Removed the misleading template-analysis prompt text that said formal processing would use deterministic pixel compositing.
+- Moved the “用当前印花创建任务” button back into the visible queue panel instead of hiding it inside advanced settings.
+- Reworked regression coverage so single regenerate, missing-image regenerate, full-template regenerate, and 30-image template batches must call the image API.
+- Verification completed: `npm test -w @caishen/api -- tests/runtime-image-retry.test.js`, `npm test -w @caishen/api -- tests/runtime-template-print-compositor.test.js`, `npm run build -w @caishen/web`, `node --check`, and `git diff --check`.
+
 ## 2026-07-14 Update - Reference-guided template re-analysis
 
 - Added a manual-confirmation recovery workflow: the analysis-result modal now shows recognized `replace_print` images as references.
