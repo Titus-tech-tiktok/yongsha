@@ -1568,6 +1568,16 @@ input:focus, textarea:focus, select:focus {
   padding: 12px;
 }
 
+.template-master-empty {
+  color: var(--subtle);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 18px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
 .template-master-title {
   justify-content: space-between;
   align-items: center;
@@ -1588,11 +1598,68 @@ input:focus, textarea:focus, select:focus {
   line-height: 1.35;
 }
 
+.template-master-card {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.template-master-card + .template-master-card {
+  margin-top: 10px;
+}
+
+.template-master-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.template-master-card-head b {
+  color: var(--ink);
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-danger {
+  color: #a24538;
+  background: transparent;
+  border: 0;
+  min-height: 26px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.link-danger:disabled {
+  color: #cbb8b4;
+  cursor: not-allowed;
+}
+
 .template-master-flow {
   grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr) 14px minmax(0, 1fr);
   align-items: center;
   gap: 6px;
   display: grid;
+}
+
+.queue-preview-button {
+  border: 0;
+  background: transparent;
+  min-width: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.queue-preview-button:disabled {
+  cursor: not-allowed;
 }
 
 .template-master-copy {
