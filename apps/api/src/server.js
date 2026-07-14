@@ -374,8 +374,18 @@ async function writeJob(job) {
   const file = jobFile(job.id);
   const temporary = `${file}.${process.pid}.tmp`;
   await fsp.writeFile(temporary, JSON.stringify(job, null, 2));
-  await fsp.rename(temporary, file);
-  return job;
+  let lastError;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      await fsp.rename(temporary, file);
+      return job;
+    } catch (error) {
+      lastError = error;
+      if (!['EPERM', 'EBUSY'].includes(error?.code) || attempt === 5) break;
+      await wait(80 * (attempt + 1));
+    }
+  }
+  throw lastError;
 }
 
 function publicJob(job) {
@@ -1245,4 +1255,4 @@ if (require.main === module) startServer().catch(error => {
   process.exitCode = 1;
 });
 
-module.exports = { addAssetFiles, canAccessRpc, createAssetThumbnail, decodeFileToken, deleteAssetFiles, isWithin, normalizedThumbnailWidth, safeRelative, startServer, UPLOAD_FILE_LIMIT_MB };
+module.exports = { addAssetFiles, canAccessRpc, createAssetThumbnail, decodeFileToken, deleteAssetFiles, isWithin, normalizedThumbnailWidth, safeRelative, startServer, UPLOAD_FILE_LIMIT_MB, writeJob };
