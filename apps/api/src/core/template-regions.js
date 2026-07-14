@@ -696,11 +696,11 @@ function validateTemplateAnalysis(value, options = {}) {
   const confidence = clamp(getJsonNumber(root, 'confidence', processingMode === 'manual_check' ? 0.5 : 1), 0, 1);
   let surfaces = normalizePrintableSurfaces(root.printableSurfaces ?? root.printable_surfaces);
   const regions = normalizeRegions(root.replace_regions ?? root.replaceRegions);
-  if (!surfaces.length && source !== 'ai') surfaces = regions.map(regionToPrintableSurface).filter(Boolean);
+  if (!surfaces.length) surfaces = regions.map(regionToPrintableSurface).filter(Boolean);
   const hasMask = options.hasMask === true || surfaces.length > 0;
   const understanding = analysisText(root, 'imageUnderstanding', 'image_understanding', 'reason') || '未提供可靠的图片用途判断';
   let reason = analysisText(root, 'reason') || understanding;
-  if (source === 'ai' && sourceVersion !== TEMPLATE_CACHE_VERSION) {
+  if (source === 'ai' && sourceVersion !== TEMPLATE_CACHE_VERSION && !hasMask) {
     processingMode = 'manual_check';
     reason = `AI 分析契约版本无效，需要 V${TEMPLATE_CACHE_VERSION}，请人工确认。`;
   }

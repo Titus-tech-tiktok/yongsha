@@ -1027,6 +1027,11 @@ function renderAssetManagementGrid() {
   renderAssetSelectionState();
 }
 
+function resetAssetManagementScroll() {
+  const grid = $('#assetManagementGrid');
+  if (grid) grid.scrollTop = 0;
+}
+
 async function refreshAssetConsumers(key) {
   if (key === 'categoriesPath') {
     state.productFolder = '';
@@ -1123,6 +1128,7 @@ async function loadAssetLibraryPreview(key = 'printsPath', { preserveSelection =
   if (!state.config) return;
   if (!['printsPath', 'detailSetsPath'].includes(key)) key = 'printsPath';
   const previousKey = state.assetPreviewKey;
+  const shouldResetScroll = key !== previousKey || force || !preserveSelection;
   if (key !== previousKey || !preserveSelection) state.selectedAssetPaths.clear();
   state.assetPreviewKey = key;
   const loadId = ++state.assetPreviewLoadId;
@@ -1135,6 +1141,7 @@ async function loadAssetLibraryPreview(key = 'printsPath', { preserveSelection =
   $$('[data-asset-source]').forEach(panel => { panel.hidden = panel.dataset.assetSource !== key; });
   $('#assetPreviewTitle').textContent = labels[key] || '素材内容';
   const grid = $('#assetManagementGrid');
+  if (shouldResetScroll) resetAssetManagementScroll();
   const previewSize = state.assetPreviewSizes[key] || 138;
   $('#assetManagementPreviewSize').value = String(previewSize);
   grid.style.setProperty('--asset-management-card-size', `${previewSize}px`);
@@ -3167,8 +3174,10 @@ function bindEvents() {
   $('#assetTemplateFilter').onclick = event => {
     const button = event.target.closest('[data-asset-template-filter]');
     if (!button) return;
+    if (state.assetTemplateFilter === button.dataset.assetTemplateFilter) return;
     state.assetTemplateFilter = button.dataset.assetTemplateFilter;
     renderAssetManagementGrid();
+    resetAssetManagementScroll();
   };
   $('#selectAllAssetsButton').onclick = toggleAllVisibleAssets;
   $('#batchAnalyzeAssetsButton').onclick = analyzeSelectedTemplateAssets;
