@@ -1,5 +1,14 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Task source tabs and direct asset import
+
+- Material generation now uses one large source panel with tabs for template images and print images, leaving more space for the master/full-set task list.
+- Removed the print preview size slider from the material generation flow and fixed template/print source grids to two-column card layouts.
+- Added a collapsible app sidebar and reduced the default sidebar width.
+- Fixed master-card editing so normal clicks create/fill cards, while replacement only happens after explicitly clicking a card's edit button.
+- Asset library folder import now starts immediately after choosing a folder; the old `Start import/scan` buttons are hidden and used only internally.
+- Verification completed: `node --check apps/web/src/renderer.js`, `npm run build -w @caishen/web`.
+
 ## 2026-07-15 Update - Master card list usability fix
 
 - Fixed the combined master/full-set task list so the 03 panel scrolls independently and cards no longer clip actions on the right edge.

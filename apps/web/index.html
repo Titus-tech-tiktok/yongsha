@@ -27,6 +27,7 @@
       <div class="brand">
         <img src="/caishen-logo.png" alt="财神测款机">
         <div><strong>财神测款机 V8.0</strong></div>
+        <button class="sidebar-toggle" id="sidebarToggleButton" type="button" aria-label="切换边栏" title="切换边栏">‹</button>
       </div>
       <nav class="nav" aria-label="主导航">
         <button class="nav-item" data-index="01" data-page="assets">素材资产</button>
@@ -62,6 +63,7 @@
 
       <section class="page active" id="page-tasks" aria-label="素材生图">
         <div class="task-layout">
+          <div class="template-source-tabs" role="tablist" aria-label="素材生图素材类型"><button class="active" type="button" role="tab" aria-selected="true" data-template-source-tab="template">套图文件夹</button><button type="button" role="tab" aria-selected="false" data-template-source-tab="print">印花素材</button></div>
           <article class="asset-panel template-picker-panel" id="templateAssetPanel">
             <div class="panel-head"><div><span class="index">01</span><h2>选择套图</h2></div><button class="text-button" id="changeTaskTemplateFolderButton">更换文件夹</button></div>
             <div class="task-template-folder-label"><span id="taskTemplateScopeLabel">当前文件夹</span><b id="taskTemplatePath">尚未选择套图文件夹</b><small id="taskTemplateFolderHint">选择后仅显示需要换印花的图片</small></div>
@@ -78,7 +80,7 @@
             <div class="panel-head"><div><span class="index">02</span><h2>选择印花图案</h2></div><button class="text-button" data-choose="printsPath">上传文件夹</button></div>
             <div class="path-line" id="printsPathLabel">尚未配置</div>
             <input class="search" id="printSearch" placeholder="按编号或名称搜索印花">
-            <div class="asset-size-row"><span id="printFolderLabel">全部文件夹</span><label>预览大小 <input id="printPreviewSize" type="range" min="80" max="190" value="86"></label></div>
+            <div class="asset-size-row compact"><span id="printFolderLabel">全部文件夹</span></div>
             <div class="asset-browser"><aside class="asset-folder-list" id="printFolderList"></aside><div class="asset-grid" id="printGrid"></div></div>
           </article>
           <aside class="queue-panel master-queue-panel" id="masterQueuePanel">
@@ -151,8 +153,8 @@
         <div class="asset-library-workspace">
           <div class="asset-library-tabs-bar"><div class="asset-preview-tabs" role="tablist" aria-label="素材类型"><button class="active" role="tab" aria-selected="true" data-asset-preview="detailSetsPath">套图模板</button><button role="tab" aria-selected="false" data-asset-preview="printsPath">印花素材</button></div><span>点击标签切换素材库</span></div>
           <div class="asset-source-panels">
-            <div class="asset-source-row" data-asset-source="printsPath" hidden><div class="asset-source-copy"><b>印花素材文件夹</b><span id="settingPrintsPath">尚未配置</span><small id="assetStagePrintsPath">需要批量导入时，选择整个文件夹并开始扫描。</small></div><div class="asset-source-actions"><button class="secondary" data-stage-asset="printsPath">导入文件夹</button><button class="primary" data-sync-asset="printsPath" disabled>开始扫描</button></div></div>
-            <div class="asset-source-row template-library-source" data-asset-source="detailSetsPath"><div class="asset-source-copy"><b>套图模板文件夹</b><span id="settingDetailSetsPath">尚未导入套图文件夹</span><small id="assetStageDetailSetsPath">可以连续导入多个文件夹；点击下方文件夹后查看其中图片。</small></div><div class="asset-source-actions"><button class="secondary" data-stage-asset="detailSetsPath">导入新文件夹</button><button class="primary" data-sync-asset="detailSetsPath" disabled>开始导入</button></div><div class="template-folder-browser" id="templateFolderBrowser"><div class="template-folder-empty">正在读取套图文件夹…</div></div><div class="asset-template-filter" id="assetTemplateFilter" hidden><span>按分析动作筛选</span><div role="toolbar" aria-label="套图分析动作筛选"></div></div></div>
+            <div class="asset-source-row" data-asset-source="printsPath" hidden><div class="asset-source-copy"><b>印花素材文件夹</b><span id="settingPrintsPath">尚未配置</span><small id="assetStagePrintsPath">选择文件夹后会自动开始扫描。</small></div><div class="asset-source-actions"><button class="secondary" data-stage-asset="printsPath">导入文件夹</button><button class="primary" data-sync-asset="printsPath" disabled hidden>开始扫描</button></div></div>
+            <div class="asset-source-row template-library-source" data-asset-source="detailSetsPath"><div class="asset-source-copy"><b>套图模板文件夹</b><span id="settingDetailSetsPath">尚未导入套图文件夹</span><small id="assetStageDetailSetsPath">选择文件夹后会自动开始导入；点击下方文件夹后查看其中图片。</small></div><div class="asset-source-actions"><button class="secondary" data-stage-asset="detailSetsPath">导入新文件夹</button><button class="primary" data-sync-asset="detailSetsPath" disabled hidden>开始导入</button></div><div class="template-folder-browser" id="templateFolderBrowser"><div class="template-folder-empty">正在读取套图文件夹…</div></div><div class="asset-template-filter" id="assetTemplateFilter" hidden><span>按分析动作筛选</span><div role="toolbar" aria-label="套图分析动作筛选"></div></div></div>
           </div>
           <div class="asset-scan-progress" id="assetScanProgress" hidden><div><b id="assetScanProgressTitle">正在扫描素材</b><span id="assetScanProgressText"></span></div><progress id="assetScanProgressBar" max="100" value="0"></progress></div>
           <div class="asset-preview-head"><div><h2 id="assetPreviewTitle">套图模板</h2><span id="assetPreviewSummary">正在读取素材库…</span></div><div class="asset-preview-actions"><label class="asset-preview-size-control">预览大小 <input id="assetManagementPreviewSize" type="range" min="110" max="240" value="138" aria-label="素材预览大小"></label><span id="assetSelectedCount">支持拖拽添加 · 未选择</span><button class="secondary" id="selectAllAssetsButton">全选</button><button class="primary" id="batchAnalyzeAssetsButton" hidden>批量 AI 分析</button><button class="secondary" id="addAssetFilesButton">添加文件</button><button class="secondary danger-outline" id="deleteSelectedAssetsButton" disabled>删除选中</button></div></div>

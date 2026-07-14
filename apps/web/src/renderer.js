@@ -2,6 +2,7 @@ const QUEUE_STORAGE_KEY = 'caishen-web-task-queue-v1';
 const TEMPLATE_MASTER_CANDIDATES_STORAGE_KEY = 'caishen-web-template-master-candidates-v1';
 const ASSET_PREVIEW_SIZE_STORAGE_KEY = 'caishen-web-asset-preview-sizes-v1';
 const REVIEW_VIEWED_STORAGE_KEY = 'caishen-web-viewed-review-jobs-v1';
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'caishen-web-sidebar-collapsed-v1';
 let storageScope = 'anonymous';
 const scopedStorageKey = key => `${key}:${storageScope}`;
 
@@ -110,6 +111,7 @@ const state = {
   selectedTaskTemplatePaths: new Set(),
   templateMasterCandidates: [],
   activeTemplateMasterCandidateId: '',
+  taskSourceTab: 'template',
   taskTemplateSelectionScope: '',
   taskTemplateExpandedGroups: new Set(),
   templateFilter: 'all',
@@ -168,6 +170,22 @@ function toast(message, error = false) {
   element.className = `toast show${error ? ' error' : ''}`;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { element.className = 'toast'; }, 3200);
+}
+
+function applySidebarCollapsed(collapsed) {
+  const shell = $('#appShell');
+  if (!shell) return;
+  shell.classList.toggle('sidebar-collapsed', Boolean(collapsed));
+  const button = $('#sidebarToggleButton');
+  if (button) {
+    button.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+    button.title = collapsed ? '展开边栏' : '收起边栏';
+  }
+  try { localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0'); } catch {}
+}
+
+function loadSidebarCollapsed() {
+  try { return localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === '1'; } catch { return false; }
 }
 
 function errorText(error) {
@@ -466,6 +484,17 @@ function setPage(name) {
   });
 }
 
+function setTaskSourceTab(tab) {
+  state.taskSourceTab = tab === 'print' ? 'print' : 'template';
+  const layout = $('#page-tasks .task-layout');
+  if (layout) layout.classList.toggle('template-source-print-active', state.taskSourceTab === 'print');
+  $$('.template-source-tabs [data-template-source-tab]').forEach(button => {
+    const active = button.dataset.templateSourceTab === state.taskSourceTab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
 async function chooseFolder(key) {
   const selected = await window.caishen.chooseFolder(state.config?.[key], key);
   if (!selected) return;
@@ -619,7 +648,6 @@ function upsertTemplateMasterCandidateFromItem(item) {
   if (!candidate) return null;
   candidate.selected = true;
   state.templateMasterCandidates.push(candidate);
-  state.activeTemplateMasterCandidateId = candidate.id;
   persistTemplateMasterCandidates();
   toast(candidate.printPath
     ? `已创建母版任务：${candidate.masterReferenceName} + ${candidate.printName}`
@@ -655,7 +683,6 @@ function addTemplateMasterReference(item) {
     });
     clearTemplateMasterGeneratedImage(incomplete);
     incomplete.selected = true;
-    state.activeTemplateMasterCandidateId = incomplete.id;
     persistTemplateMasterCandidates();
     toast(incomplete.printPath
       ? `已补齐母版底图：${incomplete.masterReferenceName} + ${incomplete.printName}`
@@ -682,7 +709,6 @@ function addTemplateMasterPrint(print) {
     });
     clearTemplateMasterGeneratedImage(incomplete);
     incomplete.selected = true;
-    state.activeTemplateMasterCandidateId = incomplete.id;
     persistTemplateMasterCandidates();
     toast(incomplete.masterReferencePath
       ? `已补齐印花：${incomplete.masterReferenceName} + ${incomplete.printName}`
@@ -692,7 +718,6 @@ function addTemplateMasterPrint(print) {
   const candidate = createEmptyTemplateMasterCandidate(templateMasterPrintFields(print));
   candidate.selected = true;
   state.templateMasterCandidates.push(candidate);
-  state.activeTemplateMasterCandidateId = candidate.id;
   persistTemplateMasterCandidates();
   toast(`已创建母版任务：${candidate.printName}，等待选择母版底图`);
   return candidate;
@@ -1044,6 +1069,7 @@ function closeTaskTemplateFolderModal() {
 async function chooseTaskTemplateFolder(folderPath) {
   if (!folderPath) return;
   closeTaskTemplateFolderModal();
+  state.activeTemplateMasterCandidateId = '';
   if (folderPath === 'all') {
     state.taskTemplateFolderView = 'all';
     state.taskTemplateItems = await listTaskTemplateItemsForCurrentView();
@@ -1146,7 +1172,7 @@ function renderTemplateMasterWorkflow() {
     const active = state.activeTemplateMasterCandidateId === candidate.id;
     return `<section class="template-master-card${candidate.selected ? ' is-selected' : ''}${active ? ' is-editing' : ''}" data-template-master-candidate="${escapeHtml(candidate.id)}">
       <div class="template-master-card-head">
-        <label class="template-master-check"><input type="checkbox" data-template-master-select="${escapeHtml(candidate.id)}"${candidate.selected ? ' checked' : ''}> <b>${escapeHtml(candidate.masterReferenceName || candidate.printName || '母版任务')}</b></label>
+        <label class="template-master-check"><input type="checkbox" data-template-master-select="${escapeHtml(candidate.id)}"${candidate.selected ? ' checked' : ''}><span aria-hidden="true"></span><b>${escapeHtml(candidate.masterReferenceName || candidate.printName || '母版任务')}</b></label>
         <div class="template-master-head-actions">
           <button class="secondary mini" type="button" data-template-master-edit="${escapeHtml(candidate.id)}">${active ? '编辑中' : '编辑'}</button>
           <button class="link-danger" type="button" data-template-master-remove="${escapeHtml(candidate.id)}"${running ? ' disabled' : ''}>删除</button>
@@ -1173,18 +1199,16 @@ function renderTemplateMasterWorkflow() {
   const generateButton = $('#generateAllMastersButton');
   if (generateButton) {
     const selected = selectedTemplateMasterCandidates();
-    const source = selected.length ? selected : candidates;
-    const runnable = source.filter(candidate => candidate.masterReferencePath && candidate.printPath && !['生成中', '重新生成'].includes(candidate.masterStatus));
+    const runnable = selected.filter(candidate => candidate.masterReferencePath && candidate.printPath && !['生成中', '重新生成'].includes(candidate.masterStatus));
     generateButton.disabled = !runnable.length;
-    generateButton.textContent = runnable.length ? `生成${selected.length ? '选中' : '全部'}母版（${runnable.length}）` : '生成选中母版';
+    generateButton.textContent = runnable.length ? `生成选中母版（${runnable.length}）` : '生成选中母版';
   }
   const createAllButton = $('#createTasksFromAllMastersButton');
   if (createAllButton) {
     const selected = selectedTemplateMasterCandidates();
-    const source = selected.length ? selected : candidates;
-    const ready = source.filter(templateMasterCandidateHasImage).length;
+    const ready = selected.filter(templateMasterCandidateHasImage).length;
     createAllButton.disabled = !ready;
-    createAllButton.textContent = ready ? `开始${selected.length ? '选中' : '全部'}整套（${ready}）` : '开始选中整套';
+    createAllButton.textContent = ready ? `开始选中整套（${ready}）` : '开始选中整套';
   }
 }
 
@@ -1258,10 +1282,11 @@ async function stageAssetFolder(key) {
     if (!stage) return;
     state.assetStages[key] = stage;
     assetStageStatusElement(key).textContent = key === 'detailSetsPath'
-      ? `待导入新文件夹“${stage.rootName}”：${stage.count} 张图片，共 ${formatBytes(stage.totalBytes)}。`
-      : `已选择“${stage.rootName}”：${stage.count} 张图片，共 ${formatBytes(stage.totalBytes)}。`;
+      ? `正在导入新文件夹“${stage.rootName}”：${stage.count} 张图片，共 ${formatBytes(stage.totalBytes)}。`
+      : `正在扫描“${stage.rootName}”：${stage.count} 张图片，共 ${formatBytes(stage.totalBytes)}。`;
     $(`[data-sync-asset="${key}"]`).disabled = false;
-    toast(`已读取 ${stage.count} 张图片，点击${key === 'detailSetsPath' ? '开始导入' : '开始扫描'}`);
+    toast(`已读取 ${stage.count} 张图片，正在${key === 'detailSetsPath' ? '导入' : '扫描'}`);
+    await syncAssetFolder(key);
   } catch (error) { toast(errorText(error), true); }
 }
 
@@ -1795,9 +1820,9 @@ async function startTemplateSetFromMasterCandidate(candidateId) {
 
 async function startTemplateSetsFromAllMasters() {
   const selectedMasters = selectedTemplateMasterCandidates();
-  const source = selectedMasters.length ? selectedMasters : state.templateMasterCandidates;
-  const ready = source.filter(templateMasterCandidateHasImage);
-  if (!ready.length) return toast('没有已生成母版图的任务卡', true);
+  if (!selectedMasters.length) return toast('请先勾选要开始的母版任务', true);
+  const ready = selectedMasters.filter(templateMasterCandidateHasImage);
+  if (!ready.length) return toast('选中的任务还没有已生成母版图', true);
   for (const candidate of ready) {
     await ensureTaskTemplateItemsForCandidate(candidate);
     createTemplateTasksFromMasterCandidate(candidate.id, { silent: true });
@@ -1810,8 +1835,8 @@ async function startTemplateSetsFromAllMasters() {
 
 async function generateAllTemplateMasterCandidates() {
   const selected = selectedTemplateMasterCandidates();
-  const source = selected.length ? selected : state.templateMasterCandidates;
-  const runnable = source.filter(candidate =>
+  if (!selected.length) return toast('请先勾选要生成的母版任务', true);
+  const runnable = selected.filter(candidate =>
     candidate.masterReferencePath
     && candidate.printPath
     && !['生成中', '重新生成'].includes(candidate.masterStatus)
@@ -3584,6 +3609,7 @@ async function resetSettings() {
 
 function bindEvents() {
   $('#logoutButton').onclick = logout;
+  $('#sidebarToggleButton').onclick = () => applySidebarCollapsed(!$('#appShell').classList.contains('sidebar-collapsed'));
   $('#createUserForm').onsubmit = createTeamUser;
   $('#teamUserList').onclick = event => {
     const button = event.target.closest('[data-team-user-active]');
@@ -3595,6 +3621,7 @@ function bindEvents() {
   };
   $$('.nav-item').forEach(button => button.onclick = () => setPage(button.dataset.page));
   $$('[data-page-link]').forEach(button => button.onclick = () => setPage(button.dataset.pageLink));
+  $$('.template-source-tabs [data-template-source-tab]').forEach(button => button.onclick = () => setTaskSourceTab(button.dataset.templateSourceTab));
   $$('[data-choose]').forEach(button => button.onclick = () => chooseFolder(button.dataset.choose));
   $$('[data-stage-asset]').forEach(button => button.onclick = () => stageAssetFolder(button.dataset.stageAsset));
   $$('[data-sync-asset]').forEach(button => button.onclick = () => syncAssetFolder(button.dataset.syncAsset));
@@ -3941,8 +3968,7 @@ function bindEvents() {
     state.printFolder = button.dataset.assetFolder;
     renderAssets('print');
   };
-  $('#productPreviewSize').oninput = event => { $('#productGrid').style.setProperty('--asset-card-size', `${event.target.value}px`); };
-  $('#printPreviewSize').oninput = event => { $('#printGrid').style.setProperty('--asset-card-size', `${event.target.value}px`); };
+  if ($('#productPreviewSize')) $('#productPreviewSize').oninput = event => { $('#productGrid').style.setProperty('--asset-card-size', `${event.target.value}px`); };
   $('#reviewList').onclick = event => {
     const row = event.target.closest('[data-review-index]');
     if (!row) return;
@@ -4018,6 +4044,8 @@ async function start() {
     return;
   }
   applyCurrentUser(authStatus.user);
+  applySidebarCollapsed(loadSidebarCollapsed());
+  setTaskSourceTab(state.taskSourceTab);
   window.addEventListener('caishen:billing-changed', loadBillingSummary);
   bindEvents();
   bindImageHoverPreview();

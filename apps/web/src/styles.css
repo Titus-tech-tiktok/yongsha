@@ -84,9 +84,14 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 
 .app-shell {
   background: var(--canvas);
-  grid-template-columns: 252px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   min-height: 100vh;
   display: grid;
+  transition: grid-template-columns .18s ease;
+}
+
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 74px minmax(0, 1fr);
 }
 
 .topbar {
@@ -96,7 +101,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   flex-direction: column;
   height: 100vh;
   min-height: 680px;
-  padding: 24px 18px 20px;
+  padding: 22px 14px 18px;
   display: flex;
   position: sticky;
   top: 0;
@@ -107,7 +112,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   border-bottom: 1px solid #f4f1e91f;
   align-items: center;
   gap: 12px;
-  padding: 4px 6px 24px;
+  padding: 4px 4px 20px;
   display: flex;
 }
 
@@ -130,6 +135,56 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   display: block;
 }
 
+.sidebar-toggle {
+  color: #f4f1e9cf;
+  background: #ffffff12;
+  border: 1px solid #f4f1e924;
+  border-radius: 8px;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sidebar-toggle:hover {
+  background: #ffffff20;
+}
+
+.app-shell.sidebar-collapsed .topbar {
+  padding-inline: 10px;
+}
+
+.app-shell.sidebar-collapsed .brand {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.app-shell.sidebar-collapsed .brand img {
+  width: 42px;
+  height: 42px;
+}
+
+.app-shell.sidebar-collapsed .brand > div,
+.app-shell.sidebar-collapsed .nav-divider span,
+.app-shell.sidebar-collapsed .sidebar-balance,
+.app-shell.sidebar-collapsed .sidebar-account div,
+.app-shell.sidebar-collapsed .sidebar-account .text-button {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .sidebar-toggle {
+  position: absolute;
+  top: 72px;
+  left: 22px;
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  transform: rotate(180deg);
+}
+
 .brand span {
   color: #f4f1e994;
   letter-spacing: .12em;
@@ -141,8 +196,12 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .nav {
   flex-direction: column;
   gap: 5px;
-  margin-top: 28px;
+  margin-top: 24px;
   display: flex;
+}
+
+.app-shell.sidebar-collapsed .nav {
+  margin-top: 44px;
 }
 
 .sidebar-account { margin-top: auto; padding: 15px 10px 2px; border-top: 1px solid #f4f1e91f; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -157,6 +216,15 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .sidebar-balance span, .sidebar-balance small { display: block; color: #f4f1e978; font-size: 9px; }
 .sidebar-balance b { display: block; margin: 4px 0 2px; font-size: 18px; letter-spacing: .02em; }
 .sidebar-balance small { line-height: 1.45; }
+
+.app-shell.sidebar-collapsed .sidebar-finance {
+  margin-top: auto;
+}
+
+.app-shell.sidebar-collapsed .sidebar-account {
+  justify-content: center;
+  padding-inline: 0;
+}
 
 .auth-gate { min-height: 100vh; padding: clamp(24px, 6vw, 72px); display: grid; place-items: center; background: radial-gradient(circle at 12% 18%, #dce9e5 0, #dce9e500 32%), var(--canvas); }
 .auth-card { width: min(460px, 100%); padding: clamp(28px, 5vw, 48px); border: 1px solid var(--line); border-radius: 18px; background: var(--paper); box-shadow: 0 30px 80px #101b2b1a; }
@@ -263,12 +331,25 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   position: relative;
 }
 
+.app-shell.sidebar-collapsed .nav-item {
+  justify-content: center;
+  gap: 0;
+  min-height: 46px;
+  padding: 0;
+  font-size: 0;
+}
+
 .nav-item:before {
   color: #f4f1e966;
   letter-spacing: .08em;
   width: 20px;
   font-size: 10px;
   font-weight: 700;
+}
+
+.app-shell.sidebar-collapsed .nav-item:before {
+  width: auto;
+  font-size: 11px;
 }
 
 .nav-item:first-child:before {
@@ -323,6 +404,10 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   height: 4px;
   position: absolute;
   right: 10px;
+}
+
+.app-shell.sidebar-collapsed .nav-item.active:after {
+  right: 8px;
 }
 
 main {
@@ -620,7 +705,43 @@ h2 {
 }
 
 .task-layout.template-print-mode {
-  grid-template-columns: minmax(330px, 400px) minmax(330px, 430px) minmax(560px, 1fr);
+  grid-template:
+    "source-tabs queue" auto
+    "source-panel queue" minmax(0, 1fr)
+    / minmax(520px, 620px) minmax(620px, 1fr);
+}
+
+.template-source-tabs {
+  display: none;
+}
+
+.task-layout.template-print-mode .template-source-tabs {
+  grid-area: source-tabs;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 0 16px;
+  min-height: 54px;
+  align-items: flex-end;
+  gap: 24px;
+  display: flex;
+}
+
+.template-source-tabs button {
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  min-height: 44px;
+  padding: 0 6px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.template-source-tabs button.active {
+  color: var(--ink);
+  border-bottom-color: var(--teal);
 }
 
 .task-layout.template-print-mode #productAssetPanel {
@@ -632,15 +753,45 @@ h2 {
 }
 
 .task-layout.template-print-mode #templateAssetPanel {
+  grid-area: source-panel;
   display: flex;
 }
 
+.task-layout.template-print-mode #printAssetPanel {
+  grid-area: source-panel;
+}
+
+.task-layout.template-print-mode:not(.template-source-print-active) #printAssetPanel {
+  display: none;
+}
+
+.task-layout.template-print-mode.template-source-print-active #templateAssetPanel {
+  display: none;
+}
+
+.task-layout.template-print-mode.template-source-print-active #printAssetPanel {
+  display: flex;
+}
+
+.task-layout.template-print-mode #masterQueuePanel {
+  grid-area: queue;
+}
+
 .task-layout.template-print-mode #printAssetPanel .asset-browser {
-  grid-template-columns: 80px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
 }
 
 .task-layout.template-print-mode #printGrid {
-  --asset-card-size: 112px;
+  --asset-card-size: 108px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.task-layout.template-print-mode .asset-size-row {
+  height: 32px;
+}
+
+.task-layout.template-print-mode .asset-size-row label {
+  display: none;
 }
 
 .task-layout.template-print-mode .selection-preview {
@@ -853,7 +1004,7 @@ h2 {
 
 .task-template-flat-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
+  gap: 8px;
   display: grid;
 }
 
@@ -1680,10 +1831,44 @@ input:focus, textarea:focus, select:focus {
   align-items: center;
   gap: 8px;
   display: flex;
+  cursor: pointer;
 }
 
 .template-master-check input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.template-master-check > span {
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
   flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+}
+
+.template-master-check > span::after {
+  content: "";
+  border-right: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  width: 5px;
+  height: 9px;
+  margin-top: -2px;
+  transform: rotate(45deg) scale(0);
+  transition: transform .12s ease;
+}
+
+.template-master-check input:checked + span {
+  background: var(--teal);
+  border-color: var(--teal);
+}
+
+.template-master-check input:checked + span::after {
+  transform: rotate(45deg) scale(1);
 }
 
 .template-master-check b,
@@ -4570,7 +4755,11 @@ label input, label textarea {
 
 @media (width <= 1240px) {
   .app-shell {
-    grid-template-columns: 206px minmax(0, 1fr);
+    grid-template-columns: 196px minmax(0, 1fr);
+  }
+
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 74px minmax(0, 1fr);
   }
 
   .topbar {
@@ -4595,7 +4784,10 @@ label input, label textarea {
   }
 
   .task-layout.template-print-mode {
-    grid-template-columns: 300px 320px minmax(460px, 1fr);
+    grid-template:
+      "source-tabs queue" auto
+      "source-panel queue" minmax(0, 1fr)
+      / minmax(430px, 520px) minmax(500px, 1fr);
   }
 
   .review-layout {
@@ -4617,6 +4809,10 @@ label input, label textarea {
     display: block;
   }
 
+  .app-shell.sidebar-collapsed {
+    display: block;
+  }
+
   .topbar {
     grid-template-columns: 1fr;
     gap: 10px 18px;
@@ -4632,6 +4828,33 @@ label input, label textarea {
     border: 0;
     min-width: 0;
     padding: 0;
+  }
+
+  .sidebar-toggle {
+    display: none;
+  }
+
+  .app-shell.sidebar-collapsed .brand > div,
+  .app-shell.sidebar-collapsed .nav-divider span,
+  .app-shell.sidebar-collapsed .sidebar-account div,
+  .app-shell.sidebar-collapsed .sidebar-account .text-button {
+    display: block;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-balance {
+    display: none;
+  }
+
+  .app-shell.sidebar-collapsed .nav {
+    margin-top: 0;
+  }
+
+  .app-shell.sidebar-collapsed .nav-item {
+    justify-content: center;
+    width: auto;
+    min-width: max-content;
+    padding-inline: 12px;
+    font-size: 12px;
   }
 
   .brand img {
@@ -4672,7 +4895,11 @@ label input, label textarea {
   }
 
   .task-layout.template-print-mode {
-    grid-template-columns: 300px minmax(300px, 360px) minmax(420px, 1fr);
+    grid-template:
+      "source-tabs" auto
+      "source-panel" minmax(520px, auto)
+      "queue" minmax(520px, auto)
+      / 1fr;
   }
 
   .task-layout:not(.template-print-mode) .queue-panel {
@@ -4690,6 +4917,14 @@ label input, label textarea {
     grid-template-columns: 1fr;
     height: auto;
     min-height: 0;
+  }
+
+  .task-layout.template-print-mode {
+    grid-template:
+      "source-tabs" auto
+      "source-panel" auto
+      "queue" auto
+      / 1fr;
   }
 
   .workflow-rail {
