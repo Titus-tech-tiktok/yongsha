@@ -1343,7 +1343,7 @@ async function generateImage(prompt, imagePaths, options = {}) {
     originalBytes: preparedImages.reduce((total, item) => total + item.originalBytes, 0),
     preparedBytes: preparedImages.reduce((total, item) => total + item.preparedBytes, 0)
   };
-  const reservation = await billing.reserve(currentWorkspaceId(), 'image', {
+  const reservation = options.skipBilling ? null : await billing.reserve(currentWorkspaceId(), 'image', {
     description: options.billingDescription || 'Image generation',
     reference: options.billingReference || ''
   });
@@ -1407,11 +1407,11 @@ async function generateImage(prompt, imagePaths, options = {}) {
       ...preparation,
       downloadElapsedMs: Math.max(0, Date.now() - downloadStartedAt)
     });
-    const billingEntry = await billing.commit(reservation);
+    const billingEntry = reservation ? await billing.commit(reservation) : null;
     bytes.billingAmountMinor = Math.abs(Number(billingEntry?.amountMinor) || 0);
     return bytes;
   } catch (error) {
-    await billing.release(reservation).catch(() => {});
+    if (reservation) await billing.release(reservation).catch(() => {});
     throw error;
   }
 }
@@ -1458,6 +1458,8 @@ async function writeTaskSource(folder, task, generationMode) {
   const source = {
     productPath: task.productPath || '',
     printPath: task.printPath || '',
+    masterImagePath: task.masterImagePath || '',
+    masterReferencePath: task.masterReferencePath || '',
     templateFolderPath: task.templateFolderPath || '',
     templateRelativePaths,
     generationMode: generationMode || task.generationMode || 'master',
@@ -2395,11 +2397,13 @@ async function generateTemplateJob(job, source, config, options = {}) {
   let imagePaths;
   if (source.generationMode === 'template_print') {
     if (!source.printPath || !fs.existsSync(source.printPath)) throw new Error('原始印花图不存在');
+    if (!source.masterImagePath || !fs.existsSync(source.masterImagePath)) throw new Error('请先生成当前任务的母版图');
     prompt = renderPromptTemplate(await getPromptValue('templatePrint'), {
       templateAnalysis: analysis,
       templatePath: job.relativePath
     });
-    imagePaths = [job.templatePath, source.printPath];
+    prompt += '\n\n本次输入图顺序：第一张是当前套图模板图，第二张是已生成的母版产品图，第三张是原始印花图。母版产品图是产品外观、柜门图案、颜色和印花效果的标准；当前套图模板图只提供本页构图、场景、文字、尺寸标注和透视关系；原始印花图只用于核对图案，不允许重新设计、拼贴或替换成相似风格。最终结果必须把母版产品迁移到当前模板场景中，并保持当前模板的文字和页面布局。';
+    imagePaths = [job.templatePath, source.masterImagePath, source.printPath];
   } else {
     const masterImage = (await fsp.readdir(job.outputRoot).catch(() => [])).map(name => path.join(job.outputRoot, name)).find(file => isImagePath(file) && path.basename(file, path.extname(file)) === '母版图');
     if (!masterImage || !fs.existsSync(masterImage)) throw new Error('母版图不存在');
@@ -2686,6 +2690,7 @@ async function regenerateMasterForReviewFolder(folderValue) {
 async function generateDirectTemplateTask(task, options = {}) {
   if (!task?.printPath || !fs.existsSync(task.printPath)) throw new Error('印花图不存在');
   if (!task?.templateFolderPath || !fs.existsSync(task.templateFolderPath)) throw new Error('套图文件夹不存在');
+  if (!task?.masterImagePath || !fs.existsSync(task.masterImagePath)) throw new Error('请先生成当前任务的母版图');
   const requestedPaths = Array.isArray(task.templateRelativePaths)
     ? task.templateRelativePaths
     : task.templateRelativePath ? [task.templateRelativePath] : null;
@@ -2705,6 +2710,41 @@ async function generateDirectTemplateTask(task, options = {}) {
   });
   if (result.failures.length) throw new Error(`有 ${result.failures.length} 张失败：${result.failures[0]}`);
   return { folder, outputPath: folder, url: '', summary: result.summary };
+}
+
+async function generateTemplateTaskMaster(task = {}, options = {}) {
+  if (!task?.printPath || !fs.existsSync(task.printPath)) throw new Error('印花图不存在');
+  const referencePath = task.masterReferencePath || task.productPath || task.templateImagePath || '';
+  if (!referencePath || !fs.existsSync(referencePath)) throw new Error('请先选择母版参考图');
+  const config = await loadConfig();
+  if (typeof options.reportProgress === 'function') {
+    await options.reportProgress({ phase: 'generating', current: 0, total: 1, percent: 10, message: '正在生成母版图…' });
+  }
+  const prompt = String(await getPromptValue('templateMasterGeneration') || '').trim();
+  const bytes = await generateImage(prompt || '根据第一张产品参考图和第二张印花图生成标准电商母版图。', [referencePath, task.printPath], {
+    size: config.imageSize || '1024x1024',
+    quality: config.imageQuality || 'high',
+    billingDescription: '套图母版生成',
+    billingReference: task.id || path.basename(referencePath),
+    skipBilling: true,
+    signal: options.signal,
+    onRequestState: options.onRequestState
+  });
+  const masterRoot = path.join(currentWorkspaceRoot(), 'masters', localFileTimestamp());
+  await fsp.mkdir(masterRoot, { recursive: true });
+  const outputPath = path.join(masterRoot, `${safeFileName(task.id || task.printName || 'template-master')}.png`);
+  await fsp.writeFile(outputPath, bytes);
+  const result = {
+    outputPath,
+    url: imageUrl(outputPath),
+    referencePath,
+    referenceName: path.basename(referencePath),
+    billingCostMinor: 0
+  };
+  if (typeof options.reportProgress === 'function') {
+    await options.reportProgress({ phase: 'completed', current: 1, total: 1, percent: 100, message: '母版图生成完成', billingCostMinor: 0 });
+  }
+  return result;
 }
 
 async function generateTask(task, options = {}) {
@@ -3100,6 +3140,7 @@ const runtimeExports = {
   fileToken,
   generateFree,
   generateTask,
+  generateTemplateTaskMaster,
   generateTemplateSetForFolder,
   generateTitleForTask,
   generateTitles,

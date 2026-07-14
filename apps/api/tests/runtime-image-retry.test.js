@@ -75,6 +75,7 @@ test('template-print regeneration entrypoints use the image API', async (t) => {
     generationMode: 'template_print',
     printPath,
     printName: 'print.png',
+    masterImagePath: path.join(templateRoot, '1.png'),
     templateFolderPath: templateRoot,
     templateRelativePaths: ['1.png']
   });
@@ -184,6 +185,7 @@ test('template-print queue completes all thirty images through the image API', a
     generationMode: 'template_print',
     printPath,
     printName: 'print.png',
+    masterImagePath: path.join(templateRoot, relativePaths[0]),
     templateFolderPath: templateRoot,
     templateRelativePaths: relativePaths
   }, {

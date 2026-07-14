@@ -3,6 +3,7 @@
 const {
   MASTER_PROMPT_TEMPLATE,
   TEMPLATE_ANALYSIS_PROMPT,
+  TEMPLATE_MASTER_PROMPT,
   TEMPLATE_MIGRATION_PROMPT,
   TEMPLATE_PRINT_PROMPT
 } = require('./prompts');
@@ -51,6 +52,14 @@ const PROMPT_DEFINITIONS = Object.freeze([
     description: '使用套图文件夹中的模板图和印花素材生成每张套图时使用。',
     placeholders: ['{{templateAnalysis}}', '{{templatePath}}'],
     defaultValue: TEMPLATE_PRINT_PROMPT(templateJob, PLACEHOLDER_VALUES.templateAnalysis, false)
+  },
+  {
+    id: 'templateMasterGeneration',
+    title: '套图母版生成',
+    group: '生图',
+    description: '使用套图参考图和印花图生成当前任务的标准母版图，母版生成不计入用户费用。',
+    placeholders: [],
+    defaultValue: TEMPLATE_MASTER_PROMPT
   },
   {
     id: 'templateMigration',

@@ -145,6 +145,7 @@ function normalizeTask(value = {}) {
     status: normalizeTaskStatus(field(task, 'status', 'Status')),
     outputFolder: stringValue(field(task, 'outputFolder', 'OutputFolder')),
     masterImagePath: stringValue(field(task, 'masterImagePath', 'MasterImagePath')),
+    masterReferencePath: stringValue(field(task, 'masterReferencePath', 'MasterReferencePath')),
     error: stringValue(field(task, 'error', 'Error')),
     note: stringValue(field(task, 'note', 'Note')),
     result: field(task, 'result', 'Result') ?? null
@@ -192,12 +193,13 @@ function transitionTask(value, event, payload = {}) {
       error: '',
       result: payload.result ?? task.result,
       outputFolder: stringValue(payload.outputFolder, task.outputFolder),
-      masterImagePath: stringValue(payload.masterImagePath, task.masterImagePath)
+      masterImagePath: stringValue(payload.masterImagePath, task.masterImagePath),
+      masterReferencePath: stringValue(payload.masterReferencePath, task.masterReferencePath)
     };
   }
   if (event === 'fail') return { ...task, status: TASK_STATUS.FAILED, error: stringValue(payload.error, '任务失败') };
   if (event === 'cancel') return { ...task, status: TASK_STATUS.CANCELLED, error: '' };
-  return { ...task, status: TASK_STATUS.IDLE, error: '', result: null, outputFolder: '', masterImagePath: '' };
+  return { ...task, status: TASK_STATUS.IDLE, error: '', result: null, outputFolder: '', masterImagePath: '', masterReferencePath: '' };
 }
 
 function selectAllTasks(tasks, selected = true) {
@@ -224,6 +226,7 @@ function duplicateSelectedTasks(tasks, options = {}) {
     status: TASK_STATUS.IDLE,
     outputFolder: '',
     masterImagePath: '',
+    masterReferencePath: '',
     error: '',
     result: null
   }));
@@ -287,6 +290,8 @@ function normalizeSourceMetadata(value = {}) {
     modelPath: stringValue(field(source, 'modelPath', 'ModelPath')),
     productPath: stringValue(field(source, 'productPath', 'ProductPath')),
     printPath: stringValue(field(source, 'printPath', 'PrintPath')),
+    masterImagePath: stringValue(field(source, 'masterImagePath', 'MasterImagePath')),
+    masterReferencePath: stringValue(field(source, 'masterReferencePath', 'MasterReferencePath')),
     templateFolderPath: stringValue(field(source, 'templateFolderPath', 'TemplateFolderPath')),
     templateRelativePaths: stringArray(field(source, 'templateRelativePaths', 'TemplateRelativePaths')),
     generationMode: stringValue(field(source, 'generationMode', 'GenerationMode'), 'master') || 'master',
@@ -304,6 +309,8 @@ function toMacSourceMetadata(value, options = {}) {
     modelPath: source.modelPath,
     productPath: source.productPath,
     printPath: source.printPath,
+    masterImagePath: source.masterImagePath,
+    masterReferencePath: source.masterReferencePath,
     templateFolderPath: source.templateFolderPath,
     templateRelativePaths: source.templateRelativePaths,
     generationMode: source.generationMode,
@@ -320,6 +327,8 @@ function toWpfSourceMetadata(value) {
     ModelPath: source.modelPath,
     ProductPath: source.productPath,
     PrintPath: source.printPath,
+    MasterImagePath: source.masterImagePath,
+    MasterReferencePath: source.masterReferencePath,
     TemplateFolderPath: source.templateFolderPath,
     TemplateRelativePaths: source.templateRelativePaths,
     GenerationMode: source.generationMode,

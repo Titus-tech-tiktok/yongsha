@@ -103,6 +103,8 @@ test('兼容当前 Mac 与 WPF 的 source/review 元数据字段', () => {
     PrintPath: '/a/print.png',
     TemplateFolderPath: '/a/template',
     TemplateRelativePaths: ['主图/01.png', '详情/02.png'],
+    MasterImagePath: '',
+    MasterReferencePath: '',
     GenerationMode: 'template_print',
     TaskNumber: 12,
     CreatedAt: '2026-07-10T00:00:00.000Z'

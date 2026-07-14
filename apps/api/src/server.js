@@ -22,7 +22,7 @@ const assetRoot = () => path.join(runtime.WORKSPACE_ROOT, 'assets');
 const jobRoot = () => path.join(runtime.WORKSPACE_ROOT, 'jobs');
 const thumbnailRoot = () => path.join(runtime.WORKSPACE_ROOT, '.cache', 'thumbnails');
 const LONG_JOB_METHODS = new Set([
-  'analyzeProductProfile', 'analyzeTemplates', 'prepareTemplates', 'generateFree', 'generateTask',
+  'analyzeProductProfile', 'analyzeTemplates', 'prepareTemplates', 'generateFree', 'generateTask', 'generateTemplateMaster',
   'generateTemplates', 'regenerateMaster', 'regenerateTemplate', 'analyzeTemplateItems', 'analyzeTemplateItemWithReference'
 ]);
 const SUPERADMIN_RPC_METHODS = new Set([
@@ -329,6 +329,8 @@ function safeTask(task = {}) {
     productPath: workspacePath(task.productPath, { allowEmpty: task.generationMode === 'template_print', message: '品类图不属于当前工作区' }),
     printPath: workspacePath(task.printPath, { message: '印花图不属于当前工作区' }),
     templateFolderPath: workspacePath(task.templateFolderPath, { message: '套图不属于当前工作区' }),
+    masterImagePath: managedPath(task.masterImagePath, { allowEmpty: true, message: '母版图不属于当前工作区或成品输出目录' }),
+    masterReferencePath: workspacePath(task.masterReferencePath, { allowEmpty: true, message: '母版参考图不属于当前工作区' }),
     templateRelativePaths: [...new Set((Array.isArray(task.templateRelativePaths)
       ? task.templateRelativePaths
       : task.templateRelativePath ? [task.templateRelativePath] : [])
@@ -821,6 +823,7 @@ const rpc = {
   listTemplateFolders: () => runtime.listTemplateFolders(),
   deleteTemplateFolder: ([folder]) => runtime.deleteTemplateFolder(workspacePath(folder)),
   generateTask: ([task], context) => runtime.generateTask(safeTask(task || {}), context || {}),
+  generateTemplateMaster: ([task], context) => runtime.generateTemplateTaskMaster(safeTask(task || {}), context || {}),
   listTemplates: ([folder]) => runtime.listTemplates(workspacePath(folder)),
   getTemplatePreparation: ([folder]) => runtime.getTemplatePreparation(workspacePath(folder)),
   prepareTemplates: ([folder]) => runtime.prepareTemplateFolder(workspacePath(folder)),

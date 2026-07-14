@@ -90,6 +90,7 @@ test('template-print planner expands copies and sends replace_print through imag
       taskNumber: 1,
       generationMode: 'template_print',
       printPath,
+      masterImagePath: path.join(templateRoot, '01-main.png'),
       templateFolderPath: templateRoot,
       templateRelativePaths: ['03-side.png']
     }),
@@ -101,6 +102,7 @@ test('template-print planner expands copies and sends replace_print through imag
     taskNumber: 1,
     generationMode: 'template_print',
     printPath,
+    masterImagePath: path.join(templateRoot, '01-main.png'),
     templateFolderPath: templateRoot,
     templateRelativePaths: ['01-main.png']
   });
@@ -123,6 +125,7 @@ test('template-print planner expands copies and sends replace_print through imag
     taskNumber: 2,
     generationMode: 'template_print',
     printPath,
+    masterImagePath: path.join(templateRoot, '01-main.png'),
     templateFolderPath: templateRoot,
     templateRelativePaths: ['01-main.png']
   });

@@ -13,6 +13,7 @@ test('提示词设置覆盖所有固定 AI 调用和自由生图默认值', () =
     'masterGeneration',
     'templateAnalysis',
     'templatePrint',
+    'templateMasterGeneration',
     'templateMigration',
     'productProfileAnalysis',
     'templateAudit',

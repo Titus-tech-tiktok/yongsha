@@ -1,5 +1,15 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Template master-first generation
+
+- 素材生图的 `template_print` 任务改为“先生成母版，再正式生成套图”。
+- 每个任务卡片会自动选一张套图参考图生成母版，卡片内提供 `生成母版` / `重新生成母版`。
+- 母版生成调用真实图片 API，但通过 `skipBilling` 跳过计费，不扣用户余额，也不进入任务成本。
+- 正式套图生成必须带已生成母版图；批量生成时只运行已有母版的任务，未生成母版的任务会被跳过并提示数量，不阻塞其他任务卡片。
+- 正式生成的输入顺序改为：当前套图模板图、已生成母版产品图、原始印花图；提示词强调母版是产品和印花效果标准，模板只提供场景、文字、尺寸和透视。
+- 新增默认提示词 `templateMasterGeneration`，用于初始化套图母版生成，不做自动质检。
+- Verification completed: `npm test -w @caishen/api`, `npm run build -w @caishen/web`, `node --check`.
+
 ## 2026-07-15 Update - Restore API template generation
 
 - Removed the production local template-print compositing path.

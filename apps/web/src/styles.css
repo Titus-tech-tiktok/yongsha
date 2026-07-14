@@ -1543,6 +1543,36 @@ input:focus, textarea:focus, select:focus {
   font-size: 11px;
 }
 
+.queue-master-panel {
+  border-top: 1px solid var(--line);
+  grid-template-columns: 154px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  display: grid;
+}
+
+.queue-master-images {
+  grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  display: grid;
+}
+
+.queue-master-copy {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.queue-master-copy > button {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
 .review-layout {
   grid-template-columns: 280px minmax(440px, 1fr) 320px;
   gap: 16px;

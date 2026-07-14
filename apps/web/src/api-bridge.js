@@ -329,6 +329,7 @@ window.caishen = {
   listTemplateFolders: () => rpc('listTemplateFolders'),
   deleteTemplateFolder: folder => rpc('deleteTemplateFolder', folder),
   generateTask: (task, onProgress) => runJob('generateTask', [task], `${task?.id || createClientId()}:${task?.runAttempt || 1}`, onProgress),
+  generateTemplateMaster: (task, onProgress) => runJob('generateTemplateMaster', [task], `template-master:${task?.id || createClientId()}:${task?.masterRunAttempt || 1}`, onProgress),
   listTemplates: folder => rpc('listTemplates', folder),
   getTemplatePreparation: folder => rpc('getTemplatePreparation', folder),
   prepareTemplates: folder => runJob('prepareTemplates', [folder]),
