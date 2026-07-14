@@ -1,5 +1,15 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Admin prompt loading and account controls
+
+- Fixed prompt settings for admin accounts: team admins now actually load the shared prompt settings instead of staying on the loading placeholder.
+- Added self-service password changes for every account role. Users must enter their current password before saving a new password.
+- Renamed the visible web brand to `庞大科技` and changed the sidebar collapse behavior to fully hide the left rail; the logo button expands it again with hide/expand tooltips.
+- Material generation now clears stale template previews and master candidates when all template folders are deleted from the asset library.
+- Removed the misleading `加入母版` label from template image cards; clicking the image itself creates or fills a master task.
+- Added filename/folder-name sorting controls for template base images and print assets.
+- Verification completed: `node --check apps/web/src/renderer.js`, `node --check apps/web/src/api-bridge.js`, `node --check apps/api/src/server.js`, `node --check apps/api/src/auth.js`, `npm test -w @caishen/api -- tests/security.test.js`, `npm run build -w @caishen/web`, `git diff --check`.
+
 ## 2026-07-15 Update - Task source panel layout fix
 
 - Fixed the material generation print-source tab layout so the panel content stays horizontal and no longer compresses the title into vertical text.

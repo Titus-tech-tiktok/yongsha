@@ -114,6 +114,8 @@ const state = {
   taskSourceTab: 'template',
   taskTemplateSelectionScope: '',
   taskTemplateExpandedGroups: new Set(),
+  taskTemplateSort: 'name-asc',
+  printSort: 'name-asc',
   templateFilter: 'all',
   templatePreparation: null,
   templatePreparing: false,
@@ -179,8 +181,12 @@ function applySidebarCollapsed(collapsed) {
   const button = $('#sidebarToggleButton');
   if (button) {
     button.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
-    button.title = collapsed ? '展开边栏' : '收起边栏';
+    button.setAttribute('aria-label', collapsed ? '展开边栏' : '隐藏边栏');
+    button.title = collapsed ? '展开边栏' : '隐藏边栏';
+    button.textContent = collapsed ? '展开' : '‹';
   }
+  const logo = $('.brand img');
+  if (logo) logo.title = collapsed ? '展开边栏' : '隐藏边栏';
   try { localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0'); } catch {}
 }
 
@@ -254,6 +260,48 @@ async function submitAuth(event) {
 
 async function logout() {
   try { await window.caishen.logout(); } finally { window.location.reload(); }
+}
+
+function openChangePasswordModal() {
+  $('#changePasswordModal').hidden = false;
+  $('#changePasswordForm').reset();
+  $('#changePasswordStatus').className = '';
+  $('#changePasswordStatus').textContent = '密码仅用于当前登录账号。';
+  requestAnimationFrame(() => $('#currentPasswordInput').focus());
+}
+
+function closeChangePasswordModal() {
+  $('#changePasswordModal').hidden = true;
+}
+
+async function submitChangePassword(event) {
+  event.preventDefault();
+  const currentPassword = $('#currentPasswordInput').value;
+  const newPassword = $('#newPasswordInput').value;
+  const confirmPassword = $('#confirmPasswordInput').value;
+  if (newPassword !== confirmPassword) {
+    $('#changePasswordStatus').className = 'error';
+    $('#changePasswordStatus').textContent = '两次输入的新密码不一致';
+    return;
+  }
+  const button = $('#submitChangePasswordButton');
+  button.disabled = true;
+  button.textContent = '保存中…';
+  $('#changePasswordStatus').className = 'saving';
+  $('#changePasswordStatus').textContent = '正在修改密码…';
+  try {
+    await window.caishen.changePassword({ currentPassword, newPassword });
+    $('#changePasswordStatus').className = 'saved';
+    $('#changePasswordStatus').textContent = '密码已修改';
+    toast('密码已修改');
+    setTimeout(closeChangePasswordModal, 450);
+  } catch (error) {
+    $('#changePasswordStatus').className = 'error';
+    $('#changePasswordStatus').textContent = errorText(error);
+  } finally {
+    button.disabled = false;
+    button.textContent = '保存新密码';
+  }
 }
 
 const BILLING_AMOUNT_SCALE = 1000000;
@@ -884,22 +932,33 @@ function annotateTemplateItems(items, folder) {
   }));
 }
 
+function sortByName(items, direction = 'name-asc', selector = item => item.name) {
+  const multiplier = direction === 'name-desc' ? -1 : 1;
+  return [...(items || [])].sort((left, right) =>
+    multiplier * String(selector(left) || '').localeCompare(String(selector(right) || ''), 'zh-CN', { numeric: true })
+  );
+}
+
 async function listTemplateItemsForCurrentView() {
   const view = currentTemplateFolderView();
+  if (!state.templateFolders.length) return [];
   const folders = view === 'all'
     ? state.templateFolders
     : state.templateFolders.filter(folder => folder.path === view);
+  if (!folders.length) return [];
   const results = await Promise.all(folders.map(async folder => annotateTemplateItems(await window.caishen.listTemplates(folder.path), folder)));
-  return results.flat();
+  return sortByName(results.flat(), 'name-asc', item => `${item.templateFolderName || ''}/${item.relativePath || item.name || ''}`);
 }
 
 async function listTaskTemplateItemsForCurrentView() {
   const view = currentTaskTemplateFolderView();
+  if (!state.templateFolders.length) return [];
   const folders = view === 'all'
     ? state.templateFolders
-    : [state.templateFolders.find(folder => folder.path === view) || { path: view, name: templateFolderName(view) }];
+    : state.templateFolders.filter(folder => folder.path === view);
+  if (!folders.length) return [];
   const results = await Promise.all(folders.map(async folder => annotateTemplateItems(await window.caishen.listTemplates(folder.path), folder)));
-  return results.flat();
+  return sortByName(results.flat(), state.taskTemplateSort, item => `${item.templateFolderName || ''}/${item.relativePath || item.name || ''}`);
 }
 
 function taskTemplateRootKey(folderPath) {
@@ -954,14 +1013,14 @@ function taskTemplateSelectionMark(items) {
 }
 
 function renderTaskTemplateTree(items, taskViewAll) {
-  return `<div class="task-template-flat-grid" role="list">${items.map(item => {
+  const sortedItems = sortByName(items, state.taskTemplateSort, item => `${taskViewAll ? item.templateFolderName || '' : ''}/${item.relativePath || item.name || ''}`);
+  return `<div class="task-template-flat-grid" role="list">${sortedItems.map(item => {
     const sameReferenceCount = state.templateMasterCandidates.filter(candidate => candidate.masterReferencePath === item.path).length;
     const group = taskViewAll ? item.templateFolderName || templateFolderName(templateFolderPathForItem(item)) : taskTemplateGroupName(item);
     return `<button class="task-template-image" type="button" data-task-template-image="${escapeHtml(item.path)}" title="${escapeHtml(item.relativePath)}" role="listitem">
       <span class="task-template-image-check">${sameReferenceCount ? sameReferenceCount : ''}</span>
       <img loading="lazy" decoding="async" src="${escapeHtml(item.thumbnailUrl || item.url)}" data-preview-src="${escapeHtml(item.previewUrl || item.url)}" alt="${escapeHtml(item.name)}">
       <span><b>${escapeHtml(item.name)}</b><small>${escapeHtml(group)} · ${escapeHtml(item.relativePath)}</small></span>
-      <span class="task-template-master-badge">加入母版</span>
     </button>`;
   }).join('')}</div>`;
 }
@@ -976,7 +1035,8 @@ function renderTemplateFolders() {
     ? `已导入 ${state.templateFolders.length} 个文件夹${activePath ? ` · 当前：${state.templateFolders.find(item => item.path === activePath)?.name || '未选择'}` : ''}`
     : '尚未导入套图文件夹';
   $('#settingDetailSetsPath').title = activePath;
-  browser.innerHTML = state.templateFolders.length ? [`<div class="template-folder-card template-folder-all${view === 'all' ? ' active' : ''}" title="显示所有已导入文件夹的图片"><button class="template-folder-select" type="button" data-template-folder-view="all" aria-pressed="${view === 'all'}"><span class="template-all-icon" aria-hidden="true"></span><span><b>全部文件夹</b><small>${allCount} 张图片 · ${state.templateFolders.length} 个文件夹</small></span></button></div>`, ...state.templateFolders.map(folder => {
+  const folders = sortByName(state.templateFolders, state.taskTemplateSort, folder => folder.name);
+  browser.innerHTML = folders.length ? [`<div class="template-folder-card template-folder-all${view === 'all' ? ' active' : ''}" title="显示所有已导入文件夹的图片"><button class="template-folder-select" type="button" data-template-folder-view="all" aria-pressed="${view === 'all'}"><span class="template-all-icon" aria-hidden="true"></span><span><b>全部文件夹</b><small>${allCount} 张图片 · ${state.templateFolders.length} 个文件夹</small></span></button></div>`, ...folders.map(folder => {
     const active = view === folder.path;
     const current = folder.path === activePath;
     const preview = folder.preview?.thumbnailUrl
@@ -990,6 +1050,20 @@ async function loadTemplateFolders() {
   try {
     state.templateFolders = await window.caishen.listTemplateFolders();
     const validPaths = new Set(state.templateFolders.map(folder => folder.path));
+    if (!state.templateFolders.length) {
+      state.templateFolderView = '';
+      state.taskTemplateFolderView = '';
+      state.templateItems = [];
+      state.taskTemplateItems = [];
+      state.templatePreparation = null;
+      state.selectedTaskTemplatePaths.clear();
+      state.taskTemplateExpandedGroups.clear();
+      state.templateMasterCandidates = [];
+      state.activeTemplateMasterCandidateId = '';
+      state.assetPreviewCache.delete('detailSetsPath');
+      persistTemplateMasterCandidates();
+      renderTemplateWorkflow();
+    }
     if (!state.templateFolderView) state.templateFolderView = validPaths.has(state.config?.detailSetsPath) ? state.config.detailSetsPath : 'all';
     else if (state.templateFolderView !== 'all' && !validPaths.has(state.templateFolderView)) {
       state.templateFolderView = validPaths.has(state.config?.detailSetsPath) ? state.config.detailSetsPath : 'all';
@@ -1045,7 +1119,8 @@ function renderTaskTemplateFolderList() {
   const activePath = state.config?.detailSetsPath || '';
   const view = currentTaskTemplateFolderView();
   const allCount = state.templateFolders.reduce((total, folder) => total + Number(folder.count || 0), 0);
-  container.innerHTML = state.templateFolders.length ? [`<button class="task-template-folder-option task-template-folder-all${view === 'all' ? ' active' : ''}" type="button" data-task-template-folder="all" aria-pressed="${view === 'all'}"><span class="template-all-icon" aria-hidden="true"></span><span><b>全部文件夹</b><small>${state.templateFolders.length} 个文件夹 · 共 ${allCount} 张图片</small></span><strong>${view === 'all' ? '当前查看' : '查看'}</strong></button>`, ...state.templateFolders.map(folder => {
+  const folders = sortByName(state.templateFolders, state.taskTemplateSort, folder => folder.name);
+  container.innerHTML = folders.length ? [`<button class="task-template-folder-option task-template-folder-all${view === 'all' ? ' active' : ''}" type="button" data-task-template-folder="all" aria-pressed="${view === 'all'}"><span class="template-all-icon" aria-hidden="true"></span><span><b>全部文件夹</b><small>${state.templateFolders.length} 个文件夹 · 共 ${allCount} 张图片</small></span><strong>${view === 'all' ? '当前查看' : '查看'}</strong></button>`, ...folders.map(folder => {
     const active = view === folder.path;
     const current = folder.path === activePath;
     const preview = folder.preview?.thumbnailUrl
@@ -1124,7 +1199,8 @@ async function deleteTemplateFolder(folderPath) {
 
 function renderTemplateWorkflow() {
   if (!state.config) return;
-  const folderReady = Boolean(state.config.detailSetsPath);
+  const hasTemplateFolders = state.templateFolders.length > 0;
+  const folderReady = Boolean(state.config.detailSetsPath && hasTemplateFolders);
   const plan = state.templatePreparation;
   const analysisReady = Boolean(plan?.generationReady);
   const selectedTasks = state.queue.filter(task => task.selected);
@@ -1138,12 +1214,14 @@ function renderTemplateWorkflow() {
   const taskViewAll = taskView === 'all';
   const activeFolderName = templateFolderName(state.config.detailSetsPath);
   const replaceItems = state.taskTemplateItems.filter(item => item.action === 'replace_print');
-  $('#taskTemplateScopeLabel').textContent = taskViewAll ? '浏览范围' : '当前文件夹';
-  $('#taskTemplatePath').textContent = taskViewAll ? '全部文件夹' : templateFolderName(taskView);
-  $('#taskTemplatePath').title = taskViewAll ? state.templateFolders.map(folder => folder.name).join('、') : taskView;
-  $('#taskTemplateFolderHint').textContent = taskViewAll
-    ? `当前显示 ${replaceItems.length} 张 · 默认整套任务文件夹：${activeFolderName}`
-    : `当前显示 ${replaceItems.length} 张，可点击任意图片创建母版卡`;
+  $('#taskTemplateScopeLabel').textContent = hasTemplateFolders ? (taskViewAll ? '浏览范围' : '当前文件夹') : '当前文件夹';
+  $('#taskTemplatePath').textContent = hasTemplateFolders ? (taskViewAll ? '全部文件夹' : templateFolderName(taskView)) : '尚未导入套图文件夹';
+  $('#taskTemplatePath').title = hasTemplateFolders ? (taskViewAll ? state.templateFolders.map(folder => folder.name).join('、') : taskView) : '';
+  $('#taskTemplateFolderHint').textContent = !hasTemplateFolders
+    ? '请先到素材资产导入套图文件夹'
+    : taskViewAll
+      ? `当前显示 ${replaceItems.length} 张 · 默认整套任务文件夹：${activeFolderName}`
+      : `当前显示 ${replaceItems.length} 张，可点击任意图片创建母版卡`;
   const candidateSignature = state.templateMasterCandidates.map(candidate => `${candidate.id}:${candidate.masterReferencePath}:${candidate.printPath}:${candidate.masterImagePath}:${candidate.masterStatus}:${candidate.selected ? 1 : 0}:${state.activeTemplateMasterCandidateId === candidate.id ? 1 : 0}`).join('|');
   const previewSignature = `${taskView}|${state.config.detailSetsPath || ''}|masters:${candidateSignature}|${replaceItems.map(item => `${item.path}:${item.thumbnailUrl || item.url}:${state.selectedTaskTemplatePaths.has(item.path)}`).join('|')}|${[...state.taskTemplateExpandedGroups].sort().join('|')}`;
   if (templatePreview.dataset.previewSignature !== previewSignature) {
@@ -1642,7 +1720,7 @@ function renderAssetFolders(type, items) {
   const isProduct = type === 'product';
   const selectedFolder = isProduct ? state.productFolder : state.printFolder;
   const folders = [...new Set(items.map(item => item.folder).filter(folder => folder && folder !== '根目录'))]
-    .sort((left, right) => left.localeCompare(right, 'zh-CN', { numeric: true }));
+    .sort((left, right) => (isProduct || state.printSort !== 'name-desc' ? 1 : -1) * left.localeCompare(right, 'zh-CN', { numeric: true }));
   const list = $(isProduct ? '#productFolderList' : '#printFolderList');
   list.innerHTML = [`<button class="asset-folder-button${selectedFolder ? '' : ' active'}" data-asset-folder="" data-folder-type="${type}">全部素材</button>`, ...folders.map(folder => `<button class="asset-folder-button${selectedFolder === folder ? ' active' : ''}" data-asset-folder="${escapeHtml(folder)}" data-folder-type="${type}" title="${escapeHtml(folder)}">${escapeHtml(folder)}</button>`)].join('');
   $(isProduct ? '#productFolderLabel' : '#printFolderLabel').textContent = selectedFolder || '全部文件夹';
@@ -1653,7 +1731,7 @@ function renderAssets(type) {
   const allItems = isProduct ? state.products : state.prints;
   const selectedFolder = isProduct ? state.productFolder : state.printFolder;
   const matchingItems = selectedFolder ? allItems.filter(item => item.folder === selectedFolder || item.folder.startsWith(`${selectedFolder}/`)) : allItems;
-  const items = matchingItems.slice(0, 240);
+  const items = sortByName(matchingItems, isProduct ? 'name-asc' : state.printSort, item => item.name).slice(0, 240);
   const selected = isProduct ? state.selectedProduct : state.selectedPrint;
   const grid = $(isProduct ? '#productGrid' : '#printGrid');
   renderAssetFolders(type, allItems);
@@ -3032,7 +3110,7 @@ function applyFreePromptDefault() {
 }
 
 async function loadPromptSettings() {
-  if (!isSuperAdmin()) return;
+  if (!canManagePrompts()) return;
   try {
     state.promptSettings = await window.caishen.getPromptSettings();
     if (!state.activePromptId || !state.promptSettings.prompts.some(item => item.id === state.activePromptId)) {
@@ -3609,7 +3687,19 @@ async function resetSettings() {
 
 function bindEvents() {
   $('#logoutButton').onclick = logout;
+  $('#changePasswordButton').onclick = openChangePasswordModal;
+  $('#closeChangePasswordButton').onclick = closeChangePasswordModal;
+  $('#cancelChangePasswordButton').onclick = closeChangePasswordModal;
+  $('#changePasswordForm').onsubmit = submitChangePassword;
   $('#sidebarToggleButton').onclick = () => applySidebarCollapsed(!$('#appShell').classList.contains('sidebar-collapsed'));
+  $('.brand img').onclick = () => {
+    applySidebarCollapsed(!$('#appShell').classList.contains('sidebar-collapsed'));
+  };
+  $('.topbar').onclick = event => {
+    if ($('#appShell').classList.contains('sidebar-collapsed')) return;
+    if (event.target.closest('button, .nav, .sidebar-finance, .brand')) return;
+    applySidebarCollapsed(true);
+  };
   $('#createUserForm').onsubmit = createTeamUser;
   $('#teamUserList').onclick = event => {
     const button = event.target.closest('[data-team-user-active]');
@@ -3968,6 +4058,19 @@ function bindEvents() {
     state.printFolder = button.dataset.assetFolder;
     renderAssets('print');
   };
+  $('#taskTemplateSort').onchange = async event => {
+    state.taskTemplateSort = event.target.value === 'name-desc' ? 'name-desc' : 'name-asc';
+    state.assetPreviewCache.delete('detailSetsPath');
+    state.taskTemplateItems = await listTaskTemplateItemsForCurrentView();
+    syncTaskTemplateSelection();
+    renderTemplateFolders();
+    renderTaskTemplateFolderList();
+    renderTemplateWorkflow();
+  };
+  $('#printSort').onchange = event => {
+    state.printSort = event.target.value === 'name-desc' ? 'name-desc' : 'name-asc';
+    renderAssets('print');
+  };
   if ($('#productPreviewSize')) $('#productPreviewSize').oninput = event => { $('#productGrid').style.setProperty('--asset-card-size', `${event.target.value}px`); };
   $('#reviewList').onclick = event => {
     const row = event.target.closest('[data-review-index]');
@@ -4055,7 +4158,10 @@ async function start() {
   renderConfig();
   renderSettingsTabs();
   await loadTemplateFolders();
-  const adminLoads = isSuperAdmin() ? [loadPromptSettings(), loadApiSettings()] : [];
+  const adminLoads = [
+    ...(canManagePrompts() ? [loadPromptSettings()] : []),
+    ...(isSuperAdmin() ? [loadApiSettings()] : [])
+  ];
   await Promise.all([loadTitleLibrary(), loadTemplatePreparation(), loadBillingSummary(), ...adminLoads]);
   await Promise.all([loadAssets('categoriesPath'), loadAssets('printsPath')]);
   renderQueue();

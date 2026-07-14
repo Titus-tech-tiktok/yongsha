@@ -293,6 +293,7 @@ window.caishen = {
   bootstrapAccount: payload => authRequest('/api/auth/bootstrap', { method: 'POST', body: JSON.stringify(payload) }),
   login: payload => authRequest('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
   logout: () => authRequest('/api/auth/logout', { method: 'POST' }),
+  changePassword: payload => authRequest('/api/auth/password', { method: 'POST', body: JSON.stringify(payload) }),
   listUsers: () => authRequest('/api/auth/users'),
   createUser: payload => authRequest('/api/auth/users', { method: 'POST', body: JSON.stringify(payload) }),
   setUserActive: (id, active) => authRequest(`/api/auth/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ active }) }),

@@ -1,7 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const os = require('node:os');
+const fs = require('node:fs/promises');
 const { canAccessRpc, isWithin, safeRelative } = require('../src/server');
+const { createAuthService } = require('../src/auth');
 const { isSameOrChildPath } = require('../src/core/path-utils');
 const runtime = require('../src/runtime');
 
@@ -47,4 +50,20 @@ test('role access separates prompt management from API management', () => {
   }
   assert.equal(canAccessRpc(member, 'getConfig'), true);
   assert.equal(canAccessRpc(member, 'generateTitles'), true);
+});
+
+test('all account roles can change their own password with current password verification', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-auth-'));
+  const auth = createAuthService(root);
+  const admin = await auth.createUser({ username: 'admin1', password: 'old-admin', role: 'admin' });
+  const member = await auth.createUser({ username: 'member1', password: 'old-member', role: 'member' });
+
+  await auth.changeOwnPassword(admin.id, 'old-admin', 'new-admin');
+  await auth.changeOwnPassword(member.id, 'old-member', 'new-member');
+
+  assert.equal(await auth.authenticate('admin1', 'old-admin'), null);
+  assert.equal(await auth.authenticate('member1', 'old-member'), null);
+  assert.equal((await auth.authenticate('admin1', 'new-admin')).id, admin.id);
+  assert.equal((await auth.authenticate('member1', 'new-member')).id, member.id);
+  await assert.rejects(() => auth.changeOwnPassword(member.id, 'wrong-password', 'next-member'), /当前密码不正确/);
 });

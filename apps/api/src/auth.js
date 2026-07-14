@@ -73,6 +73,12 @@ function createAuthService(dataRoot) {
     return crypto.scryptSync(password, salt, 64).toString('hex');
   }
 
+  function passwordMatches(user, password) {
+    const actual = Buffer.from(passwordHash(String(password || ''), user.passwordSalt), 'hex');
+    const expected = Buffer.from(String(user.passwordHash || ''), 'hex');
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  }
+
   function publicUser(user) {
     return user ? {
       id: user.id,
@@ -126,9 +132,7 @@ function createAuthService(dataRoot) {
     if (!user) return null;
     const password = String(passwordValue || '');
     if (password.length > 128) return null;
-    const actual = Buffer.from(passwordHash(password, user.passwordSalt), 'hex');
-    const expected = Buffer.from(String(user.passwordHash || ''), 'hex');
-    if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return null;
+    if (!passwordMatches(user, password)) return null;
     return publicUser(user);
   }
 
@@ -160,6 +164,19 @@ function createAuthService(dataRoot) {
         if (user.role === 'superadmin') throw new Error('不能修改超级管理员角色');
         user.role = String(payload.role);
       }
+      return publicUser(user);
+    });
+  }
+
+  function changeOwnPassword(id, currentPassword, newPassword) {
+    return mutateUsers(users => {
+      const user = users.find(item => item.id === String(id) && item.active !== false);
+      if (!user) throw new Error('账号不存在');
+      if (!passwordMatches(user, currentPassword)) throw new Error('当前密码不正确');
+      const password = validatePassword(newPassword);
+      const salt = crypto.randomBytes(24).toString('hex');
+      user.passwordSalt = salt;
+      user.passwordHash = passwordHash(password, salt);
       return publicUser(user);
     });
   }
@@ -213,6 +230,7 @@ function createAuthService(dataRoot) {
 
   return {
     authenticate,
+    changeOwnPassword,
     clearSessionCookie,
     createSession,
     createUser,

@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: caishen:; style-src 'self'; script-src 'self'">
-  <title>财神测款机 V8</title>
+  <title>庞大科技</title>
   <link rel="icon" href="/caishen-logo.png" type="image/png">
   <link rel="stylesheet" href="/src/styles.css">
 </head>
 <body>
   <div class="auth-gate" id="authGate">
     <section class="auth-card" aria-labelledby="authTitle">
-      <div class="auth-brand"><img src="/caishen-logo.png" alt=""><div><span>TEAM WORKSPACE</span><b>财神测款机 V8.0</b></div></div>
+      <div class="auth-brand"><img src="/caishen-logo.png" alt=""><div><span>TEAM WORKSPACE</span><b>庞大科技</b></div></div>
       <div class="auth-copy"><span id="authEyebrow">团队账号</span><h1 id="authTitle">登录自己的工作区</h1><p id="authDescription">每位美工的素材、任务、提示词和输出配置互相独立。</p></div>
       <form id="authForm">
         <label id="authDisplayNameField" hidden>姓名或昵称<input id="authDisplayName" autocomplete="name" maxlength="40" placeholder="例如：小林"></label>
@@ -25,9 +25,9 @@
   <div class="app-shell" id="appShell" hidden>
     <header class="topbar">
       <div class="brand">
-        <img src="/caishen-logo.png" alt="财神测款机">
-        <div><strong>财神测款机 V8.0</strong></div>
-        <button class="sidebar-toggle" id="sidebarToggleButton" type="button" aria-label="切换边栏" title="切换边栏">‹</button>
+        <img src="/caishen-logo.png" alt="庞大科技">
+        <div><strong>庞大科技</strong></div>
+        <button class="sidebar-toggle" id="sidebarToggleButton" type="button" aria-label="隐藏边栏" title="隐藏边栏">‹</button>
       </div>
       <nav class="nav" aria-label="主导航">
         <button class="nav-item" data-index="01" data-page="assets">素材资产</button>
@@ -41,7 +41,7 @@
       </nav>
       <div class="sidebar-finance">
         <button class="sidebar-balance" id="openBillingDetailButton" type="button"><span>账户余额</span><b id="currentBalance">读取中…</b><small id="currentBillingHint">点击查看费用明细</small></button>
-        <div class="sidebar-account"><div><span>当前账号</span><b id="currentUserName">正在读取…</b></div><button class="text-button" id="logoutButton" type="button">退出</button></div>
+        <div class="sidebar-account"><div><span>当前账号</span><b id="currentUserName">正在读取…</b></div><div class="sidebar-account-actions"><button class="text-button" id="changePasswordButton" type="button">改密</button><button class="text-button" id="logoutButton" type="button">退出</button></div></div>
       </div>
     </header>
 
@@ -67,6 +67,7 @@
           <article class="asset-panel template-picker-panel" id="templateAssetPanel">
             <div class="panel-head"><div><span class="index">01</span><h2>选择套图</h2></div><button class="text-button" id="changeTaskTemplateFolderButton">更换文件夹</button></div>
             <div class="task-template-folder-label"><span id="taskTemplateScopeLabel">当前文件夹</span><b id="taskTemplatePath">尚未选择套图文件夹</b><small id="taskTemplateFolderHint">选择后仅显示需要换印花的图片</small></div>
+            <div class="asset-size-row compact"><span>排序</span><select id="taskTemplateSort"><option value="name-asc">文件名 A-Z</option><option value="name-desc">文件名 Z-A</option></select></div>
             <div class="template-set-preview task-template-list" id="taskTemplatePreview"><div class="empty-state"><b>选择一个套图文件夹</b><span>这里只显示动作设为“换印花”的图片。</span></div></div>
           </article>
           <article class="asset-panel" id="productAssetPanel">
@@ -80,7 +81,7 @@
             <div class="panel-head"><div><span class="index">02</span><h2>选择印花图案</h2></div><button class="text-button" data-choose="printsPath">上传文件夹</button></div>
             <div class="path-line" id="printsPathLabel">尚未配置</div>
             <input class="search" id="printSearch" placeholder="按编号或名称搜索印花">
-            <div class="asset-size-row compact"><span id="printFolderLabel">全部文件夹</span></div>
+            <div class="asset-size-row compact"><span id="printFolderLabel">全部文件夹</span><select id="printSort"><option value="name-asc">文件名 A-Z</option><option value="name-desc">文件名 Z-A</option></select></div>
             <div class="asset-browser"><aside class="asset-folder-list" id="printFolderList"></aside><div class="asset-grid" id="printGrid"></div></div>
           </article>
           <aside class="queue-panel master-queue-panel" id="masterQueuePanel">
@@ -283,6 +284,17 @@
       <div class="billing-detail-rates" id="billingDetailRates"></div>
       <div class="billing-ledger-list billing-detail-list" id="billingDetailList"><div class="empty-inline">正在读取费用明细…</div></div>
       <div class="modal-foot"><span>只有成功的模型调用会扣费。</span><div><button class="secondary" id="refreshBillingDetailButton" type="button">刷新</button></div></div>
+    </section>
+  </div>
+  <div class="modal-backdrop" id="changePasswordModal" hidden>
+    <section class="modal-card change-password-modal" role="dialog" aria-modal="true" aria-labelledby="changePasswordTitle">
+      <div class="modal-head"><div><span class="eyebrow">ACCOUNT SECURITY</span><h2 id="changePasswordTitle">修改登录密码</h2><p>所有账号都可以修改自己的密码；保存后请使用新密码登录。</p></div><button class="icon-button" id="closeChangePasswordButton" aria-label="关闭">×</button></div>
+      <form class="change-password-form" id="changePasswordForm">
+        <label>当前密码<input id="currentPasswordInput" type="password" autocomplete="current-password" minlength="3" maxlength="128" required></label>
+        <label>新密码<input id="newPasswordInput" type="password" autocomplete="new-password" minlength="3" maxlength="128" required placeholder="3-128 位"></label>
+        <label>再次输入新密码<input id="confirmPasswordInput" type="password" autocomplete="new-password" minlength="3" maxlength="128" required></label>
+      </form>
+      <div class="modal-foot"><span id="changePasswordStatus">密码仅用于当前登录账号。</span><div><button class="secondary" id="cancelChangePasswordButton" type="button">取消</button><button class="primary" id="submitChangePasswordButton" type="submit" form="changePasswordForm">保存新密码</button></div></div>
     </section>
   </div>
   <div class="modal-backdrop" id="apiModelModal" hidden>

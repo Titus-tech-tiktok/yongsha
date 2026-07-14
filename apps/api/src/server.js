@@ -942,6 +942,15 @@ async function startServer() {
     return runtime.runWithWorkspace(user.workspaceId, () => next());
   });
 
+  app.post('/api/auth/password', async (req, res) => {
+    try {
+      const user = await auth.changeOwnPassword(req.user.id, req.body?.currentPassword, req.body?.newPassword);
+      return res.json({ data: user });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
+
   app.get('/api/auth/users', async (req, res) => {
     if (!isTeamAdmin(req.user)) return res.status(403).json({ error: '只有管理员可以查看团队账号' });
     const users = await auth.listUsers();
