@@ -16,6 +16,67 @@ function orientedDimensions(metadata = {}) {
   };
 }
 
+function isBmpPath(filePath) {
+  return path.extname(filePath || '').toLowerCase() === '.bmp';
+}
+
+async function readBmpRgba(filePath) {
+  const bytes = await fs.readFile(filePath);
+  if (bytes.length < 54 || bytes.subarray(0, 2).toString('ascii') !== 'BM') {
+    throw new Error('BMP 文件头无效');
+  }
+  const pixelOffset = bytes.readUInt32LE(10);
+  const dibSize = bytes.readUInt32LE(14);
+  const signedWidth = bytes.readInt32LE(18);
+  const signedHeight = bytes.readInt32LE(22);
+  const planes = bytes.readUInt16LE(26);
+  const bitsPerPixel = bytes.readUInt16LE(28);
+  const compression = bytes.readUInt32LE(30);
+  const width = Math.abs(signedWidth);
+  const height = Math.abs(signedHeight);
+  if (dibSize < 40 || planes !== 1 || ![24, 32].includes(bitsPerPixel) || compression !== 0 || !width || !height) {
+    throw new Error('仅支持 Windows 24/32 位未压缩 BMP 图片');
+  }
+  const rowBytes = Math.ceil(width * bitsPerPixel / 32) * 4;
+  const requiredBytes = pixelOffset + rowBytes * height;
+  if (!Number.isSafeInteger(requiredBytes) || requiredBytes > bytes.length) {
+    throw new Error('BMP 像素数据不完整');
+  }
+  const data = Buffer.alloc(width * height * 4);
+  const bytesPerPixel = bitsPerPixel / 8;
+  const topDown = signedHeight < 0;
+  for (let y = 0; y < height; y += 1) {
+    const sourceY = topDown ? y : height - 1 - y;
+    for (let x = 0; x < width; x += 1) {
+      const source = pixelOffset + sourceY * rowBytes + x * bytesPerPixel;
+      const target = (y * width + x) * 4;
+      data[target] = bytes[source + 2];
+      data[target + 1] = bytes[source + 1];
+      data[target + 2] = bytes[source];
+      data[target + 3] = 255;
+    }
+  }
+  return { data, info: { width, height, channels: 4 } };
+}
+
+async function readImageRgba(filePath) {
+  if (isBmpPath(filePath)) return readBmpRgba(filePath);
+  return sharp(filePath)
+    .rotate()
+    .toColourspace('srgb')
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+}
+
+async function readImageDimensions(filePath) {
+  if (isBmpPath(filePath)) {
+    const image = await readBmpRgba(filePath);
+    return { width: image.info.width, height: image.info.height };
+  }
+  return orientedDimensions(await sharp(filePath).metadata());
+}
+
 async function writeOutput(image, outputPath) {
   const extension = path.extname(outputPath).toLowerCase();
   if (extension === '.jpg' || extension === '.jpeg') {
@@ -26,7 +87,47 @@ async function writeOutput(image, outputPath) {
     await image.webp({ quality: 100, lossless: true }).toFile(outputPath);
     return;
   }
-  await image.png({ compressionLevel: 9, adaptiveFiltering: true }).toFile(outputPath);
+  if (extension === '.tif' || extension === '.tiff') {
+    await image.tiff({ compression: 'lzw', quality: 100, predictor: 'horizontal' }).toFile(outputPath);
+    return;
+  }
+  if (extension === '.gif') {
+    await image.gif({ colours: 256, dither: 0, effort: 10 }).toFile(outputPath);
+    return;
+  }
+  if (extension === '.bmp') {
+    const raw = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const rowBytes = raw.info.width * 4;
+    const pixelBytes = rowBytes * raw.info.height;
+    const bitmap = Buffer.alloc(54 + pixelBytes);
+    bitmap.write('BM', 0, 2, 'ascii');
+    bitmap.writeUInt32LE(bitmap.length, 2);
+    bitmap.writeUInt32LE(54, 10);
+    bitmap.writeUInt32LE(40, 14);
+    bitmap.writeInt32LE(raw.info.width, 18);
+    bitmap.writeInt32LE(raw.info.height, 22);
+    bitmap.writeUInt16LE(1, 26);
+    bitmap.writeUInt16LE(32, 28);
+    bitmap.writeUInt32LE(pixelBytes, 34);
+    for (let y = 0; y < raw.info.height; y += 1) {
+      const sourceY = raw.info.height - 1 - y;
+      for (let x = 0; x < raw.info.width; x += 1) {
+        const source = (sourceY * raw.info.width + x) * 4;
+        const target = 54 + y * rowBytes + x * 4;
+        bitmap[target] = raw.data[source + 2];
+        bitmap[target + 1] = raw.data[source + 1];
+        bitmap[target + 2] = raw.data[source];
+        bitmap[target + 3] = raw.data[source + 3];
+      }
+    }
+    await fs.writeFile(outputPath, bitmap);
+    return;
+  }
+  if (extension === '.png') {
+    await image.png({ compressionLevel: 9, adaptiveFiltering: true }).toFile(outputPath);
+    return;
+  }
+  throw new Error(`不支持的套图输出格式：${extension || '无扩展名'}`);
 }
 
 async function composeTemplatePrint({
@@ -40,15 +141,11 @@ async function composeTemplatePrint({
     throw new TypeError('套图、原始印花、蒙版和输出路径不能为空');
   }
 
+  const sourceBmp = isBmpPath(printPath) ? await readBmpRgba(printPath) : null;
   const [sourceStat, sourceMetadata, templateResult] = await Promise.all([
     fs.stat(printPath),
-    sharp(printPath).metadata(),
-    sharp(templatePath)
-      .rotate()
-      .toColourspace('srgb')
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true })
+    sourceBmp ? { width: sourceBmp.info.width, height: sourceBmp.info.height, orientation: 1 } : sharp(printPath).metadata(),
+    readImageRgba(templatePath)
   ]);
   const width = templateResult.info.width;
   const height = templateResult.info.height;
@@ -77,8 +174,10 @@ async function composeTemplatePrint({
   const top = Math.max(0, Math.floor(bounds.y));
   const regionWidth = Math.min(width - left, Math.max(1, Math.ceil(bounds.width)));
   const regionHeight = Math.min(height - top, Math.max(1, Math.ceil(bounds.height)));
-  const mappedPrint = await sharp(printPath)
-    .rotate()
+  const mappedPrintInput = sourceBmp
+    ? sharp(sourceBmp.data, { raw: sourceBmp.info })
+    : sharp(printPath).rotate();
+  const mappedPrint = await mappedPrintInput
     .toColourspace('srgb')
     .ensureAlpha()
     .resize(regionWidth, regionHeight, {
@@ -132,5 +231,7 @@ async function composeTemplatePrint({
 }
 
 module.exports = {
-  composeTemplatePrint
+  composeTemplatePrint,
+  readImageDimensions,
+  readImageRgba
 };

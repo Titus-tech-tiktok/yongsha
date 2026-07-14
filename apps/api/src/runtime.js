@@ -37,7 +37,11 @@ const {
   validateTemplateAnalysis,
   writeTemplateAnalysisCache
 } = require('./core/template-regions');
-const { composeTemplatePrint } = require('./core/template-print-compositor');
+const {
+  composeTemplatePrint,
+  readImageDimensions,
+  readImageRgba
+} = require('./core/template-print-compositor');
 const {
   appendOperationLog,
   applyBatchApproval,
@@ -1487,12 +1491,7 @@ async function readTemplateMaskCoverage(cache) {
 }
 
 async function writeValidatedTemplateMaskBytes(job, bytes) {
-  const template = await sharp(job.templatePath)
-    .rotate()
-    .toColourspace('srgb')
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
+  const template = await readImageRgba(job.templatePath);
   const width = template.info.width;
   const height = template.info.height;
   const rawMask = await sharp(bytes)
@@ -1535,9 +1534,9 @@ async function ensureMaskFromRegions(job, regions, surfaces = []) {
     await removeTemplateMaskFiles(job);
     return '';
   }
-  const metadata = await sharp(job.templatePath).metadata();
-  const width = Number(metadata.width || 0);
-  const height = Number(metadata.height || 0);
+  const dimensions = await readImageDimensions(job.templatePath);
+  const width = Number(dimensions.width || 0);
+  const height = Number(dimensions.height || 0);
   if (!width || !height) throw new Error('无法读取套图尺寸');
   const mask = rasterizeMask({ width, height, regions, surfaces, strokes: [] });
   const png = await sharp(Buffer.from(mask), { raw: { width, height, channels: 1 } }).png().toBuffer();
