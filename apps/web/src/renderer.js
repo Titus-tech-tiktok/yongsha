@@ -868,6 +868,10 @@ async function stageAssetFolder(key) {
 
 function updateAssetScanProgress(progress = {}) {
   const panel = $('#assetScanProgress');
+  if (progress.phase === 'done') {
+    panel.hidden = true;
+    return;
+  }
   panel.hidden = false;
   $('#assetScanProgressTitle').textContent = progress.phase === 'done' ? '扫描完成' : '正在扫描素材';
   $('#assetScanProgressText').textContent = progress.message || '';

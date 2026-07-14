@@ -3581,7 +3581,9 @@ label input, label textarea {
 }
 
 .asset-template-filter {
+  grid-column: 1 / -1;
   border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
   background: #f7f6f2;
   align-items: center;
   gap: 12px;
@@ -3591,8 +3593,8 @@ label input, label textarea {
   display: flex;
   position: relative;
   z-index: 5;
-  box-shadow: 0 8px 16px rgba(24, 31, 42, .05);
-  margin-bottom: 16px;
+  box-shadow: none;
+  margin: 8px 0 0;
 }
 
 .asset-template-filter > span {
