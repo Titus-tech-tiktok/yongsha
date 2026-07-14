@@ -560,6 +560,8 @@ function templateMasterCandidateFromItem(item) {
     printName: state.selectedPrint.name,
     printThumbnailUrl: state.selectedPrint.thumbnailUrl || state.selectedPrint.url || '',
     printPreviewUrl: state.selectedPrint.previewUrl || state.selectedPrint.url || '',
+    generationMode: 'template_print',
+    productPath: '',
     templateFolderPath: templateFolderPathForItem(item),
     masterImagePath: '',
     masterImageUrl: '',
