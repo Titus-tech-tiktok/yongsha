@@ -961,6 +961,33 @@ async function listTaskTemplateItemsForCurrentView() {
   return sortByName(results.flat(), state.taskTemplateSort, item => `${item.templateFolderName || ''}/${item.relativePath || item.name || ''}`);
 }
 
+async function listTaskTemplateItemsForFolder(folderPath) {
+  const folder = state.templateFolders.find(item => item.path === folderPath) || { path: folderPath, name: templateFolderName(folderPath) };
+  return annotateTemplateItems(await window.caishen.listTemplates(folder.path), folder);
+}
+
+async function refreshTemplateMasterReference(candidate) {
+  if (!candidate?.templateFolderPath) return candidate;
+  const currentItems = state.taskTemplateItems.some(item => templateFolderPathForItem(item) === candidate.templateFolderPath)
+    ? state.taskTemplateItems
+    : await listTaskTemplateItemsForFolder(candidate.templateFolderPath);
+  const match = currentItems.find(item =>
+    templateFolderPathForItem(item) === candidate.templateFolderPath
+    && candidate.masterReferenceRelativePath
+    && item.relativePath === candidate.masterReferenceRelativePath
+  ) || currentItems.find(item =>
+    templateFolderPathForItem(item) === candidate.templateFolderPath
+    && candidate.masterReferenceName
+    && item.name === candidate.masterReferenceName
+  );
+  if (!match) return candidate;
+  Object.assign(candidate, masterReferenceFromItem(match), {
+    templateFolderPath: templateFolderPathForItem(match)
+  });
+  persistTemplateMasterCandidates();
+  return candidate;
+}
+
 function taskTemplateRootKey(folderPath) {
   return `root:${folderPath}`;
 }
@@ -1914,6 +1941,7 @@ async function startTemplateSetsFromAllMasters() {
 async function generateAllTemplateMasterCandidates() {
   const selected = selectedTemplateMasterCandidates();
   if (!selected.length) return toast('请先勾选要生成的母版任务', true);
+  await Promise.all(selected.map(refreshTemplateMasterReference));
   const runnable = selected.filter(candidate =>
     candidate.masterReferencePath
     && candidate.printPath
@@ -2139,6 +2167,7 @@ async function generateTemplateMasterCandidate(candidateId) {
   const candidate = state.templateMasterCandidates.find(item => item.id === candidateId);
   if (!candidate) return toast('母版候选不存在', true);
   if (!candidate.printPath) return toast('请先选择印花图', true);
+  await refreshTemplateMasterReference(candidate);
   if (!candidate.masterReferencePath) return toast('请先选择母版底图', true);
   candidate.masterRunAttempt = Math.max(0, Number(candidate.masterRunAttempt) || 0) + 1;
   candidate.masterStatus = candidate.masterImagePath ? '重新生成' : '生成中';

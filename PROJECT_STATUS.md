@@ -1,5 +1,12 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Master reference path recovery
+
+- Fixed master generation when the card still shows a cached base-image thumbnail but its saved absolute image path is stale after asset deletion, reimport, or folder switching.
+- Before generating a selected master, the web UI now refreshes the candidate base image from the current template folder by relative path/name and rewrites the live `masterReferencePath`.
+- The API also falls back from `templateFolderPath + masterReferenceRelativePath` if the submitted absolute master reference path no longer exists, so valid cards no longer fail with `请先选择母版参考图`.
+- Verification completed: `node --check apps/web/src/renderer.js`, `node --check apps/api/src/runtime.js`, `npm run build -w @caishen/web`, `npm test -w @caishen/api -- tests/runtime.test.js tests/security.test.js`, `git diff --check`.
+
 ## 2026-07-15 Update - Admin prompt loading and account controls
 
 - Fixed prompt settings for admin accounts: team admins now actually load the shared prompt settings instead of staying on the loading placeholder.

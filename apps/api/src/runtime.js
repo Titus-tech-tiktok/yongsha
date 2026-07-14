@@ -2550,7 +2550,11 @@ async function generateDirectTemplateTask(task, options = {}) {
 
 async function generateTemplateTaskMaster(task = {}, options = {}) {
   if (!task?.printPath || !fs.existsSync(task.printPath)) throw new Error('印花图不存在');
-  const referencePath = task.masterReferencePath || task.productPath || task.templateImagePath || '';
+  let referencePath = task.masterReferencePath || task.productPath || task.templateImagePath || '';
+  if ((!referencePath || !fs.existsSync(referencePath)) && task.templateFolderPath && task.masterReferenceRelativePath) {
+    const fallback = resolveTemplateFile(task.templateFolderPath, task.masterReferenceRelativePath);
+    if (fs.existsSync(fallback)) referencePath = fallback;
+  }
   if (!referencePath || !fs.existsSync(referencePath)) throw new Error('请先选择母版参考图');
   const config = await loadConfig();
   if (typeof options.reportProgress === 'function') {
