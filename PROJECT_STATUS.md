@@ -1,5 +1,14 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Combined master task workflow
+
+- Material generation UI now keeps three visible columns: template base images, print images, and a combined master/full-set task list.
+- Clicking a template base image or a print image fills the latest incomplete master card; if no incomplete card exists, a new card is created.
+- The same template image can be clicked repeatedly to prepare multiple master cards for different prints.
+- Each master card remembers the template folder of its selected base image. After the master image is generated, `Start full set` creates and starts the full set for that folder.
+- The hidden internal queue is still used for runtime execution and review results, but the user-facing workflow is driven by the larger master cards.
+- Verification completed: `npm run build -w @caishen/web`.
+
 ## 2026-07-15 Update - Separate master reference from full-set generation
 
 - 素材生图页把“母版底图选择”和“整套生成范围”拆开。

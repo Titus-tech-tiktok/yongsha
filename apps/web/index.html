@@ -81,15 +81,21 @@
             <div class="asset-size-row"><span id="printFolderLabel">全部文件夹</span><label>预览大小 <input id="printPreviewSize" type="range" min="80" max="190" value="86"></label></div>
             <div class="asset-browser"><aside class="asset-folder-list" id="printFolderList"></aside><div class="asset-grid" id="printGrid"></div></div>
           </article>
-          <aside class="queue-panel">
-            <div class="panel-head"><div><span class="index">03</span><h2>待生成</h2></div><div class="queue-head-actions"><span class="queue-count" id="queueCount">0 项</span><button class="primary" id="generateAllButton">开始生成</button></div></div>
-            <div class="template-config"><div><b>套图文件夹</b><span>使用上方当前套图</span></div><div class="template-apply-actions"><button class="secondary" id="applyTemplateToSelectedQueueButton">套用到选中任务</button><button class="secondary" id="applyTemplateToAllQueueButton">套用到全部任务</button></div></div>
-            <p class="queue-guide" id="generationModeHint">点击左侧印花后，用当前印花创建生成任务。</p>
+          <aside class="queue-panel master-queue-panel" id="masterQueuePanel">
+            <div class="panel-head"><div><span class="index">03</span><h2>母版/整套任务</h2></div><div class="queue-head-actions"><span class="queue-count" id="masterCandidateCount">0 项</span><button class="secondary" id="generateAllMastersButton">批量生成母版</button><button class="primary" id="createTasksFromAllMastersButton">批量开始整套</button></div></div>
+            <p class="queue-guide" id="masterModeHint">点击套图底图或印花，会自动补齐最后一个未完整母版卡。</p>
             <div class="template-master-workflow" id="templateMasterWorkflow"></div>
-            <button class="secondary full" id="addTaskButton">用当前印花创建任务</button>
-            <details class="advanced-task-settings"><summary>高级设置</summary><div class="generation-mode-row"><label>生成模式<select id="generationMode"><option value="template_print" selected>模板换印花</option><option value="master">母版生成</option></select></label></div><div class="selection-preview"><div class="preview-slot" id="selectedProduct"><span>款式</span><b>未选择</b></div><div class="join-mark">×</div><div class="preview-slot" id="selectedPrint"><span>印花</span><b>未选择</b></div></div><textarea id="taskNote" rows="3" placeholder="提示词补充（可选）"></textarea></details>
-            <details class="queue-manage" id="queueManageDetails" hidden><summary>批量管理</summary><div class="queue-tools queue-tools-wrap"><button class="text-button" id="selectAllQueueButton">全选</button><button class="text-button" id="clearQueueSelectionButton">取消</button><button class="text-button" id="duplicateQueueButton">复制选中</button><button class="text-button danger-text" id="deleteSelectedQueueButton">删除选中</button><button class="text-button danger-text" id="clearQueueButton">清空</button></div></details>
-            <div class="queue-list" id="queueList"></div>
+            <div class="template-internal-queue" hidden>
+              <span id="queueCount">0 项</span>
+              <button id="generateAllButton">开始生成</button>
+              <button id="addTaskButton">用当前印花创建任务</button>
+              <button id="applyTemplateToSelectedQueueButton">套用到选中任务</button>
+              <button id="applyTemplateToAllQueueButton">套用到全部任务</button>
+              <details id="queueManageDetails"><summary>批量管理</summary><div><button id="selectAllQueueButton">全选</button><button id="clearQueueSelectionButton">取消</button><button id="duplicateQueueButton">复制选中</button><button id="deleteSelectedQueueButton">删除选中</button><button id="clearQueueButton">清空</button></div></details>
+              <details class="advanced-task-settings"><summary>高级设置</summary><div class="generation-mode-row"><label>生成模式<select id="generationMode"><option value="template_print" selected>模板换印花</option><option value="master">母版生成</option></select></label></div><div class="selection-preview"><div class="preview-slot" id="selectedProduct"><span>款式</span><b>未选择</b></div><div class="join-mark">×</div><div class="preview-slot" id="selectedPrint"><span>印花</span><b>未选择</b></div></div><textarea id="taskNote" rows="3" placeholder="提示词补充（可选）"></textarea></details>
+              <p id="generationModeHint"></p>
+              <div id="queueList"></div>
+            </div>
           </aside>
         </div>
       </section>

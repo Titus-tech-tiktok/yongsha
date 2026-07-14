@@ -620,7 +620,7 @@ h2 {
 }
 
 .task-layout.template-print-mode {
-  grid-template-columns: minmax(340px, 390px) minmax(340px, 1fr) minmax(400px, 480px);
+  grid-template-columns: minmax(330px, 400px) minmax(330px, 430px) minmax(560px, 1fr);
 }
 
 .task-layout.template-print-mode #productAssetPanel {
@@ -640,7 +640,7 @@ h2 {
 }
 
 .task-layout.template-print-mode #printGrid {
-  --asset-card-size: 86px;
+  --asset-card-size: 112px;
 }
 
 .task-layout.template-print-mode .selection-preview {
@@ -648,6 +648,10 @@ h2 {
 }
 
 .task-layout.template-print-mode #selectedProduct, .task-layout.template-print-mode .join-mark, .task-layout.template-print-mode .template-config {
+  display: none;
+}
+
+.task-layout.template-print-mode .task-queue-panel {
   display: none;
 }
 
@@ -818,6 +822,12 @@ h2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
   padding: 3px 8px 9px 26px;
+  display: grid;
+}
+
+.task-template-flat-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
   display: grid;
 }
 
@@ -1561,11 +1571,10 @@ input:focus, textarea:focus, select:focus {
 }
 
 .template-master-workflow {
-  border: 1px solid var(--line);
-  background: #fdfcf9;
-  border-radius: 8px;
-  margin-bottom: 10px;
-  padding: 12px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .template-master-empty {
@@ -1576,6 +1585,15 @@ input:focus, textarea:focus, select:focus {
   font-size: 12px;
   line-height: 1.5;
   text-align: center;
+}
+
+.template-master-empty b,
+.template-master-empty span {
+  display: block;
+}
+
+.template-master-empty span {
+  margin-top: 4px;
 }
 
 .template-master-title {
@@ -1602,9 +1620,11 @@ input:focus, textarea:focus, select:focus {
   border: 1px solid var(--line);
   background: #fff;
   border-radius: 8px;
-  padding: 10px;
+  grid-template-columns: minmax(260px, .8fr) minmax(260px, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
   display: grid;
-  gap: 10px;
 }
 
 .template-master-card + .template-master-card {
@@ -1612,6 +1632,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .template-master-card-head {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1644,9 +1665,9 @@ input:focus, textarea:focus, select:focus {
 }
 
 .template-master-flow {
-  grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr) 14px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr) 18px minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   display: grid;
 }
 
@@ -1663,22 +1684,30 @@ input:focus, textarea:focus, select:focus {
 }
 
 .template-master-copy {
-  border-top: 1px solid var(--line);
-  grid-template-columns: minmax(0, 1fr);
-  gap: 7px;
-  margin-top: 10px;
-  padding-top: 10px;
+  border-left: 1px solid var(--line);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-left: 12px;
   display: grid;
 }
 
 .template-master-copy > span {
   color: var(--subtle);
   font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .template-master-copy > button {
   min-height: 36px;
   font-size: 12px;
+}
+
+.template-master-copy > .queue-progress,
+.template-master-copy > .status {
+  grid-column: 1 / -1;
 }
 
 .queue-master-panel {
@@ -4505,7 +4534,7 @@ label input, label textarea {
   }
 
   .task-layout.template-print-mode {
-    grid-template-columns: 280px minmax(0, 1fr) 350px;
+    grid-template-columns: 300px 320px minmax(460px, 1fr);
   }
 
   .review-layout {
@@ -4582,7 +4611,7 @@ label input, label textarea {
   }
 
   .task-layout.template-print-mode {
-    grid-template-columns: minmax(260px, 300px) minmax(270px, 1fr) minmax(330px, 380px);
+    grid-template-columns: 300px minmax(300px, 360px) minmax(420px, 1fr);
   }
 
   .task-layout:not(.template-print-mode) .queue-panel {
