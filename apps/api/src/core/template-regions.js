@@ -3,7 +3,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-const TEMPLATE_CACHE_VERSION = 8;
+const TEMPLATE_CACHE_VERSION = 9;
 const TEMPLATE_CACHE_FOLDER = '.caishen-template-cache';
 const DEFAULT_FORBIDDEN_AREA = '背景、文字、尺寸线、墙面、地面、柜脚、把手、门缝、抽屉缝、抽屉内侧、柜门内侧、包装、道具等非留白家具表面区域';
 
@@ -42,6 +42,70 @@ function normalizeRegion(value) {
 function normalizeRegions(values) {
   if (!Array.isArray(values)) return [];
   return values.map(normalizeRegion).filter(Boolean);
+}
+
+function normalizePolygonPoint(value) {
+  const x = Array.isArray(value) ? value[0] : value?.x;
+  const y = Array.isArray(value) ? value[1] : value?.y;
+  if (!Number.isFinite(Number(x)) || !Number.isFinite(Number(y))) return null;
+  return [round(clamp(x, 0, 1)), round(clamp(y, 0, 1))];
+}
+
+function polygonArea(points) {
+  let area = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    area += current[0] * next[1] - next[0] * current[1];
+  }
+  return Math.abs(area) / 2;
+}
+
+function normalizePrintableSurface(value, index = 0) {
+  if (!value || typeof value !== 'object') return null;
+  const polygon = (Array.isArray(value.polygon) ? value.polygon : Array.isArray(value.points) ? value.points : [])
+    .map(normalizePolygonPoint)
+    .filter(Boolean);
+  if (polygon.length < 3 || polygonArea(polygon) < 0.0005) return null;
+  return {
+    id: String(value.id || `surface-${index + 1}`).trim() || `surface-${index + 1}`,
+    label: String(value.label || value.note || `可印花面板 ${index + 1}`).trim(),
+    polygon,
+    surfaceState: String(value.surfaceState || value.surface_state || '外侧可见').trim()
+  };
+}
+
+function normalizePrintableSurfaces(values) {
+  if (!Array.isArray(values)) return [];
+  return values.map(normalizePrintableSurface).filter(Boolean);
+}
+
+function regionToPrintableSurface(regionValue, index = 0) {
+  const region = normalizeRegion(regionValue);
+  if (!region) return null;
+  const right = Math.min(1, region.x + region.width);
+  const bottom = Math.min(1, region.y + region.height);
+  return normalizePrintableSurface({
+    id: `region-${index + 1}`,
+    label: String(regionValue?.note || `可印花面板 ${index + 1}`),
+    polygon: [[region.x, region.y], [right, region.y], [right, bottom], [region.x, bottom]],
+    surfaceState: String(regionValue?.surfaceState || regionValue?.surface_state || '外侧可见')
+  }, index);
+}
+
+function printableSurfaceBounds(surfaceValue) {
+  const surface = normalizePrintableSurface(surfaceValue);
+  if (!surface) return null;
+  const xs = surface.polygon.map(point => point[0]);
+  const ys = surface.polygon.map(point => point[1]);
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+  return normalizeRegion({
+    x: left,
+    y: top,
+    width: Math.max(...xs) - left,
+    height: Math.max(...ys) - top
+  });
 }
 
 function formatRegionSummary(values, hasMask = false) {
@@ -230,7 +294,30 @@ function deserializeMaskData(value) {
  * Produces a renderer-neutral 8-bit mask. It follows SaveTemplateMask ordering:
  * optional previous mask, white rectangles, then additive/eraser brush dots.
  */
-function rasterizeMask({ width: widthValue, height: heightValue, regions, strokes, existingMask, keepExistingMask = false }) {
+function fillNormalizedPolygon(output, width, height, polygonValue) {
+  const polygon = polygonValue.map(point => [point[0] * width, point[1] * height]);
+  const xs = polygon.map(point => point[0]);
+  const ys = polygon.map(point => point[1]);
+  const startX = Math.max(0, Math.floor(Math.min(...xs)));
+  const endX = Math.min(width - 1, Math.ceil(Math.max(...xs)));
+  const startY = Math.max(0, Math.floor(Math.min(...ys)));
+  const endY = Math.min(height - 1, Math.ceil(Math.max(...ys)));
+  for (let y = startY; y <= endY; y += 1) {
+    for (let x = startX; x <= endX; x += 1) {
+      const px = x + 0.5;
+      const py = y + 0.5;
+      let inside = false;
+      for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current++) {
+        const [cx, cy] = polygon[current];
+        const [px0, py0] = polygon[previous];
+        if ((cy > py) !== (py0 > py) && px < (px0 - cx) * (py - cy) / (py0 - cy) + cx) inside = !inside;
+      }
+      if (inside) output[y * width + x] = 255;
+    }
+  }
+}
+
+function rasterizeMask({ width: widthValue, height: heightValue, regions, surfaces, strokes, existingMask, keepExistingMask = false }) {
   const width = Math.max(1, Math.trunc(finiteNumber(widthValue, 1)));
   const height = Math.max(1, Math.trunc(finiteNumber(heightValue, 1)));
   const pixelCount = width * height;
@@ -249,6 +336,10 @@ function rasterizeMask({ width: widthValue, height: heightValue, regions, stroke
     for (let y = startY; y < endY; y += 1) {
       output.fill(255, y * width + startX, y * width + endX);
     }
+  }
+
+  for (const surface of normalizePrintableSurfaces(surfaces)) {
+    fillNormalizedPolygon(output, width, height, surface.polygon);
   }
 
   for (const stroke of normalizeMaskStrokes(strokes)) {
@@ -467,26 +558,25 @@ function cleanTemplateMask({
   return { mask, rawCount, cleanedCount, usedLightPanelFilter };
 }
 
-function normalizeTemplateAction(value) {
+function normalizeTemplateProcessingMode(value) {
   const action = String(value || '').trim().toLowerCase();
-  if (action.includes('copy') || action.includes('复制')) return 'copy_template';
-  if (action.includes('skip') || action.includes('跳过')) return 'skip_copy';
+  if (action.includes('copy_original') || action.includes('copy_template') || action.includes('保留原图') || action.includes('复制')) return 'copy_original';
+  if (action.includes('exclude') || action.includes('skip_copy') || action.includes('不输出') || action.includes('排除') || action.includes('跳过')) return 'exclude';
   if (action.includes('manual') || action.includes('人工') || action.includes('不确定')) return 'manual_check';
   return 'replace_print';
+}
+
+function normalizeTemplateAction(value) {
+  return normalizeTemplateProcessingMode(value);
 }
 
 function normalizeGenerationAction(value) {
-  const action = String(value || '').trim().toLowerCase();
-  if (action.includes('skip') || action.includes('无效') || action.includes('跳过')) return 'skip_copy';
-  if (action.includes('manual') || action.includes('人工') || action.includes('不确定')) return 'manual_check';
-  if (action.includes('replace_print') || action.includes('generate_with_print') || action.includes('换印花') || action.includes('替换印花')) return 'replace_print';
-  if (action.includes('copy') || action.includes('复制') || action.includes('信息页')) return 'copy_template';
-  return 'replace_print';
+  return normalizeTemplateProcessingMode(value);
 }
 
 function categoryForAction(action) {
-  if (action === 'copy_template') return '纯文字信息页';
-  if (action === 'skip_copy') return '装饰图';
+  if (action === 'copy_original') return '保留原图';
+  if (action === 'exclude') return '运营排除';
   if (action === 'manual_check') return '不确定';
   return '商品场景图';
 }
@@ -507,7 +597,7 @@ function isUncertainManualText(value) {
   ].some(token => text.includes(token));
 }
 
-function createManualTemplateAnalysis({ action: actionValue, reason = '', replaceArea = '', forbiddenArea = '', regions = [] } = {}) {
+function createManualTemplateAnalysis({ action: actionValue, reason = '', replaceArea = '', forbiddenArea = '', regions = [], printableSurfaces = [], hasMask = false } = {}) {
   const action = normalizeTemplateAction(actionValue);
   const needsManualCheck = action === 'manual_check';
   const manualReason = String(reason || '').trim();
@@ -516,23 +606,31 @@ function createManualTemplateAnalysis({ action: actionValue, reason = '', replac
   const safeReplaceArea = action === 'replace_print' && isUncertainManualText(manualReplaceArea)
     ? defaultReplaceArea
     : manualReplaceArea || defaultReplaceArea;
-  return {
+  const surfaces = normalizePrintableSurfaces(printableSurfaces);
+  const normalizedRegions = normalizeRegions(regions);
+  const effectiveSurfaces = surfaces.length ? surfaces : normalizedRegions.map(regionToPrintableSurface).filter(Boolean);
+  const analysis = {
     version: TEMPLATE_CACHE_VERSION,
     category: categoryForAction(action),
+    imageRole: categoryForAction(action),
+    includeInOutput: action !== 'exclude',
+    processingMode: action,
     action,
     generation_action: action,
     confidence: needsManualCheck ? 0.5 : 1,
-    reason: String(reason || '').trim() || '运营手动筛选',
-    replace_area: String(replaceArea || '').trim() || (action === 'replace_print' ? '运营确认的留白家具表面' : '无'),
     reason: manualReason || '运营手动筛选',
     replace_area: safeReplaceArea,
-    replace_regions: normalizeRegions(regions).map(region => ({
+    imageUnderstanding: manualReason || '运营手动筛选',
+    replace_regions: normalizedRegions.map(region => ({
       x: round(region.x),
       y: round(region.y),
       width: round(region.width),
       height: round(region.height)
     })),
+    printableSurfaces: effectiveSurfaces,
+    printableArea: action === 'replace_print' ? safeReplaceArea : '无',
     forbidden_area: String(forbiddenArea || '').trim() || DEFAULT_FORBIDDEN_AREA,
+    preserveAreas: action === 'copy_original' ? '整张原图' : String(forbiddenArea || '').trim() || DEFAULT_FORBIDDEN_AREA,
     view_state: '按模板原图保持',
     print_mapping: action === 'replace_print' ? '把一张完整印花按模板留白家具表面等比例贴合，不平铺、不重复主视觉' : '无',
     handle_door_rule: '保持模板的开门、开抽屉、背面和遮挡状态；只处理可见留白外表面',
@@ -540,30 +638,102 @@ function createManualTemplateAnalysis({ action: actionValue, reason = '', replac
     risk_points: ['运营手动筛选结果优先于AI分析'],
     instruction: action === 'replace_print'
       ? '按 replace_area 描述把原始印花完整贴到留白家具表面，其他区域保持模板原图。'
-      : action === 'copy_template'
+      : action === 'copy_original'
         ? '直接复制模板图，不调用生图。'
-        : action === 'skip_copy'
-          ? '跳过或复制该模板图，不调用生图。'
+        : action === 'exclude'
+          ? '运营已明确排除该图，不输出文件。'
           : '需要人工进一步确认后再生成。',
     needs_manual_check: needsManualCheck
   };
+  return validateTemplateAnalysis(analysis, { source: 'manual', hasMask: hasMask || effectiveSurfaces.length > 0 });
 }
 
 function createFallbackTemplateAnalysis() {
   return {
-    version: 6,
+    version: TEMPLATE_CACHE_VERSION,
     category: '不确定',
+    imageRole: '不确定',
+    includeInOutput: true,
+    processingMode: 'manual_check',
     action: 'manual_check',
     generation_action: 'manual_check',
     confidence: 0,
     reason: '模板分析失败，需要人工确认',
     replace_area: '不确定',
     replace_regions: [],
+    printableSurfaces: [],
+    printableArea: '不确定',
     forbidden_area: '背景、文字、墙面、地面、柜脚、把手、抽屉内侧、柜门内侧、包装、留白等非可印花面板区域',
+    preserveAreas: '整张原图，等待运营确认',
     drawer_or_door_state: '无',
     risk_points: ['模板未成功分析，不能自动生成'],
     instruction: '请人工确认可替换印花区域后再生成。',
     needs_manual_check: true
+  };
+}
+
+function analysisText(root, ...names) {
+  for (const name of names) {
+    if (root?.[name] !== undefined && root?.[name] !== null) return String(root[name]).trim();
+  }
+  return '';
+}
+
+function validateTemplateAnalysis(value, options = {}) {
+  let root;
+  try {
+    root = deserializeTemplateAnalysis(value);
+  } catch {
+    return createFallbackTemplateAnalysis();
+  }
+  const source = String(options.source || 'ai');
+  let processingMode = normalizeTemplateProcessingMode(
+    root.processingMode ?? root.processing_mode ?? root.action ?? root.generation_action
+  );
+  if (source === 'ai' && processingMode === 'exclude') processingMode = 'copy_original';
+  const confidence = clamp(getJsonNumber(root, 'confidence', processingMode === 'manual_check' ? 0.5 : 1), 0, 1);
+  let surfaces = normalizePrintableSurfaces(root.printableSurfaces ?? root.printable_surfaces);
+  const regions = normalizeRegions(root.replace_regions ?? root.replaceRegions);
+  if (!surfaces.length) surfaces = regions.map(regionToPrintableSurface).filter(Boolean);
+  const hasMask = options.hasMask === true || surfaces.length > 0;
+  const understanding = analysisText(root, 'imageUnderstanding', 'image_understanding', 'reason') || '未提供可靠的图片用途判断';
+  let reason = analysisText(root, 'reason') || understanding;
+  if (root.needs_manual_check === true || confidence < 0.75) processingMode = 'manual_check';
+  if (processingMode === 'replace_print' && !hasMask) {
+    processingMode = 'manual_check';
+    reason = '没有有效的可印花面板区域，需要人工确认并标注。';
+  }
+  const includeInOutput = processingMode !== 'exclude';
+  const replaceArea = processingMode === 'replace_print'
+    ? analysisText(root, 'printableArea', 'printable_area', 'replace_area') || surfaces.map(surface => surface.label).join('、')
+    : '无';
+  const preserveAreas = processingMode === 'copy_original'
+    ? '整张原图'
+    : analysisText(root, 'preserveAreas', 'preserve_areas', 'forbidden_area') || DEFAULT_FORBIDDEN_AREA;
+  const needsManualCheck = processingMode === 'manual_check';
+  return {
+    ...root,
+    version: TEMPLATE_CACHE_VERSION,
+    category: analysisText(root, 'category', 'imageRole', 'image_role') || categoryForAction(processingMode),
+    imageRole: analysisText(root, 'imageRole', 'image_role', 'category') || categoryForAction(processingMode),
+    includeInOutput,
+    processingMode,
+    action: processingMode,
+    generation_action: processingMode,
+    confidence: needsManualCheck ? Math.min(confidence, 0.74) : confidence,
+    reason,
+    imageUnderstanding: understanding,
+    printableArea: replaceArea,
+    replace_area: replaceArea,
+    printableSurfaces: processingMode === 'replace_print' ? surfaces : [],
+    replace_regions: processingMode === 'replace_print'
+      ? surfaces.map(printableSurfaceBounds).filter(Boolean).map(region => ({ ...region }))
+      : [],
+    preserveAreas,
+    forbidden_area: preserveAreas,
+    mappingMode: processingMode === 'replace_print' ? 'continuous_across_surfaces' : 'none',
+    print_mapping: processingMode === 'replace_print' ? '一张完整印花跨所有可印花面板连续显示，等比例 contain，不裁剪、不拉伸、不重复' : '无',
+    needs_manual_check: needsManualCheck
   };
 }
 
@@ -605,14 +775,17 @@ function getJsonNumber(object, name, fallback) {
 function parseTemplateAnalysisSummary(value) {
   try {
     const root = deserializeTemplateAnalysis(value);
-    const action = getJsonString(root, 'action', 'generation_action') || 'manual_check';
+    const action = getJsonString(root, 'processingMode', 'processing_mode', 'action', 'generation_action') || 'manual_check';
     return {
       action: normalizeTemplateAction(action),
+      processingMode: normalizeTemplateAction(action),
+      includeInOutput: root.includeInOutput !== false && root.include_in_output !== false,
       confidence: getJsonNumber(root, 'confidence', 0),
-      reason: getJsonString(root, 'reason'),
-      replaceArea: getJsonString(root, 'replace_area'),
-      forbiddenArea: getJsonString(root, 'forbidden_area'),
-      regions: normalizeRegions(root.replace_regions)
+      reason: getJsonString(root, 'imageUnderstanding', 'image_understanding', 'reason'),
+      replaceArea: getJsonString(root, 'printableArea', 'printable_area', 'replace_area'),
+      forbiddenArea: getJsonString(root, 'preserveAreas', 'preserve_areas', 'forbidden_area'),
+      regions: normalizeRegions(root.replace_regions),
+      printableSurfaces: normalizePrintableSurfaces(root.printableSurfaces ?? root.printable_surfaces)
     };
   } catch {
     return {
@@ -632,9 +805,9 @@ function includesAny(value, ...needles) {
 }
 
 function inferGenerationAction(text, needsMaster = true) {
-  if (!needsMaster) return 'copy_template';
-  if (includesAny(text, '纯装饰', '横幅', '品牌底图', '无效', '不需要生成', '无法迁移')) return 'skip_copy';
-  if (includesAny(text, '包装运输', '包装', '运输', '安装售后', '售后', '买家须知', '纯文字', '信息页')) return 'copy_template';
+  if (!needsMaster) return 'copy_original';
+  if (includesAny(text, '纯装饰', '横幅', '品牌底图', '无效', '不需要生成', '无法迁移')) return 'exclude';
+  if (includesAny(text, '包装运输', '包装', '运输', '安装售后', '售后', '买家须知', '纯文字', '信息页')) return 'copy_original';
   return 'replace_print';
 }
 
@@ -648,7 +821,7 @@ function resolveGenerationAction(value) {
 
   const confidence = getJsonNumber(root, 'confidence', 1);
   if (root.needs_manual_check === true || confidence < 0.75) return 'manual_check';
-  const action = getJsonString(root, 'action', 'generation_action');
+  const action = getJsonString(root, 'processingMode', 'processing_mode', 'action', 'generation_action');
   if (action.trim()) return normalizeGenerationAction(action);
   const category = getJsonString(root, 'category', 'template_purpose', 'template_type');
   const needsMaster = root.needs_master_product === undefined || root.needs_master_product === true;
@@ -674,7 +847,8 @@ function templateCachePaths(templateRoot, relativeTemplatePath) {
     cacheFolder,
     analysisFile: path.join(cacheFolder, `${name}.template-analysis.json`),
     maskFile: path.join(cacheFolder, `${name}.replace-mask.png`),
-    cleanMaskFile: path.join(cacheFolder, `${name}.clean-mask.png`)
+    cleanMaskFile: path.join(cacheFolder, `${name}.clean-mask.png`),
+    maskMetaFile: path.join(cacheFolder, `${name}.mask-meta.json`)
   };
 }
 
@@ -847,9 +1021,11 @@ module.exports = {
   normalizeMaskData,
   normalizeMaskStroke,
   normalizeMaskStrokes,
+  normalizePrintableSurfaces,
   normalizeRegion,
   normalizeRegions,
   normalizeTemplateAction,
+  normalizeTemplateProcessingMode,
   normalizedPointToDisplay,
   parseTemplateAnalysisSummary,
   rasterizeMask,
@@ -863,6 +1039,7 @@ module.exports = {
   serializeTemplateAnalysis,
   strokeToPixelCircle,
   templateCachePaths,
+  validateTemplateAnalysis,
   erodeMask,
   isLikelyLightFurniturePanel,
   maskBoundsToRegion,

@@ -25,15 +25,19 @@ const {
   splitTitleRoots
 } = require('./core/title-engine');
 const {
+  cleanTemplateMask,
   createFallbackTemplateAnalysis,
   createManualTemplateAnalysis,
+  normalizeTemplateProcessingMode,
   parseTemplateAnalysisSummary,
   rasterizeMask,
   readValidTemplateAnalysisCache,
   resolveGenerationAction,
   templateCachePaths,
+  validateTemplateAnalysis,
   writeTemplateAnalysisCache
 } = require('./core/template-regions');
+const { composeTemplatePrint } = require('./core/template-print-compositor');
 const {
   appendOperationLog,
   applyBatchApproval,
@@ -1373,6 +1377,74 @@ async function templateAnalysisForJob(job) {
   return { cache, analysis: value, summary: parseTemplateAnalysisSummary(value), cached: Boolean(analysis) };
 }
 
+function templateRelativeKey(value) {
+  return String(value || '').replaceAll('\\', '/').toLocaleLowerCase('zh-CN');
+}
+
+async function maskFileHasPrintablePixels(maskFile) {
+  if (!maskFile || !fs.existsSync(maskFile)) return false;
+  try {
+    const pixels = await sharp(maskFile).greyscale().raw().toBuffer();
+    return pixels.some(value => value >= 96);
+  } catch {
+    return false;
+  }
+}
+
+async function planTemplateOutputJobs(templateFolderPath, selectedPaths = null) {
+  const jobs = await buildTemplateJobs(templateFolderPath);
+  if (!jobs.length) throw new Error('套图文件夹里没有可用图片');
+  const selected = new Set((Array.isArray(selectedPaths) ? selectedPaths : [])
+    .map(templateRelativeKey)
+    .filter(Boolean));
+  const planned = [];
+  const excluded = [];
+  const unresolved = [];
+  let matchedSelection = selected.size === 0;
+
+  for (const job of jobs) {
+    const details = await templateAnalysisForJob(job);
+    const action = normalizeTemplateProcessingMode(details.summary.action);
+    const relativeKey = templateRelativeKey(job.relativePath);
+    if (selected.has(relativeKey)) matchedSelection = true;
+    const enriched = { ...job, ...details, action };
+    if (action === 'manual_check') {
+      unresolved.push(job.relativePath);
+      continue;
+    }
+    if (action === 'exclude') {
+      excluded.push(enriched);
+      continue;
+    }
+    if (action === 'copy_original') {
+      planned.push(enriched);
+      continue;
+    }
+    if (selected.size && !selected.has(relativeKey)) continue;
+    if (!await maskFileHasPrintablePixels(details.cache.maskFile)) {
+      throw new Error(`换印花图片缺少有效蒙版：${job.relativePath}`);
+    }
+    planned.push(enriched);
+  }
+
+  if (unresolved.length) {
+    throw new Error(`仍有图片需要人工确认：${unresolved.join('、')}`);
+  }
+  if (!matchedSelection) throw new Error('选中的套图图片不存在或已被移除');
+  if (!planned.length) throw new Error('没有可输出的套图图片');
+  return {
+    jobs: planned,
+    relativePaths: planned.map(job => job.relativePath),
+    excludedRelativePaths: excluded.map(job => job.relativePath),
+    counts: {
+      replacePrint: planned.filter(job => job.action === 'replace_print').length,
+      copyOriginal: planned.filter(job => job.action === 'copy_original').length,
+      excluded: excluded.length,
+      manualCheck: unresolved.length
+    }
+  };
+}
+
 function templateAnalysisStatusFile(job) {
   return `${templateCachePaths(job.templateRoot, job.relativePath).analysisFile}.status.json`;
 }
@@ -1385,19 +1457,91 @@ async function writeTemplateAnalysisStatus(job, value) {
   });
 }
 
-async function ensureMaskFromRegions(job, regions) {
-  if (!regions?.length) return '';
+async function removeTemplateMaskFiles(job) {
   const cache = templateCachePaths(job.templateRoot, job.relativePath);
-  if (fs.existsSync(cache.maskFile)) return cache.maskFile;
+  await Promise.all([
+    fsp.rm(cache.maskFile, { force: true }),
+    fsp.rm(cache.cleanMaskFile, { force: true }),
+    fsp.rm(cache.maskMetaFile, { force: true })
+  ]);
+}
+
+async function readTemplateMaskCoverage(cache) {
+  if (!fs.existsSync(cache.cleanMaskFile)) return 0;
+  const saved = await readJsonFile(cache.maskMetaFile, {});
+  const savedCoverage = Number(saved.maskCoverage);
+  if (Number.isFinite(savedCoverage) && savedCoverage >= 0 && savedCoverage <= 1) return savedCoverage;
+  try {
+    const sample = await sharp(cache.cleanMaskFile)
+      .resize(128, 128, { fit: 'fill', kernel: sharp.kernel.nearest })
+      .greyscale()
+      .raw()
+      .toBuffer();
+    const printable = sample.reduce((count, value) => count + (value >= 96 ? 1 : 0), 0);
+    const maskCoverage = sample.length ? printable / sample.length : 0;
+    await writeJsonFile(cache.maskMetaFile, { maskCoverage, sampled: true, updatedAt: new Date().toISOString() });
+    return maskCoverage;
+  } catch {
+    return 0;
+  }
+}
+
+async function writeValidatedTemplateMaskBytes(job, bytes) {
+  const template = await sharp(job.templatePath)
+    .rotate()
+    .toColourspace('srgb')
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const width = template.info.width;
+  const height = template.info.height;
+  const rawMask = await sharp(bytes)
+    .resize(width, height, { fit: 'fill', kernel: sharp.kernel.nearest })
+    .greyscale()
+    .raw()
+    .toBuffer();
+  if (!rawMask.some(value => value >= 96)) throw new Error('蒙版为空，请先标注可替换印花区域');
+  const cleaned = cleanTemplateMask({
+    templatePixels: template.data,
+    maskPixels: rawMask,
+    width,
+    height,
+    maskWidth: width,
+    maskHeight: height,
+    maskChannels: 1,
+    templatePixelFormat: 'rgba'
+  });
+  if (!cleaned.mask.some(value => value >= 96)) {
+    throw new Error('清洗后的蒙版为空，请重新标注家具外部白色面板');
+  }
+  const [rawPng, cleanPng] = await Promise.all([
+    sharp(rawMask, { raw: { width, height, channels: 1 } }).png().toBuffer(),
+    sharp(cleaned.mask, { raw: { width, height, channels: 1 } }).png().toBuffer()
+  ]);
+  const printablePixels = cleaned.mask.reduce((count, value) => count + (value >= 96 ? 1 : 0), 0);
+  const maskCoverage = printablePixels / (width * height);
+  const cache = templateCachePaths(job.templateRoot, job.relativePath);
+  await fsp.mkdir(path.dirname(cache.maskFile), { recursive: true });
+  await Promise.all([
+    fsp.writeFile(cache.maskFile, rawPng),
+    fsp.writeFile(cache.cleanMaskFile, cleanPng),
+    writeJsonFile(cache.maskMetaFile, { maskCoverage, sampled: false, updatedAt: new Date().toISOString() })
+  ]);
+  return { maskFile: cache.maskFile, cleanMaskFile: cache.cleanMaskFile, maskCoverage };
+}
+
+async function ensureMaskFromRegions(job, regions, surfaces = []) {
+  if (!regions?.length && !surfaces?.length) {
+    await removeTemplateMaskFiles(job);
+    return '';
+  }
   const metadata = await sharp(job.templatePath).metadata();
   const width = Number(metadata.width || 0);
   const height = Number(metadata.height || 0);
-  if (!width || !height) return '';
-  const mask = rasterizeMask({ width, height, regions, strokes: [] });
+  if (!width || !height) throw new Error('无法读取套图尺寸');
+  const mask = rasterizeMask({ width, height, regions, surfaces, strokes: [] });
   const png = await sharp(Buffer.from(mask), { raw: { width, height, channels: 1 } }).png().toBuffer();
-  await fsp.mkdir(path.dirname(cache.maskFile), { recursive: true });
-  await Promise.all([fsp.writeFile(cache.maskFile, png), fsp.writeFile(cache.cleanMaskFile, png)]);
-  return cache.maskFile;
+  return (await writeValidatedTemplateMaskBytes(job, png)).maskFile;
 }
 
 async function collectTemplateItems(templateRoot) {
@@ -1413,6 +1557,7 @@ async function collectTemplateItems(templateRoot) {
       : recordedStatus.status === 'failed' || recordedStatus.status === 'running'
         ? recordedStatus.status
         : 'idle';
+    const maskCoverage = await readTemplateMaskCoverage(cache);
     items.push({
       relativePath: job.relativePath,
       templatePath: job.templatePath,
@@ -1430,6 +1575,8 @@ async function collectTemplateItems(templateRoot) {
       forbiddenArea: summary.forbiddenArea,
       regions: summary.regions,
       maskUrl: fs.existsSync(cache.maskFile) ? imageUrl(cache.maskFile) : '',
+      cleanMaskUrl: fs.existsSync(cache.cleanMaskFile) ? imageUrl(cache.cleanMaskFile) : '',
+      maskCoverage,
       analysisPending: !cached,
       analysisStatus,
       analysisError: analysisStatus === 'failed' ? String(recordedStatus.error || 'AI 分析失败') : '',
@@ -1528,10 +1675,12 @@ function summarizeTemplatePreparation(folder, items, extra = {}) {
   const previewItem = items.find(item => item.action === 'replace_print') || items[0] || null;
   const counts = {
     replacePrint: items.filter(item => item.action === 'replace_print').length,
-    copyTemplate: items.filter(item => item.action === 'copy_template').length,
-    skipCopy: items.filter(item => item.action === 'skip_copy').length,
+    copyOriginal: items.filter(item => item.action === 'copy_original').length,
+    exclude: items.filter(item => item.action === 'exclude').length,
     manualCheck: items.filter(item => item.action === 'manual_check').length
   };
+  counts.copyTemplate = counts.copyOriginal;
+  counts.skipCopy = counts.exclude;
   const pending = items.filter(item => item.analysisPending).length;
   return {
     folder,
@@ -1601,6 +1750,11 @@ async function saveTemplateConfiguration(payload) {
       regions: item.regions
     });
     const cache = templateCachePaths(folder, job.relativePath);
+    if (analysis.action === 'replace_print') {
+      await ensureMaskFromRegions(job, analysis.replace_regions, analysis.printableSurfaces);
+    } else {
+      await removeTemplateMaskFiles(job);
+    }
     await writeTemplateAnalysisCache({
       cacheFile: cache.analysisFile,
       templateRoot: folder,
@@ -1609,7 +1763,6 @@ async function saveTemplateConfiguration(payload) {
       analysis: JSON.stringify(analysis),
       manualOverride: true
     });
-    await ensureMaskFromRegions(job, analysis.replace_regions);
     await writeTemplateAnalysisStatus(job, { status: 'success', source: 'manual', attempts: 0, error: '' });
   }
   return listTemplates(folder);
@@ -1631,8 +1784,8 @@ async function analyzeTemplateJob(job, options = {}) {
   }, (api.requestTimeoutSeconds || 300) * 1000, { description: '套图模板 AI 分析', reference: job.relativePath });
   const choice = body?.choices?.[0] || {};
   const content = choice?.message?.content ?? choice?.delta?.content ?? choice?.text ?? body?.output_text ?? body?.content;
-  const analysis = analysisContentToString(content);
-  if (!analysis) {
+  const analysisText = analysisContentToString(content);
+  if (!analysisText) {
     const fallbackCache = templateCachePaths(job.templateRoot, job.relativePath);
     const fallback = createManualTemplateAnalysis({
       action: 'manual_check',
@@ -1641,6 +1794,7 @@ async function analyzeTemplateJob(job, options = {}) {
       forbiddenArea: '背景、文字、墙面、地面、柜脚、把手、抽屉内侧、柜门内侧、包装、留白等非可印花面板区域',
       regions: []
     });
+    await removeTemplateMaskFiles(job);
     await writeTemplateAnalysisCache({
       cacheFile: fallbackCache.analysisFile,
       templateRoot: job.templateRoot,
@@ -1652,17 +1806,33 @@ async function analyzeTemplateJob(job, options = {}) {
     return parseTemplateAnalysisSummary(fallback);
   }
   const cache = templateCachePaths(job.templateRoot, job.relativePath);
+  let validated = validateTemplateAnalysis(analysisText, { source: 'ai' });
+  if (validated.action === 'replace_print') {
+    try {
+      await ensureMaskFromRegions(job, validated.replace_regions, validated.printableSurfaces);
+    } catch (error) {
+      validated = createManualTemplateAnalysis({
+        action: 'manual_check',
+        reason: `AI 已返回分析，但可印花区域不可执行：${error?.message || error}`,
+        replaceArea: '',
+        forbiddenArea: validated.forbidden_area,
+        regions: []
+      });
+      await removeTemplateMaskFiles(job);
+    }
+  } else {
+    await removeTemplateMaskFiles(job);
+  }
+  const normalizedAnalysis = JSON.stringify(validated);
   await writeTemplateAnalysisCache({
     cacheFile: cache.analysisFile,
     templateRoot: job.templateRoot,
     templateImagePath: job.templatePath,
     relativeTemplatePath: job.relativePath,
-    analysis,
+    analysis: normalizedAnalysis,
     manualOverride: false
   });
-  const summary = parseTemplateAnalysisSummary(analysis);
-  await ensureMaskFromRegions(job, summary.regions);
-  return summary;
+  return parseTemplateAnalysisSummary(normalizedAnalysis);
 }
 
 async function analyzeTemplateJobWithRetry(job, retries = 3, onProgress = async () => {}) {
@@ -1834,9 +2004,14 @@ async function saveTemplateMask(payload) {
   if (!match) throw new Error('蒙版数据无效');
   const cache = templateCachePaths(folder, relativePath);
   const bytes = Buffer.from(match[1], 'base64');
-  await fsp.mkdir(path.dirname(cache.maskFile), { recursive: true });
-  await Promise.all([fsp.writeFile(cache.maskFile, bytes), fsp.writeFile(cache.cleanMaskFile, bytes)]);
-  return { maskFile: cache.maskFile, maskUrl: imageUrl(cache.maskFile), regions: payload?.regions || [] };
+  const job = { templateRoot: folder, templatePath, relativePath };
+  const written = await writeValidatedTemplateMaskBytes(job, bytes);
+  return {
+    ...written,
+    maskUrl: imageUrl(cache.maskFile),
+    cleanMaskUrl: imageUrl(cache.cleanMaskFile),
+    regions: payload?.regions || []
+  };
 }
 
 async function templateOutputSize(job) {
@@ -1968,8 +2143,9 @@ async function auditGeneratedTemplate(masterImage, job, templateAnalysis) {
 }
 
 async function generateTemplateJob(job, source, config, options = {}) {
-  const { analysis } = await ensureTemplateAnalysisForJob(job);
+  const { analysis, cache } = await ensureTemplateAnalysisForJob(job);
   let action = resolveGenerationAction(analysis);
+  if (source.generationMode === 'template_print') action = normalizeTemplateProcessingMode(action);
   let profile = null;
   if (source.generationMode !== 'template_print') {
     profile = await loadProductProfileForJob({ outputRoot: job.outputRoot, templateFolderPath: source.templateFolderPath });
@@ -1982,6 +2158,39 @@ async function generateTemplateJob(job, source, config, options = {}) {
     await fsp.mkdir(path.dirname(paths.manualReview), { recursive: true });
     await fsp.writeFile(paths.manualReview, analysis, 'utf8');
     throw new Error(`需要人工确认：${job.relativePath}`);
+  }
+  if (action === 'exclude') {
+    await writeTemplateAudit(job, { passed: true, reason: '已由运营明确排除，不进入成品输出。', retry_instruction: '', action });
+    return { action, outputPath: '' };
+  }
+  if (action === 'copy_original') {
+    await replaceOutputFile(job.outputPath, nextPath => fsp.copyFile(job.templatePath, nextPath));
+    await writeTemplateAudit(job, { passed: true, reason: '保留原图：逐字节复制套图源文件，不调用生图 API。', retry_instruction: '', action });
+    return { action, outputPath: job.outputPath };
+  }
+  if (source.generationMode === 'template_print' && action === 'replace_print') {
+    if (!source.printPath || !fs.existsSync(source.printPath)) throw new Error('原始印花图不存在');
+    if (!cache?.maskFile || !await maskFileHasPrintablePixels(cache.maskFile)) {
+      throw new Error(`换印花图片缺少有效蒙版：${job.relativePath}`);
+    }
+    let composition;
+    await replaceOutputFile(job.outputPath, async nextPath => {
+      composition = await composeTemplatePrint({
+        templatePath: job.templatePath,
+        printPath: source.printPath,
+        maskPath: cache.maskFile,
+        cleanMaskPath: cache.cleanMaskFile,
+        outputPath: nextPath
+      });
+    });
+    await writeTemplateAudit(job, {
+      passed: true,
+      reason: '本地高清印花合成完成：原始印花 contain 映射，蒙版外套图像素保持不变，未调用生图 API。',
+      retry_instruction: '',
+      action,
+      composition
+    });
+    return { action, outputPath: job.outputPath, localComposited: true, composition };
   }
   if (action === 'skip_copy') {
     await writeTemplateAudit(job, { passed: true, reason: '已按模板配置跳过，不自动生成。', retry_instruction: '', action });
@@ -2067,7 +2276,9 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
       total: Math.max(0, Number(progress.total) || jobs.length),
       percent: Math.max(0, Math.min(100, Number(progress.percent) || 0)),
       apiGenerated: Math.max(0, Number(progress.apiGenerated) || 0),
+      composited: Math.max(0, Number(progress.composited) || 0),
       copied: Math.max(0, Number(progress.copied) || 0),
+      excluded: Math.max(0, Number(progress.excluded) || 0),
       skipped: Math.max(0, Number(progress.skipped) || 0),
       failed: Math.max(0, Number(progress.failed) || 0),
       waitingUpstream: Math.max(0, Number(progress.waitingUpstream) || 0),
@@ -2083,13 +2294,13 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
   };
   if (!jobs.length) {
     if (!onlyMissing && !selectedPaths?.length) throw new Error('套图文件夹里没有可用图片。');
-    const summary = { total: 0, current: 0, percent: 100, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, waitingUpstream: 0, pending: 0 };
+    const summary = { total: 0, current: 0, percent: 100, apiGenerated: 0, composited: 0, copied: 0, excluded: Math.max(0, Number(options.excludedCount) || 0), skipped: 0, failed: 0, waitingUpstream: 0, pending: 0 };
     await publishProgress({ ...summary, phase: 'completed', message: '没有需要处理的图片' });
     return { folder, generated: 0, failures: [], summary };
   }
   const startLabel = options.initial ? '开始生成套图' : onlyMissing ? '开始补生成缺失套图' : '开始重新生成整套图';
   await addOperationLog(folder, `${startLabel}：${jobs.length} 张`);
-  const live = { total: jobs.length, current: 0, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, waitingUpstream: 0 };
+  const live = { total: jobs.length, current: 0, apiGenerated: 0, composited: 0, copied: 0, excluded: Math.max(0, Number(options.excludedCount) || 0), skipped: 0, failed: 0, waitingUpstream: 0 };
   const liveFailures = [];
   await publishProgress({ ...live, pending: jobs.length, phase: 'preparing', message: `准备处理 ${jobs.length} 张图片` });
   const waitingUpstream = new Set();
@@ -2136,8 +2347,9 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
         signal: options.signal,
         onRequestState: event => recordImageRequestState(job, event)
       });
-      if (result.action === 'skip_copy') live.skipped += 1;
-      else if (result.action === 'copy_template') live.copied += 1;
+      if (result.action === 'exclude' || result.action === 'skip_copy') live.skipped += 1;
+      else if (result.action === 'copy_original' || result.action === 'copy_template') live.copied += 1;
+      else if (result.localComposited) live.composited += 1;
       else live.apiGenerated += 1;
       return result;
     } catch (error) {
@@ -2193,7 +2405,9 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
     current: live.current,
     percent: 100,
     apiGenerated: live.apiGenerated,
+    composited: live.composited,
     copied: live.copied,
+    excluded: live.excluded,
     skipped: live.skipped,
     failed: live.failed,
     waitingUpstream: 0,
@@ -2272,17 +2486,23 @@ async function regenerateMasterForReviewFolder(folderValue) {
 async function generateDirectTemplateTask(task, options = {}) {
   if (!task?.printPath || !fs.existsSync(task.printPath)) throw new Error('印花图不存在');
   if (!task?.templateFolderPath || !fs.existsSync(task.templateFolderPath)) throw new Error('套图文件夹不存在');
+  const requestedPaths = Array.isArray(task.templateRelativePaths)
+    ? task.templateRelativePaths
+    : task.templateRelativePath ? [task.templateRelativePath] : null;
+  const plan = await planTemplateOutputJobs(task.templateFolderPath, requestedPaths);
+  const plannedTask = { ...task, templateRelativePaths: plan.relativePaths };
   const config = await loadConfig();
   if (typeof options.reportProgress === 'function') {
     await options.reportProgress({ phase: 'preparing', current: 0, total: 0, percent: 0, message: '正在创建任务目录…' });
   }
   const folder = await nextTaskFolder(config);
   await fsp.mkdir(folder, { recursive: true });
-  await writeTaskSource(folder, task, 'template_print');
-  const selectedPaths = Array.isArray(task.templateRelativePaths)
-    ? task.templateRelativePaths
-    : task.templateRelativePath ? [task.templateRelativePath] : null;
-  const result = await generateTemplateSetForFolder(folder, false, selectedPaths, { ...options, initial: true });
+  await writeTaskSource(folder, plannedTask, 'template_print');
+  const result = await generateTemplateSetForFolder(folder, false, null, {
+    ...options,
+    initial: true,
+    excludedCount: plan.excludedRelativePaths.length
+  });
   if (result.failures.length) throw new Error(`有 ${result.failures.length} 张失败：${result.failures[0]}`);
   return { folder, outputPath: folder, url: '', summary: result.summary };
 }
@@ -2697,6 +2917,7 @@ const runtimeExports = {
   loadPromptSettings,
   loadTemplateProductProfile,
   loadTitleLibrary,
+  planTemplateOutputJobs,
   publicTitleLibrary,
   runWithWorkspace,
   prepareTemplateFolder,

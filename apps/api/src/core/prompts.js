@@ -33,49 +33,48 @@ const MASTER_PROMPT_TEMPLATE = `你是母版图生成前的提示词反推模型
 ${GLOBAL_NEGATIVE_PROMPT}`;
 
 const TEMPLATE_ANALYSIS_PROMPT = `请把这张电商套图模板图分析成可复用的“模板换印花说明书”。只输出合法 JSON，不要 Markdown，不要解释。
-后续生成时会输入一张原始印花图，并把印花替换到模板图里家具的留白表面。
-你的任务是看懂这张模板图的用途、家具角度、开门/开抽屉/背面状态、哪些留白家具表面需要换印花、哪些区域绝对不能动。
-不确定时必须人工确认，不允许猜，不允许把墙面、地面、文字、尺寸线、把手、柜脚、门内侧、抽屉内侧或背景当成可换区域。
+后续正式处理会用确定性像素合成，而不是让模型重新绘制。你必须先判断图片在整套商品链接里的用途，再判断是否存在清晰可见、属于家具外侧的白色或浅色柜门、抽屉正面或面板。
+
+决策顺序：
+1. 识别图片用途：主图、场景图、尺寸图、细节图、物流包装、安装售后、纯文字说明或其他必要详情页。
+2. 套图文件夹里的图片默认都需要进入最终输出；没有可印花表面不等于删除图片。
+3. 有清晰可见、边界明确的家具外侧白色面板时，processingMode=replace_print，并为每块面板输出精确多边形。
+4. 图片仍有上架价值但没有可印花表面时，processingMode=copy_original，后端会逐字节复制原图，不调用生图 API。
+5. 遮挡、内外侧、透视边界或多宫格中的任一小图无法可靠判断时，processingMode=manual_check。
+6. AI 不允许选择 exclude；只有运营可以手动排除图片。
+
 按这个结构输出：
 {
-  "version": 8,
-  "category": "主图/场景图/尺寸图/细节图/材质图/包装物流/安装售后/买家须知/纯文字页/多图拼接/装饰图/不确定",
-  "action": "replace_print/copy_template/skip_copy/manual_check",
-  "generation_action": "replace_print/copy_template/skip_copy/manual_check",
+  "version": 9,
+  "imageRole": "主图/场景图/尺寸图/细节图/材质图/包装物流/安装售后/买家须知/纯文字页/多图拼接/不确定",
+  "includeInOutput": true,
+  "processingMode": "replace_print/copy_original/manual_check",
   "confidence": 0.0,
-  "reason": "一句话判断原因，说明图片用途和为什么选择该动作，80字以内",
-  "view_state": "正面/侧面/背面/俯视/开门/开抽屉/半开/局部特写/多角度拼图/无商品",
-  "replace_area": "如果 action=replace_print，必须具体说明需要换印花的留白家具表面，例如正面三扇白色柜门、右侧抽屉白色面板；不能写无或不确定",
-  "replace_regions": [
+  "imageUnderstanding": "客观描述图片用途、家具角度、开合状态以及选择该动作的原因，80字以内",
+  "viewState": "正面闭合/侧面/背面/俯视/开门/开抽屉/半开/局部特写/多角度拼图/无商品",
+  "printableArea": "逐项说明允许换印花的家具外侧面板；无则写无",
+  "printableSurfaces": [
     {
-      "x": 0.0,
-      "y": 0.0,
-      "width": 0.0,
-      "height": 0.0,
-      "note": "可选：大致描述可换印花区域，不确定可留 0"
+      "id": "front-door-1",
+      "label": "左起第一扇白色柜门外表面",
+      "polygon": [[0.16,0.47],[0.32,0.47],[0.32,0.78],[0.16,0.78]],
+      "surfaceState": "外侧闭合"
     }
   ],
-  "forbidden_area": "不能换印花或不能改动的区域，例如文字、尺寸线、把手、柜脚、边框、门缝、抽屉缝、门内侧、抽屉内侧、背板、背景、墙面、地面、道具、阴影、人物",
-  "print_mapping": "单张完整印花覆盖整块面板/跨多个柜门连续铺/多个独立小图分别处理/不适合自动处理",
-  "handle_door_rule": "闭合门板如何保留门缝把手；开门或开抽屉时只允许换可见正面外板，不能换内侧或内部空间；背面图是否允许换",
-  "drawer_or_door_state": "闭合/抽屉打开/柜门打开/半开/背面/局部特写/无",
-  "risk_points": ["容易出错的点"],
-  "instruction": "给后续生图模型的一句话执行指令，强调印花完整贴到留白家具表面且保留模板结构",
+  "mappingMode": "continuous_across_surfaces",
+  "preserveAreas": "必须保持不变的文字、背景、结构、门缝、把手、边框、柜脚、道具、阴影、人物和前景遮挡",
+  "riskPoints": ["容易出错的点"],
   "needs_manual_check": false
 }
-动作选择规则：
-- 只要图片里有家具主体，并且有明显白色/浅色/留白的柜门、抽屉、门板或面板表面需要换印花，action=replace_print。
-- 主图、场景图、生活方式图、白底商品图、尺寸图、SKU图、细节图、材质图，只要有可换留白家具表面，都应优先 replace_print。
-- 只有明确是物流、包装、安装售后、买家须知、纯文字信息页，且没有需要换印花的家具留白表面，才允许 copy_template。
-- 纯装饰图、无商品价值图，action=skip_copy。
-- 不确定时 action=manual_check，needs_manual_check=true。
-- confidence 低于 0.75 时 action=manual_check，needs_manual_check=true。
-复杂图规则：
-- 开门/开抽屉图必须识别清楚，只能把印花换到可见正面外板；门内侧、抽屉内侧、内部空间、背板和阴影必须写入 forbidden_area。
-- 背面图如果没有明显可印花留白表面，manual_check；如果背面也有留白面板，replace_print 并写明是背面。
-- 多宫格/拼图模板需要说明每个小图是否都有可换留白家具表面；不确定就 manual_check。
-- 尺寸线、文字、卖点标签、品牌标、人物、道具、墙面、地面不得进入 replace_area。
-- replace_area 必须具体，action=replace_print 但 replace_area 为空/无/不确定时，应改为 manual_check。`;
+
+硬性规则：
+- 坐标以整张图片左上角为 (0,0)、右下角为 (1,1)，polygon 至少 4 个点并沿面板边界顺序排列。
+- 只标家具外侧可见白色/浅色面板。墙面、地面、文字、尺寸线、标签、人物、背景、道具、阴影、门缝、把手、边框、柜脚、柜体内部、门内侧和抽屉内侧不得进入多边形。
+- 主图、场景图、尺寸图、SKU 图、细节图或材质图没有可印花表面时应 copy_original，不得删除，也不得强行贴印花。
+- 物流、包装、安装售后、买家须知、纯文字说明、侧面、背面、内部或运输详情页通常 copy_original。
+- 多宫格必须逐个小图确认；任一需要换印花的小图边界不清楚时整张 manual_check。
+- confidence 低于 0.75 时 processingMode=manual_check，needs_manual_check=true。
+- replace_print 必须给出具体 printableArea 和至少一个有效 printableSurfaces 多边形；没有有效多边形时必须改为 manual_check，不能伪装成可执行的换印花结果。`;
 
 function selectPathApi(...values) {
   return values.some(value => /^[A-Za-z]:[\\/]/.test(String(value || '')) || String(value || '').includes('\\'))

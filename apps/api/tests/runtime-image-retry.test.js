@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const sharp = require('sharp');
 
-test('template generation retries temporary image API failures and regeneration entrypoints work', async (t) => {
+test('local template compositing keeps all regeneration entrypoints working without image API', async (t) => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-image-retry-'));
   const resultPng = await sharp({ create: { width: 32, height: 32, channels: 3, background: '#88aaee' } }).png().toBuffer();
   let requests = 0;
@@ -66,7 +66,7 @@ test('template generation retries temporary image API failures and regeneration 
       reason: 'front panel can receive print',
       replaceArea: 'front white panel',
       forbiddenArea: 'background and handle',
-      regions: []
+      regions: [{ x: 0, y: 0, width: 1, height: 1 }]
     }]
   });
 
@@ -83,27 +83,28 @@ test('template generation retries temporary image API failures and regeneration 
   const outputMetadata = await sharp(outputFile).metadata();
   assert.equal(outputMetadata.width, 40);
   assert.equal(outputMetadata.height, 20);
-  const outputPixel = await sharp(outputFile).raw().toBuffer();
-  assert.deepEqual([...outputPixel.slice(0, 3)], [0x88, 0xaa, 0xee], '生成图应 cover 到套图比例，不应 contain 留白');
-  assert.equal(requests, 2);
+  const outputPixel = await sharp(outputFile).removeAlpha().raw().toBuffer();
+  const centerOffset = (10 * 40 + 20) * 3;
+  assert.deepEqual([...outputPixel.subarray(centerOffset, centerOffset + 3)], [0x88, 0xaa, 0xee]);
+  assert.equal(requests, 0, 'standard template-print must not call the image API');
 
   await runtime.generateTemplateSetForFolder(generated.folder, true);
-  assert.equal(requests, 2, '补生成没有缺失图时不应请求生图接口');
+  assert.equal(requests, 0);
 
   await fs.rm(outputFile, { force: true });
   await runtime.generateTemplateSetForFolder(generated.folder, true);
   await fs.access(outputFile);
-  assert.equal(requests, 3, '补生成缺失图片会请求一次');
+  assert.equal(requests, 0, '补生成缺失图片仍应走本地合成');
 
   await runtime.generateTemplateSetForFolder(generated.folder, false);
-  assert.equal(requests, 4, '重新生成整套图会覆盖已有图片');
+  assert.equal(requests, 0, '重新生成整套图仍应走本地合成');
 
   await runtime.regenerateSingleTemplate({ folder: generated.folder, relativePath: '1.png' });
-  assert.equal(requests, 5, '单张重新生成会请求指定图片');
+  assert.equal(requests, 0, '单张重新生成仍应走本地合成');
 
 });
 
-test('adaptive runtime queue completes thirty images against a capacity-four upstream', async (t) => {
+test('local template queue completes all thirty images instead of stopping after four', async (t) => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-image-capacity-'));
   const resultPng = await sharp({ create: { width: 32, height: 32, channels: 3, background: '#44aa77' } }).png().toBuffer();
   let requests = 0;
@@ -172,7 +173,7 @@ test('adaptive runtime queue completes thirty images against a capacity-four ups
       reason: 'front panel can receive print',
       replaceArea: 'front white panel',
       forbiddenArea: 'background and handle',
-      regions: []
+      regions: [{ x: 0, y: 0, width: 1, height: 1 }]
     }))
   });
 
@@ -191,14 +192,14 @@ test('adaptive runtime queue completes thirty images against a capacity-four ups
   });
 
   assert.equal(generated.summary.total, 30);
-  assert.equal(generated.summary.apiGenerated, 30);
+  assert.equal(generated.summary.composited, 30);
+  assert.equal(generated.summary.apiGenerated, 0);
   assert.equal(generated.summary.failed, 0);
-  assert.equal(accepted, 30);
-  assert.ok(peakAccepted > 0 && peakAccepted <= 4);
-  assert.ok(requests > 30);
+  assert.equal(accepted, 0);
+  assert.equal(peakAccepted, 0);
+  assert.equal(requests, 0);
   assert.deepEqual(runtime.getImageSchedulerSnapshot().active, 0);
-  assert.ok(progressEvents.some(progress => progress.waitingUpstream > 0));
-  const diagnostics = await fs.readFile(path.join(generated.folder, '.caishen-meta', 'image-api-events.jsonl'), 'utf8');
-  assert.ok(diagnostics.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line)).some(event => event.state === 'retrying'));
+  assert.ok(progressEvents.every(progress => Number(progress.waitingUpstream || 0) === 0));
+  await assert.rejects(fs.access(path.join(generated.folder, '.caishen-meta', 'image-api-events.jsonl')));
   await Promise.all(relativePaths.map(name => fs.access(path.join(generated.folder, name))));
 });

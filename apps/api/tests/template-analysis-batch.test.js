@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const sharp = require('sharp');
 
-test('单张和批量 AI 分析失败会重试三次并持久显示最终状态', async () => {
+test('单张和批量 AI 分析失败会重试三次并持久显示最终状态', async (t) => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-template-analysis-'));
   let mode = 'recover';
   let requests = 0;
@@ -32,6 +32,11 @@ test('单张和批量 AI 分析失败会重试三次并持久显示最终状态'
     });
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    server.closeAllConnections?.();
+    await new Promise(resolve => server.close(resolve));
+    await fs.rm(temp, { recursive: true, force: true });
+  });
 
   process.env.CAISHEN_DATA_DIR = temp;
   process.env.CAISHEN_WORKSPACE_ID = 'template-analysis';
@@ -70,22 +75,24 @@ test('单张和批量 AI 分析失败会重试三次并持久显示最终状态'
   assert.equal(batch.failed, 0);
   assert.equal(requests, 2);
 
-  await new Promise(resolve => server.close(resolve));
-  await fs.rm(temp, { recursive: true, force: true });
 });
 
-test('paid analysis responses are not shown as failed when content needs local fallback', async () => {
+test('paid analysis responses are not shown as failed when content needs local fallback', async (t) => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-template-analysis-paid-'));
   let mode = 'array';
   let requests = 0;
   const validAnalysis = {
-    version: 6,
-    action: 'replace_print',
+    version: 9,
+    processingMode: 'replace_print',
     confidence: 0.93,
-    reason: 'cabinet front panels can receive print',
-    replace_area: 'front white cabinet panels',
-    forbidden_area: 'text, background, handles and cabinet structure',
-    replace_regions: []
+    imageUnderstanding: 'cabinet front panels can receive print',
+    printableArea: 'front white cabinet panels',
+    printableSurfaces: [{
+      id: 'front-panel',
+      label: 'front white cabinet panels',
+      polygon: [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]]
+    }],
+    preserveAreas: 'text, background, handles and cabinet structure'
   };
   const server = http.createServer((req, res) => {
     if (req.url !== '/v1/chat/completions') return res.writeHead(404).end();
@@ -98,10 +105,25 @@ test('paid analysis responses are not shown as failed when content needs local f
           choices: [{ message: { content: [{ type: 'text', text: JSON.stringify(validAnalysis) }] } }]
         }));
       }
+      if (mode === 'malformed') {
+        return res.end(JSON.stringify({
+          choices: [{ message: { content: JSON.stringify({
+            version: 9,
+            processingMode: 'replace_print',
+            confidence: 0.96,
+            imageUnderstanding: 'front cabinet image but no usable polygon was returned'
+          }) } }]
+        }));
+      }
       return res.end(JSON.stringify({ choices: [{ message: { content: '' } }] }));
     });
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    server.closeAllConnections?.();
+    await new Promise(resolve => server.close(resolve));
+    await fs.rm(temp, { recursive: true, force: true });
+  });
 
   process.env.CAISHEN_DATA_DIR = temp;
   process.env.CAISHEN_WORKSPACE_ID = 'template-analysis-paid';
@@ -116,13 +138,27 @@ test('paid analysis responses are not shown as failed when content needs local f
   const { templateCachePaths } = require('../src/core/template-regions');
   const folder = path.join(runtime.WORKSPACE_ROOT, 'assets', 'template', 'set');
   await fs.mkdir(folder, { recursive: true });
-  await Promise.all(['array.png', 'empty.png'].map(name => sharp({ create: { width: 24, height: 24, channels: 3, background: '#d8c59b' } }).png().toFile(path.join(folder, name))));
+  await Promise.all(['array.png', 'malformed.png', 'empty.png'].map(name => sharp({ create: { width: 24, height: 24, channels: 3, background: '#d8c59b' } }).png().toFile(path.join(folder, name))));
 
   const arrayResult = await runtime.analyzeTemplateItems({ folder, relativePaths: ['array.png'] });
   const arrayItem = arrayResult.items.find(item => item.relativePath === 'array.png');
   assert.equal(arrayResult.failed, 0);
   assert.equal(arrayItem.analysisStatus, 'success');
   assert.equal(arrayItem.action, 'replace_print');
+  const arrayCache = templateCachePaths(folder, 'array.png');
+  for (const maskFile of [arrayCache.maskFile, arrayCache.cleanMaskFile]) {
+    const pixels = await sharp(maskFile).greyscale().raw().toBuffer();
+    assert.ok(pixels.some(value => value >= 96), `${path.basename(maskFile)} should be nonempty`);
+  }
+
+  mode = 'malformed';
+  const malformedResult = await runtime.analyzeTemplateItems({ folder, relativePaths: ['malformed.png'] });
+  const malformedItem = malformedResult.items.find(item => item.relativePath === 'malformed.png');
+  assert.equal(malformedResult.failed, 0);
+  assert.equal(malformedItem.analysisStatus, 'success');
+  assert.equal(malformedItem.action, 'manual_check');
+  const malformedCache = templateCachePaths(folder, 'malformed.png');
+  await assert.rejects(fs.access(malformedCache.maskFile));
 
   mode = 'empty';
   const emptyResult = await runtime.analyzeTemplateItems({ folder, relativePaths: ['empty.png'] });
@@ -135,8 +171,6 @@ test('paid analysis responses are not shown as failed when content needs local f
   await fs.writeFile(`${emptyCache.analysisFile}.status.json`, JSON.stringify({ status: 'failed', attempts: 4, error: 'old failed status' }), 'utf8');
   const listed = await runtime.listTemplates(folder);
   assert.equal(listed.find(item => item.relativePath === 'empty.png').analysisStatus, 'success');
-  assert.equal(requests, 2);
+  assert.equal(requests, 3);
 
-  await new Promise(resolve => server.close(resolve));
-  await fs.rm(temp, { recursive: true, force: true });
 });

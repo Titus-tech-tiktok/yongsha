@@ -57,11 +57,14 @@ test('未配置品类根目录时从产品父目录和文件名推导', () => {
   assert.equal(result, '斗柜|奶油风');
 });
 
-test('模板分析提示词保留 V8 JSON 契约与人工确认阈值', () => {
+test('模板分析提示词使用严格 V9 契约、四种业务状态和人工确认阈值', () => {
   assert.equal(TEMPLATE_ANALYSIS_PROMPT.startsWith('请把这张电商套图模板图分析成可复用的“模板换印花说明书”。'), true);
-  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('"version": 8'), true);
-  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('confidence 低于 0.75 时 action=manual_check'), true);
-  assert.equal(TEMPLATE_ANALYSIS_PROMPT.endsWith('action=replace_print 但 replace_area 为空/无/不确定时，应改为 manual_check。'), true);
+  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('"version": 9'), true);
+  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('"processingMode": "replace_print/copy_original/manual_check"'), true);
+  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('"printableSurfaces"'), true);
+  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('AI 不允许选择 exclude'), true);
+  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('confidence 低于 0.75 时 processingMode=manual_check'), true);
+  assert.equal(TEMPLATE_ANALYSIS_PROMPT.endsWith('没有有效多边形时必须改为 manual_check，不能伪装成可执行的换印花结果。'), true);
 });
 
 test('套图换印花提示词替换相对路径占位符且 hasMask 不改变 Windows 文本', () => {

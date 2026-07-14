@@ -22,6 +22,8 @@ const {
   getTemplateFileSignature,
   isLikelyLightFurniturePanel,
   normalizeRegions,
+  normalizePrintableSurfaces,
+  normalizeTemplateProcessingMode,
   parseTemplateAnalysisSummary,
   rasterizeMask,
   readTemplateAnalysisCache,
@@ -33,6 +35,7 @@ const {
   serializeMaskData,
   serializeTemplateAnalysis,
   templateCachePaths,
+  validateTemplateAnalysis,
   erodeMask,
   writeTemplateAnalysisCache
 } = require('../src/core/template-regions');
@@ -109,6 +112,81 @@ test('矩形、画笔、橡皮按 Windows 绘制顺序合成二值蒙版', () =>
   assert.equal(mask[9 * 10 + 9], 0);
 });
 
+test('多边形面板会按归一化坐标生成精确蒙版', () => {
+  const surfaces = normalizePrintableSurfaces([
+    {
+      id: 'front-door-1',
+      label: '左侧柜门外表面',
+      polygon: [[0.1, 0.2], [0.45, 0.2], [0.4, 0.8], [0.15, 0.8]],
+      surfaceState: '外侧闭合'
+    },
+    { id: 'invalid', polygon: [[0.1, 0.1], [0.2, 0.2]] }
+  ]);
+  assert.equal(surfaces.length, 1);
+  assert.equal(surfaces[0].surfaceState, '外侧闭合');
+
+  const mask = rasterizeMask({ width: 20, height: 20, surfaces });
+  assert.equal(mask[10 * 20 + 5], 255);
+  assert.equal(mask[2 * 20 + 18], 0);
+});
+
+test('分析动作使用新语义并兼容旧缓存别名', () => {
+  assert.equal(normalizeTemplateProcessingMode('copy_template'), 'copy_original');
+  assert.equal(normalizeTemplateProcessingMode('skip_copy'), 'exclude');
+  assert.equal(normalizeTemplateProcessingMode('换印花'), 'replace_print');
+  assert.equal(normalizeTemplateProcessingMode('人工确认'), 'manual_check');
+});
+
+test('严格分析契约要求换印花必须有有效面板多边形', () => {
+  const valid = validateTemplateAnalysis({
+    version: 9,
+    imageRole: '主图',
+    includeInOutput: true,
+    processingMode: 'replace_print',
+    confidence: 0.96,
+    imageUnderstanding: '正面闭合四门柜，白色柜门外表面清晰可见。',
+    printableSurfaces: [{
+      id: 'front',
+      label: '四扇白色柜门外表面',
+      polygon: [[0.2, 0.4], [0.8, 0.4], [0.8, 0.8], [0.2, 0.8]],
+      surfaceState: '外侧闭合'
+    }],
+    preserveAreas: '文字、背景、边框、门缝、把手和柜脚'
+  }, { source: 'ai' });
+  assert.equal(valid.processingMode, 'replace_print');
+  assert.equal(valid.action, 'replace_print');
+  assert.equal(valid.printableSurfaces.length, 1);
+  assert.equal(valid.needs_manual_check, false);
+
+  const invalid = validateTemplateAnalysis({
+    version: 9,
+    includeInOutput: true,
+    processingMode: 'replace_print',
+    confidence: 0.98,
+    imageUnderstanding: '需要换印花',
+    printableSurfaces: [],
+    preserveAreas: '背景和文字'
+  }, { source: 'ai' });
+  assert.equal(invalid.processingMode, 'manual_check');
+  assert.equal(invalid.needs_manual_check, true);
+  assert.match(invalid.reason, /区域|面板|人工/);
+});
+
+test('AI 不能自动排除图片且无可印花表面时默认保留原图', () => {
+  const excluded = validateTemplateAnalysis({
+    version: 9,
+    includeInOutput: false,
+    processingMode: 'exclude',
+    confidence: 1,
+    imageUnderstanding: '物流包装详情页',
+    printableSurfaces: [],
+    preserveAreas: '整张原图'
+  }, { source: 'ai' });
+  assert.equal(excluded.processingMode, 'copy_original');
+  assert.equal(excluded.includeInOutput, true);
+  assert.equal(excluded.preserveAreas, '整张原图');
+});
+
 test('蒙版边界按 96 阈值缩放回模板像素', () => {
   const mask = new Uint8Array(4 * 3);
   mask[1 * 4 + 1] = 95;
@@ -167,35 +245,37 @@ test('蒙版编辑数据可稳定序列化和反序列化', () => {
   });
 });
 
-test('人工模板分析 JSON 字段和值与 WPF V8 对齐', () => {
+test('人工模板分析 JSON 使用新版动作并兼容 WPF 缓存字段', () => {
   const analysis = createManualTemplateAnalysis({
     action: '复制模板',
     regions: [{ x: 0.123456, y: 0.2, width: 0.3, height: 0.4 }]
   });
-  assert.equal(analysis.version, 8);
-  assert.equal(analysis.category, '纯文字信息页');
-  assert.equal(analysis.action, 'copy_template');
-  assert.equal(analysis.generation_action, 'copy_template');
+  assert.equal(analysis.version, 9);
+  assert.equal(analysis.category, '保留原图');
+  assert.equal(analysis.action, 'copy_original');
+  assert.equal(analysis.generation_action, 'copy_original');
+  assert.equal(analysis.processingMode, 'copy_original');
+  assert.equal(analysis.includeInOutput, true);
   assert.equal(analysis.manual_override, undefined);
-  assert.deepEqual(analysis.replace_regions, [{ x: 0.1235, y: 0.2, width: 0.3, height: 0.4 }]);
+  assert.deepEqual(analysis.replace_regions, []);
   assert.equal(analysis.needs_manual_check, false);
 
   const summary = parseTemplateAnalysisSummary(`\n\`\`\`json\n${serializeTemplateAnalysis(analysis)}\n\`\`\``);
-  assert.equal(summary.action, 'copy_template');
+  assert.equal(summary.action, 'copy_original');
   assert.equal(summary.confidence, 1);
-  assert.equal(summary.regions[0].x, 0.1235);
+  assert.deepEqual(summary.regions, []);
 });
 
 test('生成动作遵守人工确认和 0.75 置信度门槛', () => {
   assert.equal(resolveGenerationAction({ action: 'replace_print', confidence: 0.74 }), 'manual_check');
   assert.equal(resolveGenerationAction({ generation_action: '换印花', confidence: 0.75 }), 'replace_print');
   assert.equal(resolveGenerationAction({ action: 'copy_template', confidence: 1, needs_manual_check: true }), 'manual_check');
-  assert.equal(resolveGenerationAction({ category: '纯文字页', needs_master_product: false }), 'copy_template');
+  assert.equal(resolveGenerationAction({ category: '纯文字页', needs_master_product: false }), 'copy_original');
 });
 
 test('不可读分析回退为人工确认', () => {
   const fallback = createFallbackTemplateAnalysis();
-  assert.equal(fallback.version, 6);
+  assert.equal(fallback.version, 9);
   assert.equal(fallback.action, 'manual_check');
   assert.deepEqual(parseTemplateAnalysisSummary('{broken'), {
     action: 'manual_check',
@@ -213,7 +293,8 @@ test('缓存路径同时兼容 Windows 和 macOS 相对路径', () => {
     cacheFolder: path.join('/tmp/套图', TEMPLATE_CACHE_FOLDER),
     analysisFile: path.join('/tmp/套图', TEMPLATE_CACHE_FOLDER, '子目录_柜子.template-analysis.json'),
     maskFile: path.join('/tmp/套图', TEMPLATE_CACHE_FOLDER, '子目录_柜子.replace-mask.png'),
-    cleanMaskFile: path.join('/tmp/套图', TEMPLATE_CACHE_FOLDER, '子目录_柜子.clean-mask.png')
+    cleanMaskFile: path.join('/tmp/套图', TEMPLATE_CACHE_FOLDER, '子目录_柜子.clean-mask.png'),
+    maskMetaFile: path.join('/tmp/套图', TEMPLATE_CACHE_FOLDER, '子目录_柜子.mask-meta.json')
   });
 });
 
@@ -237,7 +318,7 @@ test('模板分析缓存按 WPF 包装字段写入并校验读取', async (t) =>
     manualOverride: true,
     now: new Date('2026-07-10T01:02:03.456Z')
   });
-  assert.equal(written.payload.version, 8);
+  assert.equal(written.payload.version, 9);
   assert.equal(written.payload.template_relative_path, '柜子.jpg');
   assert.equal(written.payload.manual_override, true);
   assert.equal(written.payload.updated_at, '2026-07-10T01:02:03.4560000Z');
