@@ -21,11 +21,6 @@ function round(value, digits = 4) {
   return Number(finiteNumber(value).toFixed(digits));
 }
 
-/**
- * Mirrors TemplateReplaceRegion parsing in MainWindow.xaml.cs. Width and height
- * are clamped independently; final image-edge clipping happens in
- * regionToPixelRect, as it does in WPF's ToPixelRect.
- */
 function normalizeRegion(value) {
   if (!value || typeof value !== 'object') return null;
   const width = finiteNumber(value.width ?? value.w);
@@ -80,484 +75,6 @@ function normalizePrintableSurfaces(values) {
   return values.map(normalizePrintableSurface).filter(Boolean);
 }
 
-function regionToPrintableSurface(regionValue, index = 0) {
-  const region = normalizeRegion(regionValue);
-  if (!region) return null;
-  const right = Math.min(1, region.x + region.width);
-  const bottom = Math.min(1, region.y + region.height);
-  return normalizePrintableSurface({
-    id: `region-${index + 1}`,
-    label: String(regionValue?.note || `可印花面板 ${index + 1}`),
-    polygon: [[region.x, region.y], [right, region.y], [right, bottom], [region.x, bottom]],
-    surfaceState: String(regionValue?.surfaceState || regionValue?.surface_state || '外侧可见')
-  }, index);
-}
-
-function printableSurfaceBounds(surfaceValue) {
-  const surface = normalizePrintableSurface(surfaceValue);
-  if (!surface) return null;
-  const xs = surface.polygon.map(point => point[0]);
-  const ys = surface.polygon.map(point => point[1]);
-  const left = Math.min(...xs);
-  const top = Math.min(...ys);
-  return normalizeRegion({
-    x: left,
-    y: top,
-    width: Math.max(...xs) - left,
-    height: Math.max(...ys) - top
-  });
-}
-
-function formatRegionSummary(values, hasMask = false) {
-  const regions = normalizeRegions(values);
-  if (!regions.length) {
-    return hasMask
-      ? '已有画笔蒙版，但没有矩形外接区域。重新保存一次会自动补齐。'
-      : '未框选区域。换印花图片必须先框选或画笔标出可换印花面板。';
-  }
-  const prefix = hasMask ? '已有画笔蒙版，' : '';
-  const number = value => String(round(value, 3));
-  return `${prefix}已标记 ${regions.length} 个区域：${regions.map((region, index) => (
-    `${index + 1}. x=${number(region.x)}, y=${number(region.y)}, w=${number(region.width)}, h=${number(region.height)}`
-  )).join('; ')}`;
-}
-
-function regionToPixelRect(regionValue, imageWidthValue, imageHeightValue) {
-  const imageWidth = Math.max(1, finiteNumber(imageWidthValue, 1));
-  const imageHeight = Math.max(1, finiteNumber(imageHeightValue, 1));
-  const region = normalizeRegion(regionValue);
-  if (!region) return { x: 0, y: 0, width: 0, height: 0 };
-
-  const x = region.x * imageWidth;
-  const y = region.y * imageHeight;
-  let width = region.width * imageWidth;
-  let height = region.height * imageHeight;
-  if (x + width > imageWidth) width = imageWidth - x;
-  if (y + height > imageHeight) height = imageHeight - y;
-  return {
-    x,
-    y,
-    width: Math.max(0, width),
-    height: Math.max(0, height)
-  };
-}
-
-function calculateDisplaySize(imageWidthValue, imageHeightValue, maxWidthValue = 980, maxHeightValue = 620) {
-  const imageWidth = Math.max(1, finiteNumber(imageWidthValue, 1));
-  const imageHeight = Math.max(1, finiteNumber(imageHeightValue, 1));
-  const maxWidth = Math.max(1, finiteNumber(maxWidthValue, 980));
-  const maxHeight = Math.max(1, finiteNumber(maxHeightValue, 620));
-  const scale = Math.min(1, maxWidth / imageWidth, maxHeight / imageHeight);
-  return {
-    imageWidth,
-    imageHeight,
-    displayWidth: Math.max(1, imageWidth * scale),
-    displayHeight: Math.max(1, imageHeight * scale),
-    scale
-  };
-}
-
-function displayPointToNormalized(point, displayWidthValue, displayHeightValue) {
-  const displayWidth = Math.max(1, finiteNumber(displayWidthValue, 1));
-  const displayHeight = Math.max(1, finiteNumber(displayHeightValue, 1));
-  return {
-    x: clamp(finiteNumber(point?.x) / displayWidth, 0, 1),
-    y: clamp(finiteNumber(point?.y) / displayHeight, 0, 1)
-  };
-}
-
-function normalizedPointToDisplay(point, displayWidthValue, displayHeightValue) {
-  const displayWidth = Math.max(1, finiteNumber(displayWidthValue, 1));
-  const displayHeight = Math.max(1, finiteNumber(displayHeightValue, 1));
-  return {
-    x: clamp(point?.x, 0, 1) * displayWidth,
-    y: clamp(point?.y, 0, 1) * displayHeight
-  };
-}
-
-/** WPF accepts a completed rectangle only when both display dimensions are at least 8 px. */
-function displayRectToRegion(start, end, displayWidthValue, displayHeightValue, minimumDisplaySize = 8) {
-  const displayWidth = Math.max(1, finiteNumber(displayWidthValue, 1));
-  const displayHeight = Math.max(1, finiteNumber(displayHeightValue, 1));
-  const left = clamp(Math.min(finiteNumber(start?.x), finiteNumber(end?.x)), 0, displayWidth);
-  const top = clamp(Math.min(finiteNumber(start?.y), finiteNumber(end?.y)), 0, displayHeight);
-  const right = clamp(Math.max(finiteNumber(start?.x), finiteNumber(end?.x)), 0, displayWidth);
-  const bottom = clamp(Math.max(finiteNumber(start?.y), finiteNumber(end?.y)), 0, displayHeight);
-  const width = right - left;
-  const height = bottom - top;
-  if (width < minimumDisplaySize || height < minimumDisplaySize) return null;
-  return {
-    x: left / displayWidth,
-    y: top / displayHeight,
-    width: width / displayWidth,
-    height: height / displayHeight
-  };
-}
-
-function normalizeMaskStroke(value) {
-  if (!value || typeof value !== 'object') return null;
-  const sizeRatio = finiteNumber(value.sizeRatio ?? value.size_ratio);
-  if (sizeRatio <= 0) return null;
-  return {
-    x: clamp(value.x, 0, 1),
-    y: clamp(value.y, 0, 1),
-    sizeRatio,
-    erase: value.erase === true
-  };
-}
-
-function normalizeMaskStrokes(values) {
-  if (!Array.isArray(values)) return [];
-  return values.map(normalizeMaskStroke).filter(Boolean);
-}
-
-function createMaskStrokeFromDisplay(point, brushSizeValue, displayWidthValue, displayHeightValue, erase = false) {
-  const displayWidth = Math.max(1, finiteNumber(displayWidthValue, 1));
-  const displayHeight = Math.max(1, finiteNumber(displayHeightValue, 1));
-  const parsedBrushSize = typeof brushSizeValue === 'string' && !brushSizeValue.trim()
-    ? 28
-    : Number(brushSizeValue);
-  const brushSize = Number.isFinite(parsedBrushSize) ? clamp(parsedBrushSize, 6, 120) : 28;
-  return {
-    x: clamp(finiteNumber(point?.x) / displayWidth, 0, 1),
-    y: clamp(finiteNumber(point?.y) / displayHeight, 0, 1),
-    sizeRatio: brushSize / displayWidth,
-    erase: Boolean(erase)
-  };
-}
-
-function strokeToPixelCircle(strokeValue, imageWidthValue, imageHeightValue) {
-  const imageWidth = Math.max(1, finiteNumber(imageWidthValue, 1));
-  const imageHeight = Math.max(1, finiteNumber(imageHeightValue, 1));
-  const stroke = normalizeMaskStroke(strokeValue);
-  if (!stroke) return null;
-  return {
-    x: stroke.x * imageWidth,
-    y: stroke.y * imageHeight,
-    radius: Math.max(2, stroke.sizeRatio * imageWidth / 2),
-    erase: stroke.erase
-  };
-}
-
-/** Mirrors the WPF fallback used when the operator painted but created no rectangle. */
-function boundingRegionFromAddStrokes(values) {
-  const strokes = normalizeMaskStrokes(values).filter(stroke => !stroke.erase);
-  if (!strokes.length) return null;
-  const left = Math.min(...strokes.map(stroke => stroke.x - stroke.sizeRatio / 2));
-  const top = Math.min(...strokes.map(stroke => stroke.y - stroke.sizeRatio / 2));
-  const right = Math.max(...strokes.map(stroke => stroke.x + stroke.sizeRatio / 2));
-  const bottom = Math.max(...strokes.map(stroke => stroke.y + stroke.sizeRatio / 2));
-  return {
-    x: clamp(left, 0, 1),
-    y: clamp(top, 0, 1),
-    width: clamp(right - left, 0.001, 1),
-    height: clamp(bottom - top, 0.001, 1)
-  };
-}
-
-function normalizeMaskData(value = {}) {
-  let replaceRegions = normalizeRegions(value.replaceRegions ?? value.replace_regions ?? value.regions);
-  const maskStrokes = normalizeMaskStrokes(value.maskStrokes ?? value.mask_strokes ?? value.strokes);
-  if (!replaceRegions.length) {
-    const strokeBounds = boundingRegionFromAddStrokes(maskStrokes);
-    if (strokeBounds) replaceRegions = [strokeBounds];
-  }
-  return {
-    version: TEMPLATE_CACHE_VERSION,
-    replaceRegions,
-    maskStrokes,
-    keepExistingMask: value.keepExistingMask === true || value.keep_existing_mask === true
-  };
-}
-
-function serializeMaskData(value, space = 2) {
-  const normalized = normalizeMaskData(value);
-  return JSON.stringify({
-    version: TEMPLATE_CACHE_VERSION,
-    replace_regions: normalized.replaceRegions.map(region => ({ ...region })),
-    mask_strokes: normalized.maskStrokes.map(stroke => ({
-      x: stroke.x,
-      y: stroke.y,
-      size_ratio: stroke.sizeRatio,
-      erase: stroke.erase
-    })),
-    keep_existing_mask: normalized.keepExistingMask
-  }, null, space);
-}
-
-function deserializeMaskData(value) {
-  const parsed = typeof value === 'string' ? JSON.parse(extractJsonObject(value)) : value;
-  return normalizeMaskData(parsed);
-}
-
-/**
- * Produces a renderer-neutral 8-bit mask. It follows SaveTemplateMask ordering:
- * optional previous mask, white rectangles, then additive/eraser brush dots.
- */
-function fillNormalizedPolygon(output, width, height, polygonValue) {
-  const polygon = polygonValue.map(point => [point[0] * width, point[1] * height]);
-  const xs = polygon.map(point => point[0]);
-  const ys = polygon.map(point => point[1]);
-  const startX = Math.max(0, Math.floor(Math.min(...xs)));
-  const endX = Math.min(width - 1, Math.ceil(Math.max(...xs)));
-  const startY = Math.max(0, Math.floor(Math.min(...ys)));
-  const endY = Math.min(height - 1, Math.ceil(Math.max(...ys)));
-  for (let y = startY; y <= endY; y += 1) {
-    for (let x = startX; x <= endX; x += 1) {
-      const px = x + 0.5;
-      const py = y + 0.5;
-      let inside = false;
-      for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current++) {
-        const [cx, cy] = polygon[current];
-        const [px0, py0] = polygon[previous];
-        if ((cy > py) !== (py0 > py) && px < (px0 - cx) * (py - cy) / (py0 - cy) + cx) inside = !inside;
-      }
-      if (inside) output[y * width + x] = 255;
-    }
-  }
-}
-
-function rasterizeMask({ width: widthValue, height: heightValue, regions, surfaces, strokes, existingMask, keepExistingMask = false }) {
-  const width = Math.max(1, Math.trunc(finiteNumber(widthValue, 1)));
-  const height = Math.max(1, Math.trunc(finiteNumber(heightValue, 1)));
-  const pixelCount = width * height;
-  const output = new Uint8Array(pixelCount);
-  if (keepExistingMask && existingMask && existingMask.length === pixelCount) {
-    for (let index = 0; index < pixelCount; index += 1) output[index] = existingMask[index] >= 96 ? 255 : 0;
-  }
-
-  for (const region of normalizeRegions(regions)) {
-    const rect = regionToPixelRect(region, width, height);
-    if (rect.width < 2 || rect.height < 2) continue;
-    const startX = Math.max(0, Math.floor(rect.x));
-    const startY = Math.max(0, Math.floor(rect.y));
-    const endX = Math.min(width, Math.ceil(rect.x + rect.width));
-    const endY = Math.min(height, Math.ceil(rect.y + rect.height));
-    for (let y = startY; y < endY; y += 1) {
-      output.fill(255, y * width + startX, y * width + endX);
-    }
-  }
-
-  for (const surface of normalizePrintableSurfaces(surfaces)) {
-    fillNormalizedPolygon(output, width, height, surface.polygon);
-  }
-
-  for (const stroke of normalizeMaskStrokes(strokes)) {
-    const circle = strokeToPixelCircle(stroke, width, height);
-    const startX = Math.max(0, Math.floor(circle.x - circle.radius));
-    const endX = Math.min(width - 1, Math.ceil(circle.x + circle.radius));
-    const startY = Math.max(0, Math.floor(circle.y - circle.radius));
-    const endY = Math.min(height - 1, Math.ceil(circle.y + circle.radius));
-    const radiusSquared = circle.radius * circle.radius;
-    for (let y = startY; y <= endY; y += 1) {
-      for (let x = startX; x <= endX; x += 1) {
-        const dx = x - circle.x;
-        const dy = y - circle.y;
-        if (dx * dx + dy * dy <= radiusSquared) {
-          output[y * width + x] = circle.erase ? 0 : 255;
-        }
-      }
-    }
-  }
-  return output;
-}
-
-function maskChannelCount(maskPixels, width, height, requestedChannels) {
-  if (requestedChannels === 1 || requestedChannels === 4) return requestedChannels;
-  return maskPixels?.length >= width * height * 4 ? 4 : 1;
-}
-
-function maskPixelValue(maskPixels, pixelIndex, channels) {
-  if (!maskPixels || pixelIndex < 0) return 0;
-  if (channels === 1) return finiteNumber(maskPixels[pixelIndex]);
-  const offset = pixelIndex * channels;
-  return Math.max(
-    finiteNumber(maskPixels[offset]),
-    finiteNumber(maskPixels[offset + 1]),
-    finiteNumber(maskPixels[offset + 2])
-  );
-}
-
-function getMaskContentBounds(maskPixels, maskWidthValue, maskHeightValue, imageWidthValue = maskWidthValue, imageHeightValue = maskHeightValue, channelsValue) {
-  const maskWidth = Math.max(1, Math.trunc(finiteNumber(maskWidthValue, 1)));
-  const maskHeight = Math.max(1, Math.trunc(finiteNumber(maskHeightValue, 1)));
-  const imageWidth = Math.max(1, finiteNumber(imageWidthValue, maskWidth));
-  const imageHeight = Math.max(1, finiteNumber(imageHeightValue, maskHeight));
-  const channels = maskChannelCount(maskPixels, maskWidth, maskHeight, channelsValue);
-  let left = maskWidth;
-  let top = maskHeight;
-  let right = -1;
-  let bottom = -1;
-  for (let y = 0; y < maskHeight; y += 1) {
-    for (let x = 0; x < maskWidth; x += 1) {
-      if (maskPixelValue(maskPixels, y * maskWidth + x, channels) < 96) continue;
-      left = Math.min(left, x);
-      top = Math.min(top, y);
-      right = Math.max(right, x);
-      bottom = Math.max(bottom, y);
-    }
-  }
-  if (right < left || bottom < top) return null;
-  const scaleX = imageWidth / maskWidth;
-  const scaleY = imageHeight / maskHeight;
-  return {
-    x: left * scaleX,
-    y: top * scaleY,
-    width: Math.max(1, (right - left + 1) * scaleX),
-    height: Math.max(1, (bottom - top + 1) * scaleY)
-  };
-}
-
-function maskBoundsToRegion(bounds, imageWidthValue, imageHeightValue) {
-  if (!bounds) return null;
-  const imageWidth = Math.max(1, finiteNumber(imageWidthValue, 1));
-  const imageHeight = Math.max(1, finiteNumber(imageHeightValue, 1));
-  return normalizeRegion({
-    x: finiteNumber(bounds.x) / imageWidth,
-    y: finiteNumber(bounds.y) / imageHeight,
-    width: finiteNumber(bounds.width) / imageWidth,
-    height: finiteNumber(bounds.height) / imageHeight
-  });
-}
-
-function isLikelyLightFurniturePanel(rValue, gValue, bValue) {
-  const r = clamp(rValue, 0, 255);
-  const g = clamp(gValue, 0, 255);
-  const b = clamp(bValue, 0, 255);
-  const maximum = Math.max(r, g, b);
-  const minimum = Math.min(r, g, b);
-  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  const spread = maximum - minimum;
-  if (luminance < 118 || maximum < 128) return false;
-  return spread <= 68 || (luminance > 165 && spread <= 95);
-}
-
-function erodeMask(sourceValue, widthValue, heightValue, radiusValue) {
-  const width = Math.max(1, Math.trunc(finiteNumber(widthValue, 1)));
-  const height = Math.max(1, Math.trunc(finiteNumber(heightValue, 1)));
-  const radius = Math.max(0, Math.trunc(finiteNumber(radiusValue)));
-  const source = sourceValue || [];
-  const result = new Uint8Array(width * height);
-  for (let y = radius; y < height - radius; y += 1) {
-    for (let x = radius; x < width - radius; x += 1) {
-      let keep = true;
-      for (let dy = -radius; dy <= radius && keep; dy += 1) {
-        for (let dx = -radius; dx <= radius; dx += 1) {
-          if (!source[(y + dy) * width + x + dx]) {
-            keep = false;
-            break;
-          }
-        }
-      }
-      result[y * width + x] = keep ? 1 : 0;
-    }
-  }
-  return result;
-}
-
-function removeSmallMaskComponents(sourceValue, widthValue, heightValue, minimumAreaValue) {
-  const width = Math.max(1, Math.trunc(finiteNumber(widthValue, 1)));
-  const height = Math.max(1, Math.trunc(finiteNumber(heightValue, 1)));
-  const minimumArea = Math.max(0, Math.trunc(finiteNumber(minimumAreaValue)));
-  const source = sourceValue || [];
-  const result = new Uint8Array(width * height);
-  const visited = new Uint8Array(width * height);
-  const offsets = [-1, 1, -width, width];
-  for (let index = 0; index < source.length; index += 1) {
-    if (!source[index] || visited[index]) continue;
-    const queue = [index];
-    const component = [];
-    visited[index] = 1;
-    for (let cursor = 0; cursor < queue.length; cursor += 1) {
-      const current = queue[cursor];
-      component.push(current);
-      const x = current % width;
-      for (const offset of offsets) {
-        const next = current + offset;
-        if (next < 0 || next >= source.length || visited[next] || !source[next]) continue;
-        if ((offset === -1 && x === 0) || (offset === 1 && x === width - 1)) continue;
-        visited[next] = 1;
-        queue.push(next);
-      }
-    }
-    if (component.length < minimumArea) continue;
-    for (const pixel of component) result[pixel] = 1;
-  }
-  return result;
-}
-
-// System.Math.Round(double) uses midpoint-to-even; JS Math.round does not.
-function roundToEven(value) {
-  const lower = Math.floor(value);
-  const fraction = value - lower;
-  if (Math.abs(fraction - 0.5) < Number.EPSILON * Math.max(1, Math.abs(value))) {
-    return lower % 2 === 0 ? lower : lower + 1;
-  }
-  return Math.round(value);
-}
-
-/**
- * Pure-data counterpart of EnsureCleanTemplateMask. Template pixels may be
- * canvas RGBA (default) or WPF-style BGRA. Returned mask is grayscale 0/255.
- */
-function cleanTemplateMask({
-  templatePixels,
-  maskPixels,
-  width: widthValue,
-  height: heightValue,
-  maskWidth: maskWidthValue = widthValue,
-  maskHeight: maskHeightValue = heightValue,
-  maskChannels,
-  templatePixelFormat = 'rgba'
-}) {
-  const width = Math.max(1, Math.trunc(finiteNumber(widthValue, 1)));
-  const height = Math.max(1, Math.trunc(finiteNumber(heightValue, 1)));
-  const maskWidth = Math.max(1, Math.trunc(finiteNumber(maskWidthValue, width)));
-  const maskHeight = Math.max(1, Math.trunc(finiteNumber(maskHeightValue, height)));
-  if (!templatePixels || templatePixels.length < width * height * 4) {
-    throw new RangeError('模板像素数据长度不足');
-  }
-  const channels = maskChannelCount(maskPixels, maskWidth, maskHeight, maskChannels);
-  if (!maskPixels || maskPixels.length < maskWidth * maskHeight * channels) {
-    throw new RangeError('蒙版像素数据长度不足');
-  }
-
-  const raw = new Uint8Array(width * height);
-  const cleaned = new Uint8Array(width * height);
-  let rawCount = 0;
-  let cleanedCount = 0;
-  for (let y = 0; y < height; y += 1) {
-    const maskY = clamp(roundToEven(y * (maskHeight - 1) / Math.max(1, height - 1)), 0, maskHeight - 1);
-    for (let x = 0; x < width; x += 1) {
-      const maskX = clamp(roundToEven(x * (maskWidth - 1) / Math.max(1, width - 1)), 0, maskWidth - 1);
-      if (maskPixelValue(maskPixels, maskY * maskWidth + maskX, channels) < 96) continue;
-      const pixelIndex = y * width + x;
-      raw[pixelIndex] = 1;
-      rawCount += 1;
-
-      const templateOffset = pixelIndex * 4;
-      const isBgra = String(templatePixelFormat).toLowerCase() === 'bgra';
-      const r = templatePixels[templateOffset + (isBgra ? 2 : 0)];
-      const g = templatePixels[templateOffset + 1];
-      const b = templatePixels[templateOffset + (isBgra ? 0 : 2)];
-      if (isLikelyLightFurniturePanel(r, g, b)) {
-        cleaned[pixelIndex] = 1;
-        cleanedCount += 1;
-      }
-    }
-  }
-
-  if (rawCount === 0) {
-    return { mask: new Uint8Array(width * height), rawCount, cleanedCount, usedLightPanelFilter: false };
-  }
-  const usedLightPanelFilter = true;
-  let result = cleaned;
-  result = erodeMask(result, width, height, 2);
-  result = removeSmallMaskComponents(result, width, height, Math.max(80, Math.trunc(width * height / 8000)));
-  const mask = Uint8Array.from(result, value => value ? 255 : 0);
-  return { mask, rawCount, cleanedCount, usedLightPanelFilter };
-}
-
 function normalizeTemplateProcessingMode(value) {
   const action = String(value || '').trim().toLowerCase();
   if (action.includes('copy_original') || action.includes('copy_template') || action.includes('保留原图') || action.includes('复制')) return 'copy_original';
@@ -598,7 +115,7 @@ function isUncertainManualText(value) {
   ].some(token => text.includes(token));
 }
 
-function createManualTemplateAnalysis({ action: actionValue, reason = '', replaceArea = '', forbiddenArea = '', regions = [], printableSurfaces = [], hasMask = false } = {}) {
+function createManualTemplateAnalysis({ action: actionValue, reason = '', replaceArea = '', forbiddenArea = '' } = {}) {
   const action = normalizeTemplateAction(actionValue);
   const needsManualCheck = action === 'manual_check';
   const manualReason = String(reason || '').trim();
@@ -607,9 +124,6 @@ function createManualTemplateAnalysis({ action: actionValue, reason = '', replac
   const safeReplaceArea = action === 'replace_print' && isUncertainManualText(manualReplaceArea)
     ? defaultReplaceArea
     : manualReplaceArea || defaultReplaceArea;
-  const surfaces = normalizePrintableSurfaces(printableSurfaces);
-  const normalizedRegions = normalizeRegions(regions);
-  const effectiveSurfaces = surfaces.length ? surfaces : normalizedRegions.map(regionToPrintableSurface).filter(Boolean);
   const analysis = {
     version: TEMPLATE_CACHE_VERSION,
     category: categoryForAction(action),
@@ -622,13 +136,8 @@ function createManualTemplateAnalysis({ action: actionValue, reason = '', replac
     reason: manualReason || '运营手动筛选',
     replace_area: safeReplaceArea,
     imageUnderstanding: manualReason || '运营手动筛选',
-    replace_regions: normalizedRegions.map(region => ({
-      x: round(region.x),
-      y: round(region.y),
-      width: round(region.width),
-      height: round(region.height)
-    })),
-    printableSurfaces: effectiveSurfaces,
+    replace_regions: [],
+    printableSurfaces: [],
     printableArea: action === 'replace_print' ? safeReplaceArea : '无',
     forbidden_area: String(forbiddenArea || '').trim() || DEFAULT_FORBIDDEN_AREA,
     preserveAreas: action === 'copy_original' ? '整张原图' : String(forbiddenArea || '').trim() || DEFAULT_FORBIDDEN_AREA,
@@ -646,7 +155,7 @@ function createManualTemplateAnalysis({ action: actionValue, reason = '', replac
           : '需要人工进一步确认后再生成。',
     needs_manual_check: needsManualCheck
   };
-  return validateTemplateAnalysis(analysis, { source: 'manual', hasMask: hasMask || effectiveSurfaces.length > 0 });
+  return validateTemplateAnalysis(analysis, { source: 'manual' });
 }
 
 function createFallbackTemplateAnalysis() {
@@ -694,24 +203,17 @@ function validateTemplateAnalysis(value, options = {}) {
   );
   if (source === 'ai' && processingMode === 'exclude') processingMode = 'copy_original';
   const confidence = clamp(getJsonNumber(root, 'confidence', processingMode === 'manual_check' ? 0.5 : 1), 0, 1);
-  let surfaces = normalizePrintableSurfaces(root.printableSurfaces ?? root.printable_surfaces);
-  const regions = normalizeRegions(root.replace_regions ?? root.replaceRegions);
-  if (!surfaces.length) surfaces = regions.map(regionToPrintableSurface).filter(Boolean);
-  const hasMask = options.hasMask === true || surfaces.length > 0;
+  const surfaces = normalizePrintableSurfaces(root.printableSurfaces ?? root.printable_surfaces);
   const understanding = analysisText(root, 'imageUnderstanding', 'image_understanding', 'reason') || '未提供可靠的图片用途判断';
   let reason = analysisText(root, 'reason') || understanding;
-  if (source === 'ai' && sourceVersion !== TEMPLATE_CACHE_VERSION && !hasMask) {
+  if (source === 'ai' && sourceVersion !== TEMPLATE_CACHE_VERSION) {
     processingMode = 'manual_check';
     reason = `AI 分析契约版本无效，需要 V${TEMPLATE_CACHE_VERSION}，请人工确认。`;
   }
   if (root.needs_manual_check === true) processingMode = 'manual_check';
-  if (processingMode === 'replace_print' && !hasMask) {
-    processingMode = 'manual_check';
-    reason = '没有有效的可印花面板区域，需要人工确认并标注。';
-  }
   const includeInOutput = processingMode !== 'exclude';
   const replaceArea = processingMode === 'replace_print'
-    ? analysisText(root, 'printableArea', 'printable_area', 'replace_area') || surfaces.map(surface => surface.label).join('、')
+    ? analysisText(root, 'printableArea', 'printable_area', 'replace_area') || surfaces.map(surface => surface.label).join('、') || '使用母版商品生成当前套图页面'
     : '无';
   const preserveAreas = processingMode === 'copy_original'
     ? '整张原图'
@@ -731,14 +233,12 @@ function validateTemplateAnalysis(value, options = {}) {
     imageUnderstanding: understanding,
     printableArea: replaceArea,
     replace_area: replaceArea,
-    printableSurfaces: processingMode === 'replace_print' ? surfaces : [],
-    replace_regions: processingMode === 'replace_print'
-      ? surfaces.map(printableSurfaceBounds).filter(Boolean).map(region => ({ ...region }))
-      : [],
+    printableSurfaces: [],
+    replace_regions: [],
     preserveAreas,
     forbidden_area: preserveAreas,
-    mappingMode: processingMode === 'replace_print' ? 'continuous_across_surfaces' : 'none',
-    print_mapping: processingMode === 'replace_print' ? '一张完整印花跨所有可印花面板连续显示，等比例 contain，不裁剪、不拉伸、不重复' : '无',
+    mappingMode: processingMode === 'replace_print' ? 'master_product_migration' : 'none',
+    print_mapping: processingMode === 'replace_print' ? '使用母版商品作为唯一商品标准迁移到当前套图页面' : '无',
     needs_manual_check: needsManualCheck
   };
 }
@@ -850,10 +350,7 @@ function templateCachePaths(templateRoot, relativeTemplatePath) {
   const name = safeMetadataName(relativeTemplatePath);
   return {
     cacheFolder,
-    analysisFile: path.join(cacheFolder, `${name}.template-analysis.json`),
-    maskFile: path.join(cacheFolder, `${name}.replace-mask.png`),
-    cleanMaskFile: path.join(cacheFolder, `${name}.clean-mask.png`),
-    maskMetaFile: path.join(cacheFolder, `${name}.mask-meta.json`)
+    analysisFile: path.join(cacheFolder, `${name}.template-analysis.json`)
   };
 }
 
@@ -1004,48 +501,27 @@ module.exports = {
   DEFAULT_FORBIDDEN_AREA,
   TEMPLATE_CACHE_FOLDER,
   TEMPLATE_CACHE_VERSION,
-  boundingRegionFromAddStrokes,
   buildTemplateAnalysisCache,
-  calculateDisplaySize,
-  cleanTemplateMask,
   createFallbackTemplateAnalysis,
   createManualTemplateAnalysis,
-  createMaskStrokeFromDisplay,
-  deserializeMaskData,
   deserializeTemplateAnalysis,
-  displayPointToNormalized,
-  displayRectToRegion,
   extractJsonObject,
   formatDotNetUtc,
-  formatRegionSummary,
-  getMaskContentBounds,
   getTemplateFileSignature,
   inferGenerationAction,
   normalizeGenerationAction,
-  normalizeMaskData,
-  normalizeMaskStroke,
-  normalizeMaskStrokes,
   normalizePrintableSurfaces,
   normalizeRegion,
   normalizeRegions,
   normalizeTemplateAction,
   normalizeTemplateProcessingMode,
-  normalizedPointToDisplay,
   parseTemplateAnalysisSummary,
-  rasterizeMask,
   readTemplateAnalysisCache,
   readValidTemplateAnalysisCache,
-  removeSmallMaskComponents,
-  regionToPixelRect,
   resolveGenerationAction,
   safeMetadataName,
-  serializeMaskData,
   serializeTemplateAnalysis,
-  strokeToPixelCircle,
   templateCachePaths,
   validateTemplateAnalysis,
-  erodeMask,
-  isLikelyLightFurniturePanel,
-  maskBoundsToRegion,
   writeTemplateAnalysisCache
 };

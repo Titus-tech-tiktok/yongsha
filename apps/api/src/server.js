@@ -838,7 +838,6 @@ const rpc = {
     relativePath: String(payload?.relativePath || ''),
     referenceRelativePath: String(payload?.referenceRelativePath || '')
   }, context || {}),
-  saveTemplateMask: ([payload]) => runtime.saveTemplateMask({ ...(payload || {}), folder: workspacePath(payload?.folder) }),
   getProductProfile: ([folder]) => runtime.loadTemplateProductProfile(workspacePath(folder)),
   analyzeProductProfile: ([file]) => runtime.analyzeProductProfile(workspacePath(file)),
   saveProductProfile: ([payload]) => runtime.saveTemplateProductProfile({ ...(payload || {}), folder: workspacePath(payload?.folder) }),

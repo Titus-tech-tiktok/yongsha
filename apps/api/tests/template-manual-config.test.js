@@ -5,16 +5,18 @@ const {
   createManualTemplateAnalysis
 } = require('../src/core/template-regions');
 
-test('manual replacement requires a marked area while copy and exclude need no mask', () => {
+test('manual replacement uses master migration without requiring marked regions', () => {
   const analysis = createManualTemplateAnalysis({
     action: 'replace_print',
-    reason: '模板分析失败，需要人工确认',
-    replaceArea: '不确定',
+    reason: '运营确认这张图需要生成母版商品',
+    replaceArea: '使用母版商品生成当前套图页面',
     forbiddenArea: '背景、文字、把手'
   });
 
-  assert.equal(analysis.action, 'manual_check');
-  assert.equal(analysis.needs_manual_check, true);
+  assert.equal(analysis.action, 'replace_print');
+  assert.equal(analysis.needs_manual_check, false);
+  assert.deepEqual(analysis.printableSurfaces, []);
+  assert.deepEqual(analysis.replace_regions, []);
 
   const copy = createManualTemplateAnalysis({ action: 'copy_original', reason: 'required logistics page' });
   assert.equal(copy.action, 'copy_original');

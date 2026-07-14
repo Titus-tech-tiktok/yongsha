@@ -41,7 +41,7 @@ const PROMPT_DEFINITIONS = Object.freeze([
     id: 'templateAnalysis',
     title: '套图模板分析',
     group: '分析',
-    description: 'AI 标注模板用途、换印花区域和禁止改动区域时使用。',
+    description: 'AI 判断套图用途、生成动作和禁止改动区域时使用。',
     placeholders: [],
     defaultValue: TEMPLATE_ANALYSIS_PROMPT
   },

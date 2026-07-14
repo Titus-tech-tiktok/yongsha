@@ -25,22 +25,16 @@ const {
   splitTitleRoots
 } = require('./core/title-engine');
 const {
-  cleanTemplateMask,
   createFallbackTemplateAnalysis,
   createManualTemplateAnalysis,
   normalizeTemplateProcessingMode,
   parseTemplateAnalysisSummary,
-  rasterizeMask,
   readValidTemplateAnalysisCache,
   resolveGenerationAction,
   templateCachePaths,
   validateTemplateAnalysis,
   writeTemplateAnalysisCache
 } = require('./core/template-regions');
-const {
-  readImageDimensions,
-  readImageRgba
-} = require('./core/template-image-utils');
 const {
   appendOperationLog,
   applyBatchApproval,
@@ -831,7 +825,7 @@ function countDarkBorderPixels(data, width, height, box) {
   return total ? dark / total : 0;
 }
 
-async function inferPrintableSurfacesFromImage(file) {
+async function detectTemplateHasLightCabinetPanels(file) {
   const { data, info } = await sharp(file, { failOn: 'none', animated: false, limitInputPixels: 120_000_000 })
     .rotate()
     .resize({ width: 360, height: 360, fit: 'inside', withoutEnlargement: true })
@@ -914,33 +908,17 @@ async function inferPrintableSurfacesFromImage(file) {
     }
   }
 
-  return components
-    .sort((left, right) => (right.area - left.area) || (left.y0 - right.y0) || (left.x0 - right.x0))
-    .slice(0, 12)
-    .sort((left, right) => (left.y0 - right.y0) || (left.x0 - right.x0))
-    .map((box, index) => ({
-      id: `detected-panel-${index + 1}`,
-      label: `detected light cabinet panel ${index + 1}`,
-      polygon: [
-        [box.x0 / width, box.y0 / height],
-        [(box.x1 + 1) / width, box.y0 / height],
-        [(box.x1 + 1) / width, (box.y1 + 1) / height],
-        [box.x0 / width, (box.y1 + 1) / height]
-      ],
-      surfaceState: 'visible exterior panel'
-    }));
+  return components.length > 0;
 }
 
 async function createVisualFallbackTemplateAnalysis(job, reason) {
-  const printableSurfaces = await inferPrintableSurfacesFromImage(job.templatePath).catch(() => []);
-  if (!printableSurfaces.length) return null;
+  const hasLightCabinetPanels = await detectTemplateHasLightCabinetPanels(job.templatePath).catch(() => false);
+  if (!hasLightCabinetPanels) return null;
   const analysis = createManualTemplateAnalysis({
     action: 'replace_print',
     reason,
-    replaceArea: 'Auto-detected light cabinet door or drawer front panels',
-    forbiddenArea: 'text, dimension marks, background, frame, seams, handles, legs, shadows and props',
-    printableSurfaces,
-    hasMask: true
+    replaceArea: 'Auto-detected cabinet product image that should use the master product generation flow',
+    forbiddenArea: 'text, dimension marks, background, frame, seams, handles, legs, shadows and props'
   });
   return analysis.action === 'replace_print' ? analysis : null;
 }
@@ -1536,16 +1514,6 @@ function templateRelativeKey(value) {
   return String(value || '').replaceAll('\\', '/').toLocaleLowerCase('zh-CN');
 }
 
-async function maskFileHasPrintablePixels(maskFile) {
-  if (!maskFile || !fs.existsSync(maskFile)) return false;
-  try {
-    const pixels = await sharp(maskFile).greyscale().raw().toBuffer();
-    return pixels.some(value => value >= 96);
-  } catch {
-    return false;
-  }
-}
-
 async function planTemplateOutputJobs(templateFolderPath, selectedPaths = null) {
   const jobs = await buildTemplateJobs(templateFolderPath);
   if (!jobs.length) throw new Error('套图文件夹里没有可用图片');
@@ -1577,9 +1545,6 @@ async function planTemplateOutputJobs(templateFolderPath, selectedPaths = null) 
       continue;
     }
     if (selected.size && !selected.has(relativeKey)) continue;
-    if (!await maskFileHasPrintablePixels(details.cache.maskFile)) {
-      throw new Error(`换印花图片缺少有效蒙版：${job.relativePath}`);
-    }
     planned.push(enriched);
   }
 
@@ -1613,88 +1578,6 @@ async function writeTemplateAnalysisStatus(job, value) {
   });
 }
 
-async function removeTemplateMaskFiles(job) {
-  const cache = templateCachePaths(job.templateRoot, job.relativePath);
-  await Promise.all([
-    fsp.rm(cache.maskFile, { force: true }),
-    fsp.rm(cache.cleanMaskFile, { force: true }),
-    fsp.rm(cache.maskMetaFile, { force: true })
-  ]);
-}
-
-async function readTemplateMaskCoverage(cache) {
-  if (!fs.existsSync(cache.cleanMaskFile)) return 0;
-  const saved = await readJsonFile(cache.maskMetaFile, {});
-  const savedCoverage = Number(saved.maskCoverage);
-  if (Number.isFinite(savedCoverage) && savedCoverage >= 0 && savedCoverage <= 1) return savedCoverage;
-  try {
-    const sample = await sharp(cache.cleanMaskFile)
-      .resize(128, 128, { fit: 'fill', kernel: sharp.kernel.nearest })
-      .greyscale()
-      .raw()
-      .toBuffer();
-    const printable = sample.reduce((count, value) => count + (value >= 96 ? 1 : 0), 0);
-    const maskCoverage = sample.length ? printable / sample.length : 0;
-    await writeJsonFile(cache.maskMetaFile, { maskCoverage, sampled: true, updatedAt: new Date().toISOString() });
-    return maskCoverage;
-  } catch {
-    return 0;
-  }
-}
-
-async function writeValidatedTemplateMaskBytes(job, bytes) {
-  const template = await readImageRgba(job.templatePath);
-  const width = template.info.width;
-  const height = template.info.height;
-  const rawMask = await sharp(bytes)
-    .resize(width, height, { fit: 'fill', kernel: sharp.kernel.nearest })
-    .greyscale()
-    .raw()
-    .toBuffer();
-  if (!rawMask.some(value => value >= 96)) throw new Error('蒙版为空，请先标注可替换印花区域');
-  const cleaned = cleanTemplateMask({
-    templatePixels: template.data,
-    maskPixels: rawMask,
-    width,
-    height,
-    maskWidth: width,
-    maskHeight: height,
-    maskChannels: 1,
-    templatePixelFormat: 'rgba'
-  });
-  if (!cleaned.mask.some(value => value >= 96)) {
-    throw new Error('清洗后的蒙版为空，请重新标注家具外部白色面板');
-  }
-  const [rawPng, cleanPng] = await Promise.all([
-    sharp(rawMask, { raw: { width, height, channels: 1 } }).png().toBuffer(),
-    sharp(cleaned.mask, { raw: { width, height, channels: 1 } }).png().toBuffer()
-  ]);
-  const printablePixels = cleaned.mask.reduce((count, value) => count + (value >= 96 ? 1 : 0), 0);
-  const maskCoverage = printablePixels / (width * height);
-  const cache = templateCachePaths(job.templateRoot, job.relativePath);
-  await fsp.mkdir(path.dirname(cache.maskFile), { recursive: true });
-  await Promise.all([
-    fsp.writeFile(cache.maskFile, rawPng),
-    fsp.writeFile(cache.cleanMaskFile, cleanPng),
-    writeJsonFile(cache.maskMetaFile, { maskCoverage, sampled: false, updatedAt: new Date().toISOString() })
-  ]);
-  return { maskFile: cache.maskFile, cleanMaskFile: cache.cleanMaskFile, maskCoverage };
-}
-
-async function ensureMaskFromRegions(job, regions, surfaces = []) {
-  if (!regions?.length && !surfaces?.length) {
-    await removeTemplateMaskFiles(job);
-    return '';
-  }
-  const dimensions = await readImageDimensions(job.templatePath);
-  const width = Number(dimensions.width || 0);
-  const height = Number(dimensions.height || 0);
-  if (!width || !height) throw new Error('无法读取套图尺寸');
-  const mask = rasterizeMask({ width, height, regions, surfaces, strokes: [] });
-  const png = await sharp(Buffer.from(mask), { raw: { width, height, channels: 1 } }).png().toBuffer();
-  return (await writeValidatedTemplateMaskBytes(job, png)).maskFile;
-}
-
 async function collectTemplateItems(templateRoot) {
   const jobs = await buildTemplateJobs(templateRoot);
   const items = [];
@@ -1708,7 +1591,6 @@ async function collectTemplateItems(templateRoot) {
       : recordedStatus.status === 'failed' || recordedStatus.status === 'running'
         ? recordedStatus.status
         : 'idle';
-    const maskCoverage = await readTemplateMaskCoverage(cache);
     items.push({
       relativePath: job.relativePath,
       templatePath: job.templatePath,
@@ -1725,9 +1607,6 @@ async function collectTemplateItems(templateRoot) {
       replaceArea: summary.replaceArea,
       forbiddenArea: summary.forbiddenArea,
       regions: summary.regions,
-      maskUrl: fs.existsSync(cache.maskFile) ? imageUrl(cache.maskFile) : '',
-      cleanMaskUrl: fs.existsSync(cache.cleanMaskFile) ? imageUrl(cache.cleanMaskFile) : '',
-      maskCoverage,
       analysisPending: !cached,
       analysisStatus,
       analysisError: analysisStatus === 'failed' ? String(recordedStatus.error || 'AI 分析失败') : '',
@@ -1897,15 +1776,9 @@ async function saveTemplateConfiguration(payload) {
       action: item.action,
       reason: item.reason,
       replaceArea: item.replaceArea,
-      forbiddenArea: item.forbiddenArea,
-      regions: item.regions
+      forbiddenArea: item.forbiddenArea
     });
     const cache = templateCachePaths(folder, job.relativePath);
-    if (analysis.action === 'replace_print') {
-      await ensureMaskFromRegions(job, analysis.replace_regions, analysis.printableSurfaces);
-    } else {
-      await removeTemplateMaskFiles(job);
-    }
     await writeTemplateAnalysisCache({
       cacheFile: cache.analysisFile,
       templateRoot: folder,
@@ -1931,8 +1804,8 @@ async function analyzeTemplateJob(job, options = {}) {
         `Reference relative path: ${options.referenceJob.relativePath}`,
         `Reference analysis JSON: ${String(options.referenceAnalysis || '').slice(0, 12000)}`,
         'Use the reference only to understand why a similar ecommerce cabinet image should be classified as replace_print.',
-        'Do not copy reference polygons, coordinates, panel count, door count, proportions, or replace areas.',
-        'Analyze the target image independently and output printableSurfaces that match only the target image geometry.'
+        'Do not copy reference coordinates, panel count, door count, proportions, or replace areas.',
+        'Analyze the target image independently and only decide whether it should use the master product generation flow.'
       ].join('\n')
     });
     messageContent.push({ type: 'image_url', image_url: { url: options.referenceImageDataUrl || await imageAsAnalysisDataUrl(options.referenceJob.templatePath) } });
@@ -1960,8 +1833,6 @@ async function analyzeTemplateJob(job, options = {}) {
       forbiddenArea: '背景、文字、墙面、地面、柜脚、把手、抽屉内侧、柜门内侧、包装、留白等非可印花面板区域',
       regions: []
     });
-    if (fallback.action === 'replace_print') await ensureMaskFromRegions(job, fallback.replace_regions, fallback.printableSurfaces);
-    else await removeTemplateMaskFiles(job);
     await writeTemplateAnalysisCache({
       cacheFile: fallbackCache.analysisFile,
       templateRoot: job.templateRoot,
@@ -1977,22 +1848,6 @@ async function analyzeTemplateJob(job, options = {}) {
   if (validated.action === 'manual_check') {
     const visualFallback = await createVisualFallbackTemplateAnalysis(job, 'AI marked this template for manual check; local visual panel detection found executable light cabinet panels.');
     if (visualFallback) validated = visualFallback;
-  }
-  if (validated.action === 'replace_print') {
-    try {
-      await ensureMaskFromRegions(job, validated.replace_regions, validated.printableSurfaces);
-    } catch (error) {
-      validated = createManualTemplateAnalysis({
-        action: 'manual_check',
-        reason: `AI 已返回分析，但可印花区域不可执行：${error?.message || error}`,
-        replaceArea: '',
-        forbiddenArea: validated.forbidden_area,
-        regions: []
-      });
-      await removeTemplateMaskFiles(job);
-    }
-  } else {
-    await removeTemplateMaskFiles(job);
   }
   const normalizedAnalysis = JSON.stringify(validated);
   await writeTemplateAnalysisCache({
@@ -2208,25 +2063,6 @@ async function saveTemplateProductProfile(payload) {
   if (!profile.dimensions && !profile.material) throw new Error('至少填写尺寸或材质');
   await writeProductProfileFile(getTemplateProductProfileFile(folder), profile);
   return profile;
-}
-
-async function saveTemplateMask(payload) {
-  const folder = String(payload?.folder || '');
-  const relativePath = String(payload?.relativePath || '');
-  const templatePath = resolveInside(folder, relativePath);
-  if (!fs.existsSync(templatePath) || !isImagePath(templatePath)) throw new Error('模板图片不存在');
-  const match = String(payload?.maskDataUrl || '').match(/^data:image\/png;base64,(.+)$/);
-  if (!match) throw new Error('蒙版数据无效');
-  const cache = templateCachePaths(folder, relativePath);
-  const bytes = Buffer.from(match[1], 'base64');
-  const job = { templateRoot: folder, templatePath, relativePath };
-  const written = await writeValidatedTemplateMaskBytes(job, bytes);
-  return {
-    ...written,
-    maskUrl: imageUrl(cache.maskFile),
-    cleanMaskUrl: imageUrl(cache.cleanMaskFile),
-    regions: payload?.regions || []
-  };
 }
 
 async function templateOutputSize(job) {
@@ -3172,7 +3008,6 @@ const runtimeExports = {
   saveApiSettings,
   savePromptSetting,
   saveTemplateConfiguration,
-  saveTemplateMask,
   saveTemplateProductProfile,
   saveTitleSetup,
   scanImages,

@@ -292,14 +292,6 @@
       <div class="modal-foot"><span id="templateConfigStatus">正在读取…</span><div><button class="primary" id="saveTemplateConfigButton">保存分析结果</button></div></div>
     </section>
   </div>
-  <div class="modal-backdrop" id="regionEditorModal" hidden>
-    <section class="modal-card region-modal" role="dialog" aria-modal="true" aria-labelledby="regionEditorTitle">
-      <div class="modal-head"><div><span class="eyebrow">MASK EDITOR</span><h2 id="regionEditorTitle">修改标注区域</h2><p>矩形框大面积，画笔补异形边缘，橡皮擦掉人物、把手、文字和背景。</p></div><button class="icon-button" id="closeRegionEditorButton" aria-label="关闭">×</button></div>
-      <div class="region-tools"><button class="secondary active" data-region-mode="rect">矩形</button><button class="secondary" data-region-mode="brush">画笔</button><button class="secondary" data-region-mode="erase">橡皮</button><label>画笔大小 <input id="regionBrushSize" type="number" min="6" max="120" value="28"></label><button class="secondary" id="undoRegionButton">撤销</button><button class="secondary danger-outline" id="clearRegionButton">清空</button></div>
-      <div class="region-canvas-wrap"><canvas id="regionCanvas"></canvas></div>
-      <div class="modal-foot"><span id="regionEditorStatus">白色蒙版区域允许换印花，其他区域禁止改动。</span><div><button class="secondary" id="cancelRegionButton">取消</button><button class="primary" id="saveRegionButton">保存标注</button></div></div>
-    </section>
-  </div>
   <div class="modal-backdrop" id="productProfileModal" hidden>
     <section class="modal-card profile-modal" role="dialog" aria-modal="true" aria-labelledby="productProfileTitle">
       <div class="modal-head"><div><span class="eyebrow">PRODUCT PROFILE</span><h2 id="productProfileTitle">填写套图规格资料</h2><p id="productProfilePath">资料保存在当前工作区，后续任务会自动复用。</p></div><button class="icon-button" id="closeProductProfileButton" aria-label="关闭">×</button></div>

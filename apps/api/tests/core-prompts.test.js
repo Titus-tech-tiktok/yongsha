@@ -64,14 +64,14 @@ test('模板分析提示词使用生产导向 V10 契约并限制人工确认兜
   assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('"printableSurfaces"'), true);
   assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('AI 不允许选择 exclude'), true);
   assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('V10 结构中的字段应尽量完整输出'), true);
-  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('不得输出旧版 replace_regions 矩形'), true);
+  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('不再输出坐标、多边形或蒙版；printableSurfaces 固定为空数组'), true);
   assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('不要因为图片是多宫格、尺寸图、场景图或有人物遮挡就直接人工确认'), true);
-  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('规格图、SKU 图、多宫格对比图里，每个小图只要有白色/浅色柜门，就逐个小图标注可印花柜门'), true);
-  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('详情页场景图、卖点文字图、人物使用图里，只要有可见白色/浅色柜门或抽屉正面，就标注这些面板'), true);
-  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('柜门打开或半开时，标注仍然可见的门板外表面和关闭柜门正面'), true);
+  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('只要小图需要展示换印花后的母版商品，就判定为 replace_print'), true);
+  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('只要画面主体需要替换为母版商品，就判定为 replace_print'), true);
+  assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('如果仍需要展示母版商品的外观效果，判定为 replace_print'), true);
   assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('只要画面同时出现可见白色/浅色柜门正面或门板外表面，就必须 replace_print'), true);
   assert.equal(TEMPLATE_ANALYSIS_PROMPT.includes('confidence 只表示判断把握，不作为自动降级人工确认的硬门槛'), true);
-  assert.equal(TEMPLATE_ANALYSIS_PROMPT.endsWith('只有图像损坏、主体完全不可判断或可印花区域无法形成任何有效面板时，才使用 manual_check。'), true);
+  assert.equal(TEMPLATE_ANALYSIS_PROMPT.endsWith('只有图像损坏、主体完全不可判断时，才使用 manual_check。'), true);
 });
 
 test('套图换印花提示词替换相对路径占位符且 hasMask 不改变 Windows 文本', () => {

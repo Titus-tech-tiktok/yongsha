@@ -165,19 +165,17 @@ test('paid analysis responses are not shown as failed when content needs local f
   assert.equal(arrayItem.action, 'replace_print');
   assert.ok(receivedMaxTokens >= 4000, 'complex polygon analysis needs enough visible output tokens after model reasoning');
   const arrayCache = templateCachePaths(folder, 'array.png');
-  for (const maskFile of [arrayCache.maskFile, arrayCache.cleanMaskFile]) {
-    const pixels = await sharp(maskFile).greyscale().raw().toBuffer();
-    assert.ok(pixels.some(value => value >= 96), `${path.basename(maskFile)} should be nonempty`);
-  }
+  assert.equal(arrayCache.maskFile, undefined);
+  assert.equal(arrayCache.cleanMaskFile, undefined);
 
   mode = 'malformed';
   const malformedResult = await runtime.analyzeTemplateItems({ folder, relativePaths: ['malformed.png'] });
   const malformedItem = malformedResult.items.find(item => item.relativePath === 'malformed.png');
   assert.equal(malformedResult.failed, 0);
   assert.equal(malformedItem.analysisStatus, 'success');
-  assert.equal(malformedItem.action, 'manual_check');
+  assert.equal(malformedItem.action, 'replace_print');
   const malformedCache = templateCachePaths(folder, 'malformed.png');
-  await assert.rejects(fs.access(malformedCache.maskFile));
+  assert.equal(malformedCache.maskFile, undefined);
 
   mode = 'empty';
   const emptyResult = await runtime.analyzeTemplateItems({ folder, relativePaths: ['empty.png'] });
@@ -193,10 +191,9 @@ test('paid analysis responses are not shown as failed when content needs local f
   assert.equal(cabinetFallbackResult.failed, 0);
   assert.equal(cabinetFallbackItem.analysisStatus, 'success');
   assert.equal(cabinetFallbackItem.action, 'replace_print');
-  assert.ok(cabinetFallbackItem.regions.length >= 1);
+  assert.equal(cabinetFallbackItem.regions.length, 0);
   const cabinetFallbackCache = templateCachePaths(folder, 'cabinet-empty.png');
-  const fallbackMaskPixels = await sharp(cabinetFallbackCache.cleanMaskFile).greyscale().raw().toBuffer();
-  assert.ok(fallbackMaskPixels.some(value => value >= 96), 'visual fallback mask should be nonempty');
+  assert.equal(cabinetFallbackCache.cleanMaskFile, undefined);
   const listed = await runtime.listTemplates(folder);
   assert.equal(listed.find(item => item.relativePath === 'empty.png').analysisStatus, 'success');
   assert.equal(requests, 4);
@@ -268,7 +265,7 @@ test('referenced template analysis sends target and reference images without cop
   });
   const target = result.items.find(item => item.relativePath === 'target.png');
   assert.equal(target.action, 'replace_print');
-  assert.equal(target.regions.length, 4);
+  assert.equal(target.regions.length, 0);
   const content = capturedPayload.messages[0].content;
   assert.equal(content.filter(item => item.type === 'image_url').length, 2);
   const text = content.filter(item => item.type === 'text').map(item => item.text).join('\n');

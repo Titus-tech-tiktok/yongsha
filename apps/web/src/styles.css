@@ -4193,11 +4193,6 @@ label input, label textarea {
   height: min(760px, 100vh - 68px);
 }
 
-.region-modal {
-  width: min(1180px, 100vw - 68px);
-  height: min(820px, 100vh - 68px);
-}
-
 .profile-modal {
   width: min(560px, 100vw - 68px);
 }
@@ -4436,32 +4431,6 @@ label input, label textarea {
   font-size: 12px;
 }
 
-.template-region-row {
-  background: var(--panel);
-  border-radius: 7px;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  margin-top: 8px;
-  padding: 8px 9px;
-  display: flex;
-}
-
-.template-region-row span {
-  min-width: 0;
-  color: var(--subtle);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  overflow: hidden;
-}
-
-.template-region-row button {
-  flex: none;
-  min-height: 34px;
-  font-size: 11px;
-}
-
 .modal-foot {
   border-top: 1px solid var(--line);
   background: #fdfcf9;
@@ -4480,58 +4449,6 @@ label input, label textarea {
 .modal-foot > div {
   gap: 8px;
   display: flex;
-}
-
-.region-tools {
-  border-bottom: 1px solid var(--line);
-  background: #fdfcf9;
-  align-items: center;
-  gap: 7px;
-  padding: 11px 22px;
-  display: flex;
-}
-
-.region-tools button {
-  min-height: 36px;
-  font-size: 11px;
-}
-
-.region-tools button.active {
-  border-color: var(--navy);
-  background: var(--navy);
-  color: #f8f6ef;
-}
-
-.region-tools label {
-  align-items: center;
-  gap: 6px;
-  margin-left: 4px;
-  display: flex;
-}
-
-.region-tools input {
-  width: 66px;
-  height: 32px;
-  margin: 0;
-}
-
-.region-canvas-wrap {
-  background: #dfe1dd;
-  flex: 1;
-  place-items: start center;
-  min-height: 0;
-  padding: 14px;
-  display: grid;
-  overflow: auto;
-}
-
-#regionCanvas {
-  cursor: crosshair;
-  touch-action: none;
-  background: #fdfcf9;
-  max-width: none;
-  display: block;
-  box-shadow: 0 8px 30px #14252b2e;
 }
 
 .toast {
@@ -5067,7 +4984,7 @@ label input, label textarea {
     justify-content: flex-start;
   }
 
-  .audit-actions, .region-tools {
+  .audit-actions {
     flex-wrap: wrap;
   }
 
@@ -5089,7 +5006,7 @@ label input, label textarea {
     display: grid;
   }
 
-  .review-image-actions button, .template-config button, .template-filter-row button, .template-region-row button, .region-tools button {
+  .review-image-actions button, .template-config button, .template-filter-row button {
     min-height: 40px;
     font-size: 11px;
   }
@@ -5191,7 +5108,7 @@ label input, label textarea {
     padding: 10px;
   }
 
-  .modal-card, .region-modal, .profile-modal {
+  .modal-card, .profile-modal {
     width: calc(100vw - 20px);
     max-height: calc(100vh - 20px);
   }
@@ -5201,7 +5118,7 @@ label input, label textarea {
     padding: 14px;
   }
 
-  .template-modal, .region-modal {
+  .template-modal {
     height: calc(100vh - 20px);
   }
 

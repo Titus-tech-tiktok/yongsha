@@ -113,7 +113,6 @@ const state = {
   templateFilter: 'all',
   templatePreparation: null,
   templatePreparing: false,
-  regionEditor: null,
   reviews: [],
   activeReview: null,
   activeReviewGenerationJobId: '',
@@ -2434,16 +2433,10 @@ const TEMPLATE_ACTIONS = [
 
 function templateActionHint(action) {
   action = normalizeTemplateUiAction(action);
-  if (action === 'replace_print') return '调用生图 API，只替换已标注的家具留白面板。';
+  if (action === 'replace_print') return '调用生图 API，用母版商品迁移到当前套图页面。';
   if (action === 'copy_original') return '直接复制原套图，不消耗生图 API。';
   if (action === 'exclude') return '不生成也不复制，最终套图不包含这张图。';
-  return '暂不生成，等运营确认动作和替换区域。';
-}
-
-function templateRegionSummary(item) {
-  const count = item.regions?.length || 0;
-  if (!count) return item.maskUrl ? '已有画笔蒙版' : '尚未标注可替换区域';
-  return `${item.maskUrl ? '已有蒙版，' : ''}已标记 ${count} 个区域`;
+  return '暂不生成，等运营确认动作。';
 }
 
 function weakManualTemplateText(value) {
@@ -2504,9 +2497,8 @@ function templateReferenceCandidates(item) {
       let tokenMatches = 0;
       for (const token of activeTokens) if (candidateTokens.has(token)) tokenMatches += 1;
       const sameFolder = templateDirectoryKey(candidate) === activeFolder ? 1 : 0;
-      const hasMask = candidate.maskUrl || candidate.cleanMaskUrl || (candidate.regions || []).length ? 1 : 0;
       const confidence = Number(candidate.confidence || 0);
-      return { candidate, score: sameFolder * 100 + tokenMatches * 8 + hasMask * 12 + confidence };
+      return { candidate, score: sameFolder * 100 + tokenMatches * 8 + confidence };
     })
     .sort((left, right) => right.score - left.score || String(left.candidate.relativePath).localeCompare(String(right.candidate.relativePath), 'zh-CN', { numeric: true }))
     .slice(0, 8)
@@ -2519,11 +2511,11 @@ function renderTemplateReferencePanel(item) {
     return `<aside class="template-reference-panel"><div class="template-reference-head"><b>参考重析</b><span>暂无可参考的换印花图片。</span></div></aside>`;
   }
   return `<aside class="template-reference-panel">
-    <div class="template-reference-head"><b>参考重析</b><span>参考图只帮助 AI 判断，不复制坐标。</span></div>
+    <div class="template-reference-head"><b>参考重析</b><span>参考图只帮助 AI 判断动作，不复制区域。</span></div>
     <div class="template-reference-list">
       ${candidates.map(candidate => `<article class="template-reference-card">
         <img src="${escapeHtml(candidate.thumbnailUrl || candidate.previewUrl || candidate.templateUrl)}" alt="${escapeHtml(candidate.relativePath)}">
-        <div><b>${escapeHtml(candidate.name)}</b><span>${escapeHtml(candidate.relativePath)}</span><small>${escapeHtml(templateRegionSummary(candidate))}</small></div>
+        <div><b>${escapeHtml(candidate.name)}</b><span>${escapeHtml(candidate.relativePath)}</span><small>${escapeHtml(templateActionHint(candidate.action))}</small></div>
         <button class="secondary" type="button" data-reference-analysis="${escapeHtml(candidate.path)}">参考重析</button>
       </article>`).join('')}
     </div>
@@ -2554,9 +2546,8 @@ function renderTemplateAnalysisResult() {
     <div class="template-result-fields" data-template-index="${itemIndex}">
       <label class="template-result-action"><span>动作</span><select data-template-field="action">${TEMPLATE_ACTIONS.map(([value, label]) => `<option value="${value}"${normalizeTemplateUiAction(item.action) === value ? ' selected' : ''}>${label}</option>`).join('')}</select><small class="template-action-hint">${escapeHtml(templateActionHint(item.action))}</small></label>
       <label><span>图片理解</span><textarea rows="3" data-template-field="reason" placeholder="AI 对画面内容和用途的理解">${escapeHtml(item.reason)}</textarea></label>
-      <label><span>可修改</span><textarea rows="2" data-template-field="replaceArea" placeholder="允许替换印花的区域">${escapeHtml(item.replaceArea)}</textarea></label>
+      <label><span>生成目标</span><textarea rows="2" data-template-field="replaceArea" placeholder="这张图应如何使用母版商品">${escapeHtml(item.replaceArea)}</textarea></label>
       <label><span>不可修改</span><textarea rows="2" data-template-field="forbiddenArea" placeholder="人物、文字、背景等必须保留的区域">${escapeHtml(item.forbiddenArea)}</textarea></label>
-      <div class="template-region-row"><span>${escapeHtml(templateRegionSummary(item))}</span><button class="secondary" type="button" data-edit-region="${itemIndex}">修改标注区域</button></div>
     </div>
   </div>`;
   container.querySelector('.template-result-layout')?.insertAdjacentHTML('beforeend', renderTemplateReferencePanel(item));
@@ -2586,8 +2577,7 @@ async function saveTemplateConfig() {
         action: normalizeTemplateUiAction(item.action),
         reason: item.reason,
         replaceArea: item.replaceArea,
-        forbiddenArea: item.forbiddenArea,
-        regions: item.regions || []
+        forbiddenArea: item.forbiddenArea
       }]
     });
     state.assetPreviewCache.delete('detailSetsPath');
@@ -2698,215 +2688,6 @@ async function runAssetTemplateAnalysis(paths) {
 
 function analyzeSelectedTemplateAssets() {
   return runAssetTemplateAnalysis([...state.selectedAssetPaths]);
-}
-
-function loadCanvasImage(url) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('模板图片加载失败'));
-    image.src = url;
-  });
-}
-
-async function openRegionEditor(itemIndex) {
-  const item = state.templateItems[itemIndex];
-  if (!item) return;
-  $('#regionEditorModal').hidden = false;
-  $('#regionEditorTitle').textContent = `修改标注区域 · ${item.relativePath}`;
-  $('#regionEditorStatus').textContent = '正在加载模板和已有蒙版…';
-  try {
-    const image = await loadCanvasImage(item.templateUrl);
-    const maskImage = item.maskUrl ? await loadCanvasImage(item.maskUrl).catch(() => null) : null;
-    const scale = Math.min(1, 980 / image.naturalWidth, 620 / image.naturalHeight);
-    const canvas = $('#regionCanvas');
-    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-    state.regionEditor = {
-      itemIndex,
-      image,
-      maskImage,
-      keepExistingMask: Boolean(maskImage),
-      imageWidth: image.naturalWidth,
-      imageHeight: image.naturalHeight,
-      mode: 'rect',
-      operations: (item.regions || []).map(region => ({ type: 'rect', ...region })),
-      drawing: false,
-      dragStart: null,
-      activeRect: null
-    };
-    setRegionMode('rect');
-    renderRegionCanvas();
-    $('#regionEditorStatus').textContent = templateRegionSummary(item);
-  } catch (error) {
-    $('#regionEditorStatus').textContent = errorText(error);
-    toast(errorText(error), true);
-  }
-}
-
-function closeRegionEditor() {
-  state.regionEditor = null;
-  $('#regionEditorModal').hidden = true;
-}
-
-function setRegionMode(mode) {
-  if (!state.regionEditor) return;
-  state.regionEditor.mode = mode;
-  $$('[data-region-mode]').forEach(button => button.classList.toggle('active', button.dataset.regionMode === mode));
-}
-
-function buildMaskCanvas(editor) {
-  const canvas = document.createElement('canvas');
-  canvas.width = editor.imageWidth;
-  canvas.height = editor.imageHeight;
-  const context = canvas.getContext('2d');
-  context.fillStyle = '#000';
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  if (editor.keepExistingMask && editor.maskImage) context.drawImage(editor.maskImage, 0, 0, canvas.width, canvas.height);
-  for (const operation of editor.operations) {
-    context.fillStyle = operation.erase ? '#000' : '#fff';
-    if (operation.type === 'rect') {
-      context.fillRect(operation.x * canvas.width, operation.y * canvas.height, operation.width * canvas.width, operation.height * canvas.height);
-    } else {
-      const radius = Math.max(2, operation.sizeRatio * canvas.width / 2);
-      context.beginPath();
-      context.arc(operation.x * canvas.width, operation.y * canvas.height, radius, 0, Math.PI * 2);
-      context.fill();
-    }
-  }
-  return canvas;
-}
-
-function renderRegionCanvas() {
-  const editor = state.regionEditor;
-  if (!editor) return;
-  const canvas = $('#regionCanvas');
-  const context = canvas.getContext('2d');
-  context.clearRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(editor.image, 0, 0, canvas.width, canvas.height);
-  const mask = buildMaskCanvas(editor);
-  const overlay = document.createElement('canvas');
-  overlay.width = canvas.width;
-  overlay.height = canvas.height;
-  const overlayContext = overlay.getContext('2d');
-  overlayContext.drawImage(mask, 0, 0, canvas.width, canvas.height);
-  const pixels = overlayContext.getImageData(0, 0, canvas.width, canvas.height);
-  for (let offset = 0; offset < pixels.data.length; offset += 4) {
-    const value = Math.max(pixels.data[offset], pixels.data[offset + 1], pixels.data[offset + 2]);
-    pixels.data[offset] = 0;
-    pixels.data[offset + 1] = 168;
-    pixels.data[offset + 2] = 145;
-    pixels.data[offset + 3] = Math.round(value * .48);
-  }
-  overlayContext.putImageData(pixels, 0, 0);
-  context.drawImage(overlay, 0, 0);
-  for (const operation of editor.operations.filter(operation => operation.type === 'rect')) {
-    context.strokeStyle = '#00a891';
-    context.lineWidth = 2;
-    context.strokeRect(operation.x * canvas.width, operation.y * canvas.height, operation.width * canvas.width, operation.height * canvas.height);
-  }
-  if (editor.activeRect) {
-    context.strokeStyle = '#d7263d';
-    context.lineWidth = 2;
-    context.strokeRect(editor.activeRect.x * canvas.width, editor.activeRect.y * canvas.height, editor.activeRect.width * canvas.width, editor.activeRect.height * canvas.height);
-  }
-}
-
-function regionPoint(event) {
-  const canvas = $('#regionCanvas');
-  const rect = canvas.getBoundingClientRect();
-  return {
-    x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
-    y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))
-  };
-}
-
-function addRegionDot(point) {
-  const editor = state.regionEditor;
-  if (!editor) return;
-  const size = Math.max(6, Math.min(120, Number($('#regionBrushSize').value) || 28));
-  editor.operations.push({ type: 'dot', x: point.x, y: point.y, sizeRatio: size / Math.max(1, $('#regionCanvas').width), erase: editor.mode === 'erase' });
-  renderRegionCanvas();
-}
-
-function bindRegionCanvasEvents() {
-  const canvas = $('#regionCanvas');
-  canvas.onpointerdown = event => {
-    const editor = state.regionEditor;
-    if (!editor) return;
-    canvas.setPointerCapture(event.pointerId);
-    editor.drawing = true;
-    const point = regionPoint(event);
-    if (editor.mode === 'rect') {
-      editor.dragStart = point;
-      editor.activeRect = { x: point.x, y: point.y, width: 0, height: 0 };
-      renderRegionCanvas();
-    } else addRegionDot(point);
-  };
-  canvas.onpointermove = event => {
-    const editor = state.regionEditor;
-    if (!editor?.drawing) return;
-    const point = regionPoint(event);
-    if (editor.mode === 'rect' && editor.dragStart) {
-      editor.activeRect = {
-        x: Math.min(editor.dragStart.x, point.x),
-        y: Math.min(editor.dragStart.y, point.y),
-        width: Math.abs(point.x - editor.dragStart.x),
-        height: Math.abs(point.y - editor.dragStart.y)
-      };
-      renderRegionCanvas();
-    } else addRegionDot(point);
-  };
-  canvas.onpointerup = event => {
-    const editor = state.regionEditor;
-    if (!editor) return;
-    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-    if (editor.mode === 'rect' && editor.activeRect && editor.activeRect.width * canvas.width >= 8 && editor.activeRect.height * canvas.height >= 8) {
-      editor.operations.push({ type: 'rect', ...editor.activeRect });
-    }
-    editor.drawing = false;
-    editor.dragStart = null;
-    editor.activeRect = null;
-    renderRegionCanvas();
-  };
-  canvas.onpointercancel = canvas.onpointerup;
-}
-
-async function saveRegionEditor() {
-  const editor = state.regionEditor;
-  if (!editor) return;
-  const item = state.templateItems[editor.itemIndex];
-  const rects = editor.operations.filter(operation => operation.type === 'rect').map(({ x, y, width, height }) => ({ x, y, width, height }));
-  if (!rects.length) {
-    const addDots = editor.operations.filter(operation => operation.type === 'dot' && !operation.erase);
-    if (addDots.length) {
-      const left = Math.min(...addDots.map(dot => dot.x - dot.sizeRatio / 2));
-      const top = Math.min(...addDots.map(dot => dot.y - dot.sizeRatio / 2));
-      const right = Math.max(...addDots.map(dot => dot.x + dot.sizeRatio / 2));
-      const bottom = Math.max(...addDots.map(dot => dot.y + dot.sizeRatio / 2));
-      rects.push({ x: Math.max(0, left), y: Math.max(0, top), width: Math.min(1, right) - Math.max(0, left), height: Math.min(1, bottom) - Math.max(0, top) });
-    }
-  }
-  $('#saveRegionButton').disabled = true;
-  try {
-    const result = await window.caishen.saveTemplateMask({
-      folder: templateFolderPathForItem(item),
-      relativePath: item.relativePath,
-      maskDataUrl: buildMaskCanvas(editor).toDataURL('image/png'),
-      regions: rects
-    });
-    item.regions = rects;
-    item.maskUrl = result.maskUrl;
-    item.action = rects.length || result.maskUrl ? 'replace_print' : 'manual_check';
-    state.assetPreviewCache.delete('detailSetsPath');
-    closeRegionEditor();
-    renderTemplateAnalysisResult();
-    toast('标注区域已保存');
-  } catch (error) {
-    toast(errorText(error), true);
-  } finally {
-    $('#saveRegionButton').disabled = false;
-  }
 }
 
 async function runReviewGeneration(onlyMissing, folders) {
@@ -3898,25 +3679,7 @@ function bindEvents() {
   $('#templateAnalysisResult').onclick = event => {
     const referenceButton = event.target.closest('[data-reference-analysis]');
     if (referenceButton) return analyzeActiveTemplateWithReference(referenceButton.dataset.referenceAnalysis);
-    const button = event.target.closest('[data-edit-region]');
-    if (button) openRegionEditor(Number(button.dataset.editRegion));
   };
-  $('#closeRegionEditorButton').onclick = closeRegionEditor;
-  $('#cancelRegionButton').onclick = closeRegionEditor;
-  $('#saveRegionButton').onclick = saveRegionEditor;
-  $$('[data-region-mode]').forEach(button => button.onclick = () => setRegionMode(button.dataset.regionMode));
-  $('#undoRegionButton').onclick = () => {
-    if (!state.regionEditor) return;
-    state.regionEditor.operations.pop();
-    renderRegionCanvas();
-  };
-  $('#clearRegionButton').onclick = () => {
-    if (!state.regionEditor) return;
-    state.regionEditor.operations = [];
-    state.regionEditor.keepExistingMask = false;
-    renderRegionCanvas();
-  };
-  bindRegionCanvasEvents();
   $('#closeProductProfileButton').onclick = closeProductProfile;
   $('#cancelProductProfileButton').onclick = closeProductProfile;
   $('#saveProductProfileButton').onclick = saveProductProfile;
