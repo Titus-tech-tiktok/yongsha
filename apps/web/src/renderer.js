@@ -85,6 +85,7 @@ const state = {
   templateFolders: [],
   taskTemplateFolderView: '',
   selectedTaskTemplatePaths: new Set(),
+  selectedTaskMasterReferencePath: '',
   taskTemplateSelectionScope: '',
   taskTemplateExpandedGroups: new Set(),
   templateFilter: 'all',
@@ -517,11 +518,7 @@ function masterReferenceFromItem(item) {
   };
 }
 
-function defaultMasterReferenceForFolder(folderPath) {
-  const folder = String(folderPath || '');
-  const selectedItems = state.taskTemplateItems.filter(item => item.action === 'replace_print' && templateFolderPathForItem(item) === folder && state.selectedTaskTemplatePaths.has(item.path));
-  if (selectedItems.length === 1) return masterReferenceFromItem(selectedItems[0]);
-  const items = selectedItems.length ? selectedItems : state.taskTemplateItems.filter(item => item.action === 'replace_print' && templateFolderPathForItem(item) === folder);
+function bestMasterReferenceFromItems(items = []) {
   if (!items.length) return null;
   const scored = items.map(item => {
     const text = `${item.relativePath || ''}/${item.name || ''}`.toLowerCase();
@@ -533,6 +530,13 @@ function defaultMasterReferenceForFolder(folderPath) {
     return { item, score };
   }).sort((left, right) => right.score - left.score || String(left.item.relativePath || left.item.name).localeCompare(String(right.item.relativePath || right.item.name), 'zh-CN', { numeric: true }));
   return masterReferenceFromItem(scored[0]?.item);
+}
+
+function defaultMasterReferenceForFolder(folderPath) {
+  const folder = String(folderPath || '');
+  const items = state.taskTemplateItems.filter(item => item.action === 'replace_print' && (folder === 'all' || templateFolderPathForItem(item) === folder));
+  const selected = items.find(item => item.path === state.selectedTaskMasterReferencePath);
+  return masterReferenceFromItem(selected) || bestMasterReferenceFromItems(items);
 }
 
 function resetTaskMaster(task, reference = null) {
@@ -548,6 +552,94 @@ function resetTaskMaster(task, reference = null) {
 function templateTaskHasMaster(task) {
   return task?.generationMode !== 'template_print'
     || (Boolean(task.masterImagePath) && !['生成中', '重新生成'].includes(task.masterStatus));
+}
+
+function relatedTemplatePrintTasks(sourceTask) {
+  if (!sourceTask) return [];
+  return state.queue.filter(task => task.generationMode === 'template_print'
+    && task.printPath === sourceTask.printPath
+    && task.templateFolderPath === sourceTask.templateFolderPath
+    && (!sourceTask.batchId || task.batchId === sourceTask.batchId));
+}
+
+function syncTaskMasterToRelatedTasks(sourceTask) {
+  for (const task of relatedTemplatePrintTasks(sourceTask)) {
+    Object.assign(task, {
+      masterReferencePath: sourceTask.masterReferencePath || '',
+      masterReferenceName: sourceTask.masterReferenceName || '',
+      masterReferenceThumbnailUrl: sourceTask.masterReferenceThumbnailUrl || '',
+      masterReferencePreviewUrl: sourceTask.masterReferencePreviewUrl || '',
+      masterImagePath: sourceTask.masterImagePath || '',
+      masterImageUrl: sourceTask.masterImageUrl || '',
+      masterImagePreviewUrl: sourceTask.masterImagePreviewUrl || '',
+      masterStatus: sourceTask.masterStatus || '未生成',
+      masterError: sourceTask.masterError || '',
+      masterProgress: sourceTask.masterProgress || null
+    });
+  }
+}
+
+function applyMasterReferenceToQueuedTasks(reference) {
+  if (!reference?.masterReferencePath) return;
+  for (const task of state.queue) {
+    if (task.generationMode !== 'template_print') continue;
+    if (['生成中', '排队中', '已完成'].includes(task.status)) continue;
+    const sameFolder = state.taskTemplateItems.some(item => item.path === reference.masterReferencePath && templateFolderPathForItem(item) === task.templateFolderPath);
+    if (!sameFolder) continue;
+    resetTaskMaster(task, reference);
+  }
+}
+
+function expandTemplateTaskGroupToFullSet(task) {
+  if (!task || task.generationMode !== 'template_print') return 0;
+  const folderItems = state.taskTemplateItems.filter(item => item.action === 'replace_print' && templateFolderPathForItem(item) === task.templateFolderPath);
+  if (!folderItems.length) return 0;
+  const existing = new Set(state.queue
+    .filter(item => item.generationMode === 'template_print' && item.templateFolderPath === task.templateFolderPath && item.printPath === task.printPath)
+    .map(item => item.templateRelativePath));
+  const missing = folderItems.filter(item => !existing.has(item.relativePath));
+  if (!missing.length) return 0;
+  let taskNumber = state.queue.reduce((maximum, item) => Math.max(maximum, Number(item.taskNumber) || 0), 0) + 1;
+  const reference = task.masterReferencePath ? {
+    masterReferencePath: task.masterReferencePath,
+    masterReferenceName: task.masterReferenceName,
+    masterReferenceThumbnailUrl: task.masterReferenceThumbnailUrl,
+    masterReferencePreviewUrl: task.masterReferencePreviewUrl,
+    masterReferenceRelativePath: task.masterReferenceRelativePath || ''
+  } : defaultMasterReferenceForFolder(task.templateFolderPath) || {};
+  const batchId = task.batchId || createClientId();
+  task.batchId = batchId;
+  state.queue.push(...missing.map(item => ({
+    printPath: task.printPath,
+    printName: task.printName,
+    printThumbnailUrl: task.printThumbnailUrl || '',
+    printPreviewUrl: task.printPreviewUrl || '',
+    generationMode: 'template_print',
+    note: task.note || '',
+    selected: task.selected,
+    status: '未开始',
+    error: '',
+    ...reference,
+    masterImagePath: task.masterImagePath || '',
+    masterImageUrl: task.masterImageUrl || '',
+    masterImagePreviewUrl: task.masterImagePreviewUrl || '',
+    masterStatus: task.masterStatus || '未生成',
+    masterError: task.masterError || '',
+    masterProgress: task.masterProgress || null,
+    id: createClientId(),
+    batchId,
+    taskNumber: taskNumber++,
+    productPath: '',
+    productName: item.name,
+    productThumbnailUrl: item.thumbnailUrl || item.url || '',
+    productPreviewUrl: item.previewUrl || item.url || '',
+    templateFolderPath: task.templateFolderPath,
+    templateRelativePath: item.relativePath,
+    templatePreviewName: item.name,
+    templateThumbnailUrl: item.thumbnailUrl || item.url || '',
+    templatePreviewUrl: item.previewUrl || item.url || ''
+  })));
+  return missing.length;
 }
 
 function annotateTemplateItems(items, folder) {
@@ -617,9 +709,11 @@ function syncTaskTemplateSelection({ reset = false } = {}) {
     state.selectedTaskTemplatePaths = new Set(validPaths);
     state.taskTemplateSelectionScope = scope;
     state.taskTemplateExpandedGroups = new Set(taskTemplateTreeData(eligible).map(root => taskTemplateRootKey(root.path)));
+    if (!validPaths.has(state.selectedTaskMasterReferencePath)) state.selectedTaskMasterReferencePath = '';
     return;
   }
   state.selectedTaskTemplatePaths = new Set([...state.selectedTaskTemplatePaths].filter(path => validPaths.has(path)));
+  if (!validPaths.has(state.selectedTaskMasterReferencePath)) state.selectedTaskMasterReferencePath = '';
 }
 
 function taskTemplateSelectionMark(items) {
@@ -639,7 +733,8 @@ function renderTaskTemplateTree(items, taskViewAll) {
       const groupSelected = groupItems.filter(item => state.selectedTaskTemplatePaths.has(item.path)).length;
       return `<div class="task-template-tree-group"><div class="task-template-tree-row group-row"><button class="task-tree-toggle" type="button" data-task-tree-toggle="${escapeHtml(groupKey)}" aria-expanded="${groupExpanded}"><span>${groupExpanded ? '▾' : '▸'}</span><i class="task-tree-folder-icon" aria-hidden="true"></i><b>${escapeHtml(groupName)}</b><small>${groupSelected}/${groupItems.length}</small></button><button class="task-tree-check${groupSelected === groupItems.length ? ' checked' : groupSelected ? ' partial' : ''}" type="button" data-task-tree-select-group="${escapeHtml(groupKey)}" aria-label="选择 ${escapeHtml(groupName)} 中的全部图片">${taskTemplateSelectionMark(groupItems)}</button></div>${groupExpanded ? `<div class="task-template-image-grid">${groupItems.map(item => {
         const selected = state.selectedTaskTemplatePaths.has(item.path);
-        return `<button class="task-template-image${selected ? ' selected' : ''}" type="button" data-task-template-image="${escapeHtml(item.path)}" aria-pressed="${selected}" title="${escapeHtml(item.relativePath)}"><span class="task-template-image-check">${selected ? '✓' : ''}</span><img loading="lazy" decoding="async" src="${escapeHtml(item.thumbnailUrl || item.url)}" data-preview-src="${escapeHtml(item.previewUrl || item.url)}" alt="${escapeHtml(item.name)}"><span><b>${escapeHtml(item.name)}</b><small>${escapeHtml(taskViewAll ? `${item.templateFolderName} · ${item.relativePath}` : item.relativePath)}</small></span></button>`;
+        const masterSelected = state.selectedTaskMasterReferencePath === item.path;
+        return `<button class="task-template-image${selected ? ' selected' : ''}${masterSelected ? ' master-selected' : ''}" type="button" data-task-template-image="${escapeHtml(item.path)}" aria-pressed="${selected}" title="${escapeHtml(item.relativePath)}"><span class="task-template-image-check">${selected ? '✓' : ''}</span><img loading="lazy" decoding="async" src="${escapeHtml(item.thumbnailUrl || item.url)}" data-preview-src="${escapeHtml(item.previewUrl || item.url)}" alt="${escapeHtml(item.name)}"><span><b>${escapeHtml(item.name)}</b><small>${escapeHtml(taskViewAll ? `${item.templateFolderName} · ${item.relativePath}` : item.relativePath)}</small></span><span class="task-template-master-badge">${masterSelected ? '母版底图' : '设为母版'}</span></button>`;
       }).join('')}</div>` : ''}</div>`;
     }).join('')}</div>` : ''}</section>`;
   }).join('')}</div>`;
@@ -814,14 +909,13 @@ function renderTemplateWorkflow() {
   const taskViewAll = taskView === 'all';
   const activeFolderName = templateFolderName(state.config.detailSetsPath);
   const replaceItems = state.taskTemplateItems.filter(item => item.action === 'replace_print');
-  const selectedReplaceItems = replaceItems.filter(item => state.selectedTaskTemplatePaths.has(item.path));
   $('#taskTemplateScopeLabel').textContent = taskViewAll ? '浏览范围' : '当前文件夹';
   $('#taskTemplatePath').textContent = taskViewAll ? '全部文件夹' : templateFolderName(taskView);
   $('#taskTemplatePath').title = taskViewAll ? state.templateFolders.map(folder => folder.name).join('、') : taskView;
   $('#taskTemplateFolderHint').textContent = taskViewAll
-    ? `已选 ${selectedReplaceItems.length}/${replaceItems.length} 张 · 默认任务文件夹：${activeFolderName}`
-    : `已选 ${selectedReplaceItems.length}/${replaceItems.length} 张需要换印花的图片`;
-  const previewSignature = `${taskView}|${state.config.detailSetsPath || ''}|${replaceItems.map(item => `${item.path}:${item.thumbnailUrl || item.url}:${state.selectedTaskTemplatePaths.has(item.path)}`).join('|')}|${[...state.taskTemplateExpandedGroups].sort().join('|')}`;
+    ? `整套范围 ${replaceItems.length} 张 · 默认任务文件夹：${activeFolderName}`
+    : `整套范围 ${replaceItems.length} 张需要换印花的图片`;
+  const previewSignature = `${taskView}|${state.config.detailSetsPath || ''}|master:${state.selectedTaskMasterReferencePath || ''}|${replaceItems.map(item => `${item.path}:${item.thumbnailUrl || item.url}:${state.selectedTaskTemplatePaths.has(item.path)}`).join('|')}|${[...state.taskTemplateExpandedGroups].sort().join('|')}`;
   if (templatePreview.dataset.previewSignature !== previewSignature) {
     templatePreview.dataset.previewSignature = previewSignature;
     templatePreview.innerHTML = replaceItems.length
@@ -831,6 +925,52 @@ function renderTemplateWorkflow() {
 
   $('#generateAllButton').textContent = runningTasks.length ? '正在生成…' : allCompleted ? '查看筛图结果' : '开始生成';
   $('#generateAllButton').disabled = state.templatePreparing || Boolean(runningTasks.length) || !runnableTasks.length || (!allCompleted && !analysisReady && !individuallySelectedTemplates);
+  renderTemplateMasterWorkflow();
+}
+
+function activeTemplateMasterTaskEntry() {
+  const selected = state.queue.map((task, index) => ({ task, index })).filter(entry => entry.task.selected && entry.task.generationMode === 'template_print');
+  const all = state.queue.map((task, index) => ({ task, index })).filter(entry => entry.task.generationMode === 'template_print');
+  return selected[0] || all[0] || null;
+}
+
+function renderTemplateMasterWorkflow() {
+  const panel = $('#templateMasterWorkflow');
+  if (!panel) return;
+  const entry = activeTemplateMasterTaskEntry();
+  const task = entry?.task || null;
+  const folderPath = task?.templateFolderPath || currentTaskTemplateFolderView();
+  const reference = task?.masterReferencePath ? {
+    masterReferencePath: task.masterReferencePath,
+    masterReferenceName: task.masterReferenceName,
+    masterReferenceThumbnailUrl: task.masterReferenceThumbnailUrl,
+    masterReferencePreviewUrl: task.masterReferencePreviewUrl
+  } : defaultMasterReferenceForFolder(folderPath);
+  const print = task || state.selectedPrint ? {
+    name: task?.printName || state.selectedPrint?.name || '',
+    thumbnailUrl: task?.printThumbnailUrl || state.selectedPrint?.thumbnailUrl || state.selectedPrint?.url || '',
+    previewUrl: task?.printPreviewUrl || state.selectedPrint?.previewUrl || state.selectedPrint?.url || ''
+  } : null;
+  const progress = task?.masterProgress || {};
+  const percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
+  const running = ['生成中', '重新生成'].includes(task?.masterStatus);
+  const action = task
+    ? `<button class="secondary" type="button" data-queue-master-index="${entry.index}"${running ? ' disabled' : ''}>${task.masterImagePath ? '重新生成母版' : '生成母版'}</button>`
+    : '<button class="secondary" type="button" disabled>先生成整套任务</button>';
+  panel.innerHTML = `<div class="template-master-title"><b>母版生成</b><span>母版底图只用于生成母版，不影响整套生成范围</span></div>
+    <div class="template-master-flow">
+      ${queuePreviewFigure(reference?.masterReferenceThumbnailUrl || '', reference?.masterReferencePreviewUrl || '', reference?.masterReferenceName || '未选择母版底图', '母版底图')}
+      <span class="queue-preview-plus" aria-hidden="true">+</span>
+      ${queuePreviewFigure(print?.thumbnailUrl || '', print?.previewUrl || '', print?.name || '未选择印花', '印花')}
+      <span class="queue-preview-plus" aria-hidden="true">→</span>
+      ${queuePreviewFigure(task?.masterImageUrl || task?.masterImagePreviewUrl || '', task?.masterImagePreviewUrl || task?.masterImageUrl || '', task?.masterImagePath ? '已生成母版' : '未生成母版', '母版图')}
+    </div>
+    <div class="template-master-copy">
+      <span>母版底图：${escapeHtml(reference?.masterReferenceName || '未选择')}</span>
+      <span>整套范围：${escapeHtml(task ? `${relatedTemplatePrintTasks(task).length || 1} 张换印花任务` : '点击下方按钮创建整套任务')}</span>
+      ${running ? `<div class="queue-progress"><div><span>${escapeHtml(progress.message || '正在生成母版图…')}</span><b>${percent}%</b></div><progress max="100" value="${percent}"></progress></div>` : task?.masterError ? `<span class="status error">${escapeHtml(task.masterError)}</span>` : ''}
+      ${action}
+    </div>`;
 }
 
 async function loadTemplatePreparation({ autoPrepare = false } = {}) {
@@ -1295,9 +1435,9 @@ function updateGenerationModeUi() {
   const direct = $('#generationMode').value === 'template_print';
   $('.task-layout').classList.toggle('template-print-mode', direct);
   $('#generationModeHint').textContent = direct
-    ? '选择套图后，点击印花即可加入待生成。'
+    ? '选择母版底图只影响母版生成；正式生成默认使用当前套图范围内的整套换印花图片。'
     : '先生成母版图，再到人工筛图生成套图。';
-  $('#addTaskButton').textContent = direct ? '用当前印花生成任务卡' : '加入排队任务';
+  $('#addTaskButton').textContent = direct ? '用当前印花生成整套任务' : '加入排队任务';
   renderTemplateWorkflow();
 }
 
@@ -1322,8 +1462,8 @@ function addTask(silent = false) {
   };
   let tasks = [];
   if (generationMode === 'template_print') {
-    const templates = state.taskTemplateItems.filter(item => item.action === 'replace_print' && state.selectedTaskTemplatePaths.has(item.path));
-    if (!templates.length) return toast('请先在左侧勾选需要生成的套图图片', true);
+    const templates = state.taskTemplateItems.filter(item => item.action === 'replace_print');
+    if (!templates.length) return toast('当前套图范围内没有需要换印花的图片', true);
     const existing = new Set(state.queue.map(task => `${task.templateFolderPath}|${task.templateRelativePath || ''}|${task.printPath}`));
     tasks = templates.filter(item => !existing.has(`${templateFolderPathForItem(item)}|${item.relativePath}|${state.selectedPrint.path}`)).map((item, index) => {
       const templateFolderPath = templateFolderPathForItem(item);
@@ -1432,38 +1572,21 @@ function queueGroupStatus(tasks) {
 function renderQueueItem(task, index) {
   const previews = queueTaskPreviews(task);
   const progress = task.progress || {};
-  const masterProgress = task.masterProgress || {};
   const summary = task.result?.summary || {};
   const total = Math.max(0, Number(progress.total) || 0);
   const current = Math.max(0, Number(progress.current) || 0);
   const percent = total ? Math.min(100, Math.round(current / total * 100)) : Math.max(0, Number(progress.percent) || 0);
-  const masterPercent = Math.max(0, Math.min(100, Number(masterProgress.percent) || 0));
   const completedSummary = task.status === '已完成' && Number(summary.total)
     ? task.templateRelativePath ? '当前套图生成完成' : `API 生成 ${summary.apiGenerated || 0} · 直接复制 ${summary.copied || 0} · 跳过 ${summary.skipped || 0}`
     : '';
   const progressMarkup = ['排队中', '生成中'].includes(task.status)
     ? `<div class="queue-progress"><div><span>${escapeHtml(progress.message || (task.status === '排队中' ? '等待服务器处理' : '正在处理…'))}</span><b>${total ? `${current}/${total}` : `${percent}%`}</b></div><progress max="100" value="${percent}"></progress></div>`
     : completedSummary ? `<div class="queue-result-summary">${escapeHtml(completedSummary)}</div>` : '';
-  const previewPair = `<div class="queue-preview-pair">${queuePreviewFigure(previews.sourceThumbnailUrl, previews.sourcePreviewUrl, previews.sourceName, task.generationMode === 'template_print' ? '套图' : '款式')}<span class="queue-preview-plus" aria-hidden="true">+</span>${queuePreviewFigure(previews.printThumbnailUrl, previews.printPreviewUrl, task.printName, '印花')}</div>`;
+  const previewPair = task.generationMode === 'template_print'
+    ? `<div class="queue-preview-pair">${queuePreviewFigure(task.masterImageUrl || task.masterImagePreviewUrl || '', task.masterImagePreviewUrl || task.masterImageUrl || '', task.masterImagePath ? '已生成母版' : '未生成母版', '母版图')}<span class="queue-preview-plus" aria-hidden="true">+</span>${queuePreviewFigure(previews.sourceThumbnailUrl, previews.sourcePreviewUrl, previews.sourceName, '套图页')}</div>`
+    : `<div class="queue-preview-pair">${queuePreviewFigure(previews.sourceThumbnailUrl, previews.sourcePreviewUrl, previews.sourceName, '款式')}<span class="queue-preview-plus" aria-hidden="true">+</span>${queuePreviewFigure(previews.printThumbnailUrl, previews.printPreviewUrl, task.printName, '印花')}</div>`;
   const templateControl = task.templateRelativePath ? '' : `<div class="queue-template-row"><span>已选择套图</span><button class="secondary" data-queue-template-index="${index}">更换套图</button></div>`;
-  const masterMarkup = task.generationMode === 'template_print'
-    ? `<div class="queue-master-panel">
-        <div class="queue-master-images">
-          ${queuePreviewFigure(task.masterReferenceThumbnailUrl || previews.sourceThumbnailUrl, task.masterReferencePreviewUrl || previews.sourcePreviewUrl, task.masterReferenceName || previews.sourceName, '母版底图')}
-          <span class="queue-preview-plus" aria-hidden="true">→</span>
-          ${queuePreviewFigure(task.masterImageUrl || task.masterImagePreviewUrl || '', task.masterImagePreviewUrl || task.masterImageUrl || '', task.masterImagePath ? '已生成母版' : '未生成母版', '母版图')}
-        </div>
-        <div class="queue-master-copy">
-          <span>母版底图：${escapeHtml(task.masterReferenceName || previews.sourceName || '未选择')}</span>
-          <span>母版状态：${escapeHtml(task.masterStatus || '未生成')}</span>
-          ${task.masterStatus === '生成中' || task.masterStatus === '重新生成'
-            ? `<div class="queue-progress"><div><span>${escapeHtml(masterProgress.message || '正在生成母版图…')}</span><b>${masterPercent}%</b></div><progress max="100" value="${masterPercent}"></progress></div>`
-            : task.masterError ? `<span class="status error">${escapeHtml(task.masterError)}</span>` : ''}
-          <button class="secondary" type="button" data-queue-master-index="${index}"${['生成中', '重新生成'].includes(task.masterStatus) ? ' disabled' : ''}>${task.masterImagePath ? '重新生成母版' : '生成母版'}</button>
-        </div>
-      </div>`
-    : '';
-  return `<div class="queue-item" data-queue-index="${index}"><div class="queue-item-head"><input type="checkbox" aria-label="选择任务 ${index + 1}" title="勾选后参与批量操作" data-queue-select="${index}"${task.selected ? ' checked' : ''}><b>${String(index + 1).padStart(2, '0')} · ${escapeHtml(task.productName)}</b><button class="queue-delete-button" type="button" data-queue-delete="${index}"${task.status === '生成中' ? ' disabled title="生成中的任务暂不能删除"' : ''}>删除</button></div><div class="queue-item-body">${previewPair}<div class="queue-item-copy"><span>${task.generationMode === 'template_print' ? '模板换印花' : '母版生成'}</span>${templateControl}${progressMarkup}<span class="status${task.status === '失败' ? ' error' : ''}">${escapeHtml(task.error || task.status)}</span></div></div>${masterMarkup}</div>`;
+  return `<div class="queue-item" data-queue-index="${index}"><div class="queue-item-head"><input type="checkbox" aria-label="选择任务 ${index + 1}" title="勾选后参与批量操作" data-queue-select="${index}"${task.selected ? ' checked' : ''}><b>${String(index + 1).padStart(2, '0')} · ${escapeHtml(task.productName)}</b><button class="queue-delete-button" type="button" data-queue-delete="${index}"${task.status === '生成中' ? ' disabled title="生成中的任务暂不能删除"' : ''}>删除</button></div><div class="queue-item-body">${previewPair}<div class="queue-item-copy"><span>${task.generationMode === 'template_print' ? '母版迁移到套图页' : '母版生成'}</span>${templateControl}${progressMarkup}<span class="status${task.status === '失败' ? ' error' : ''}">${escapeHtml(task.error || task.status)}</span></div></div></div>`;
 }
 
 function renderQueue() {
@@ -1573,11 +1696,13 @@ async function generateQueueTaskMaster(index) {
   task.masterStatus = task.masterImagePath ? '重新生成' : '生成中';
   task.masterError = '';
   task.masterProgress = { phase: 'queued', percent: 0, message: '等待生成母版图' };
+  syncTaskMasterToRelatedTasks(task);
   renderQueue();
   try {
     const result = await window.caishen.generateTemplateMaster(task, progress => {
       task.masterProgress = { ...(task.masterProgress || {}), ...(progress || {}) };
       task.masterStatus = task.masterImagePath ? '重新生成' : '生成中';
+      syncTaskMasterToRelatedTasks(task);
       renderQueue();
     });
     task.masterImagePath = result?.outputPath || '';
@@ -1588,12 +1713,14 @@ async function generateQueueTaskMaster(index) {
     task.masterStatus = '已生成';
     task.masterError = '';
     task.masterProgress = { ...(task.masterProgress || {}), phase: 'completed', percent: 100, message: '母版图生成完成' };
+    syncTaskMasterToRelatedTasks(task);
     renderQueue();
     toast('母版图已生成，可开始正式生成');
   } catch (error) {
     task.masterStatus = task.masterImagePath ? '已生成' : '未生成';
     task.masterError = errorText(error);
     task.masterProgress = { ...(task.masterProgress || {}), phase: 'failed', message: task.masterError };
+    syncTaskMasterToRelatedTasks(task);
     renderQueue();
     toast(task.masterError, true);
   }
@@ -1601,10 +1728,28 @@ async function generateQueueTaskMaster(index) {
 
 async function generateQueue() {
   const selected = state.queue.filter(task => task.selected);
-  const source = selected.length ? selected : state.queue;
+  let source = selected.length ? selected : state.queue;
   if (source.length && source.every(task => task.status === '已完成')) {
     setPage('review');
     return;
+  }
+  const incompleteTemplateTask = source.find(task => {
+    if (task.generationMode !== 'template_print') return false;
+    const fullCount = state.taskTemplateItems.filter(item => item.action === 'replace_print' && templateFolderPathForItem(item) === task.templateFolderPath).length;
+    const queuedCount = state.queue.filter(item => item.generationMode === 'template_print' && item.templateFolderPath === task.templateFolderPath && item.printPath === task.printPath).length;
+    return fullCount > queuedCount;
+  });
+  if (incompleteTemplateTask) {
+    const fullCount = state.taskTemplateItems.filter(item => item.action === 'replace_print' && templateFolderPathForItem(item) === incompleteTemplateTask.templateFolderPath).length;
+    const queuedCount = state.queue.filter(item => item.generationMode === 'template_print' && item.templateFolderPath === incompleteTemplateTask.templateFolderPath && item.printPath === incompleteTemplateTask.printPath).length;
+    if (window.confirm(`当前任务只包含 ${queuedCount}/${fullCount} 张换印花图片，是否补齐为整套后再生成？`)) {
+      const added = expandTemplateTaskGroupToFullSet(incompleteTemplateTask);
+      if (added) {
+        toast(`已补齐 ${added} 张整套任务`);
+        renderQueue();
+        source = selected.length ? state.queue.filter(task => task.selected) : state.queue;
+      }
+    }
   }
   const pending = source.filter(task => task.status === '未开始' || task.status === '失败');
   if (!pending.length) return toast('没有待生成任务', true);
@@ -3347,6 +3492,18 @@ function bindEvents() {
     setPage('assets');
   };
   $('#taskTemplatePreview').onclick = event => {
+    const masterBadge = event.target.closest('.task-template-master-badge');
+    if (masterBadge) {
+      const imageButton = masterBadge.closest('[data-task-template-image]');
+      if (imageButton) {
+        state.selectedTaskMasterReferencePath = imageButton.dataset.taskTemplateImage || '';
+        const reference = masterReferenceFromItem(state.taskTemplateItems.find(item => item.path === state.selectedTaskMasterReferencePath));
+        applyMasterReferenceToQueuedTasks(reference);
+        renderQueue();
+        renderTemplateWorkflow();
+      }
+      return;
+    }
     const toggle = event.target.closest('[data-task-tree-toggle]');
     if (toggle) {
       const key = toggle.dataset.taskTreeToggle;
@@ -3361,9 +3518,10 @@ function bindEvents() {
     if (rootButton) items = state.taskTemplateItems.filter(item => item.action === 'replace_print' && templateFolderPathForItem(item) === rootButton.dataset.taskTreeSelectRoot);
     else if (groupButton) items = state.taskTemplateItems.filter(item => item.action === 'replace_print' && taskTemplateGroupKey(templateFolderPathForItem(item), taskTemplateGroupName(item)) === groupButton.dataset.taskTreeSelectGroup);
     else if (imageButton) {
-      const imagePath = imageButton.dataset.taskTemplateImage;
-      if (state.selectedTaskTemplatePaths.has(imagePath)) state.selectedTaskTemplatePaths.delete(imagePath);
-      else state.selectedTaskTemplatePaths.add(imagePath);
+      state.selectedTaskMasterReferencePath = imageButton.dataset.taskTemplateImage || '';
+      const reference = masterReferenceFromItem(state.taskTemplateItems.find(item => item.path === state.selectedTaskMasterReferencePath));
+      applyMasterReferenceToQueuedTasks(reference);
+      renderQueue();
       return renderTemplateWorkflow();
     }
     if (!items.length) return;

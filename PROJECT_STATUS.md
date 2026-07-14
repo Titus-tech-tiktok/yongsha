@@ -1,5 +1,15 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Separate master reference from full-set generation
+
+- 素材生图页把“母版底图选择”和“整套生成范围”拆开。
+- 03 待生成顶部新增母版生成区，显示 `母版底图 + 印花 -> 母版图`，并集中提供 `生成母版 / 重新生成母版`。
+- 左侧套图图片点击或 `设为母版` 只设置母版底图，不再缩小正式生成范围。
+- `用当前印花生成整套任务` 默认创建当前套图范围内全部 `replace_print` 任务。
+- 下方任务卡片改为 `母版图 + 套图页`，更准确表达正式生成会使用已生成母版图迁移到每张套图。
+- 开始生成前如果发现旧队列只包含部分换印花任务，会提示是否补齐为整套，确认后自动补齐缺失任务。
+- Verification completed: `node --check apps/web/src/renderer.js`, `npm run build -w @caishen/web`, `git diff --check`.
+
 ## 2026-07-15 Update - Template master-first generation
 
 - 素材生图的 `template_print` 任务改为“先生成母版，再正式生成套图”。
