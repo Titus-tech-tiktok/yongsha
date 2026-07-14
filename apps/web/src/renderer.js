@@ -945,11 +945,17 @@ function toggleAllVisibleAssets() {
 const ASSET_TEMPLATE_FILTERS = [
   ['all', '全部'],
   ['replace_print', '换印花'],
-  ['copy_template', '保留原图'],
-  ['skip_copy', '不处理'],
+  ['copy_original', '保留原图'],
+  ['exclude', '不输出'],
   ['manual_check', '人工确认'],
   ['needs_analysis', '未完成分析']
 ];
+
+function normalizeTemplateUiAction(action) {
+  if (action === 'copy_template') return 'copy_original';
+  if (action === 'skip_copy') return 'exclude';
+  return action || 'manual_check';
+}
 
 function assetItemAnalysisStatus(item) {
   const progress = state.assetAnalysisProgress.get(item.path);
@@ -963,7 +969,7 @@ function assetItemAnalyzed(item) {
 function filteredAssetPreviewItems() {
   if (state.assetPreviewKey !== 'detailSetsPath' || state.assetTemplateFilter === 'all') return state.assetPreviewItems;
   if (state.assetTemplateFilter === 'needs_analysis') return state.assetPreviewItems.filter(item => !assetItemAnalyzed(item));
-  return state.assetPreviewItems.filter(item => assetItemAnalyzed(item) && item.action === state.assetTemplateFilter);
+  return state.assetPreviewItems.filter(item => assetItemAnalyzed(item) && normalizeTemplateUiAction(item.action) === state.assetTemplateFilter);
 }
 
 function visibleAssetPreviewItems() {
@@ -978,7 +984,8 @@ function renderAssetTemplateFilters() {
   const counts = Object.fromEntries(ASSET_TEMPLATE_FILTERS.map(([value]) => [value, 0]));
   counts.all = state.assetPreviewItems.length;
   for (const item of state.assetPreviewItems) {
-    if (assetItemAnalyzed(item) && counts[item.action] !== undefined) counts[item.action] += 1;
+    const action = normalizeTemplateUiAction(item.action);
+    if (assetItemAnalyzed(item) && counts[action] !== undefined) counts[action] += 1;
     else if (!assetItemAnalyzed(item)) counts.needs_analysis += 1;
   }
   filter.querySelector('div').innerHTML = ASSET_TEMPLATE_FILTERS.map(([value, label]) => `<button class="asset-filter-button${state.assetTemplateFilter === value ? ' active' : ''}${value === 'needs_analysis' && counts[value] ? ' attention' : ''}" type="button" data-asset-template-filter="${value}" aria-pressed="${state.assetTemplateFilter === value}"><span>${label}</span><b>${counts[value]}</b></button>`).join('');
@@ -1001,7 +1008,7 @@ function renderAssetManagementGrid() {
       const progress = state.assetAnalysisProgress.get(item.path);
       const analysisStatus = assetItemAnalysisStatus(item);
       const analyzed = assetItemAnalyzed(item);
-      const actionLabel = ({ replace_print: '换印花', copy_template: '保留原图', skip_copy: '不处理', manual_check: '人工确认' })[item.action] || '待确认';
+      const actionLabel = ({ replace_print: '换印花', copy_original: '保留原图', exclude: '不输出', manual_check: '人工确认' })[normalizeTemplateUiAction(item.action)] || '待确认';
       const statusText = analysisStatus === 'queued' ? '等待 AI 分析'
         : analysisStatus === 'running' ? `AI 分析中${progress?.attempt ? ` · 第 ${progress.attempt} 次` : ''}`
           : analysisStatus === 'failed' ? `分析失败 · 点击 AI 分析重试${item.analysisAttempts ? `（已尝试 ${item.analysisAttempts} 次）` : ''}`
@@ -1565,9 +1572,10 @@ function reviewGenerationSummary(item) {
   const jobs = item?.jobs || [];
   const summary = { total: jobs.length, current: 0, percent: 0, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, waitingUpstream: 0, pending: 0, phase: 'completed', message: '', updatedAt: '' };
   for (const job of jobs) {
-    if (job.status === '已跳过' || job.action === 'skip_copy') summary.skipped += 1;
+    const action = normalizeTemplateUiAction(job.action);
+    if (job.status === '已跳过' || action === 'exclude') summary.skipped += 1;
     else if (!job.outputUrl) summary.pending += 1;
-    else if (job.status === '直接套模板' || job.action === 'copy_template') summary.copied += 1;
+    else if (job.status === '直接套模板' || action === 'copy_original') summary.copied += 1;
     else summary.apiGenerated += 1;
   }
   summary.current = summary.total - summary.pending;
@@ -1639,7 +1647,7 @@ function friendlyGenerationError(value) {
 
 function reviewJobTrackingState(job, running) {
   if (job.generationError && !job.outputUrl) return { key: 'failed', label: '生成失败', detail: friendlyGenerationError(job.generationError) };
-  if (job.status === '已跳过' || job.action === 'skip_copy') return { key: 'completed', label: '已跳过', detail: '按套图规则不需要生成' };
+  if (job.status === '已跳过' || normalizeTemplateUiAction(job.action) === 'exclude') return { key: 'completed', label: '已跳过', detail: '按套图规则不输出此图' };
   if (job.outputUrl) return { key: 'completed', label: '生成完成', detail: job.status === '已通过' ? '已通过人工确认' : '点击查看并确认图片' };
   if (running) return { key: 'pending', label: '生成中', detail: '正在等待生成结果' };
   return { key: 'pending', label: '待处理', detail: '尚未生成，可单独重新生成' };
@@ -1745,16 +1753,17 @@ function renderReviewStage() {
   const jobs = item.jobs || [];
   const imageMarkup = jobs.length
     ? jobs.map((job, index) => {
-      const skipped = job.status === '已跳过' || job.action === 'skip_copy';
-      const copied = !skipped && (job.status === '直接套模板' || job.action === 'copy_template');
-      const resultLabel = job.generationError && !job.outputUrl ? '生成失败' : skipped ? '不处理' : copied ? '复制结果' : job.outputUrl ? '生成结果' : running ? '生成中' : '待生成';
+      const action = normalizeTemplateUiAction(job.action);
+      const skipped = job.status === '已跳过' || action === 'exclude';
+      const copied = !skipped && (job.status === '直接套模板' || action === 'copy_original');
+      const resultLabel = job.generationError && !job.outputUrl ? '生成失败' : skipped ? '不输出' : copied ? '保留原图' : job.outputUrl ? '生成结果' : running ? '生成中' : '待生成';
       const resultPreview = job.outputUrl
         ? `<img loading="lazy" decoding="async" src="${job.outputUrl}" data-preview-src="${job.outputUrl}" alt="${escapeHtml(job.relativePath)} 生成结果">`
-        : `<div class="review-compare-placeholder${job.generationError ? ' failed' : running && !skipped ? ' running' : ''}"><span>${escapeHtml(job.generationError ? '生成失败' : skipped ? '按规则跳过' : running ? '正在生成' : '待生成')}</span>${running && !skipped && !job.generationError ? '<i aria-hidden="true"></i>' : ''}</div>`;
+        : `<div class="review-compare-placeholder${job.generationError ? ' failed' : running && !skipped ? ' running' : ''}"><span>${escapeHtml(job.generationError ? '生成失败' : skipped ? '按规则不输出' : running ? '正在生成' : '待生成')}</span>${running && !skipped && !job.generationError ? '<i aria-hidden="true"></i>' : ''}</div>`;
       const actions = skipped
-        ? `<div class="review-image-actions review-image-skipped"><span>按套图规则跳过，不进入最终图片</span><button class="text-button" data-job-action="configure" data-job-index="${index}">检查规则</button></div>`
+        ? `<div class="review-image-actions review-image-skipped"><span>按套图规则不输出，不进入最终图片</span><button class="text-button" data-job-action="configure" data-job-index="${index}">检查规则</button></div>`
         : `<div class="review-image-actions"><button class="secondary" data-job-action="pass" data-job-index="${index}"${!job.outputUrl ? ' disabled' : ''}>通过</button><button class="secondary danger-outline" data-job-action="reject" data-job-index="${index}"${!job.outputUrl ? ' disabled' : ''}>不通过</button><button class="secondary" data-job-action="${copied ? 'configure' : 'regenerate'}" data-job-index="${index}">${copied ? '检查规则' : '重新生成'}</button></div>`;
-      return `<figure class="review-image comparison${skipped ? ' skipped' : ''}${copied ? ' copied' : ''}" data-review-job="${index}"><div class="review-image-status"><b>${escapeHtml(job.relativePath)}</b><span>${escapeHtml(job.status)}</span></div><div class="review-compare"><div class="review-compare-side"><span>原套图模板</span><div class="review-compare-frame"><img loading="lazy" decoding="async" src="${job.templateUrl}" data-preview-src="${job.templateUrl}" alt="${escapeHtml(job.relativePath)} 原套图模板"></div></div><div class="review-compare-side result"><span>${escapeHtml(resultLabel)}</span><div class="review-compare-frame">${resultPreview}</div></div></div><figcaption>${skipped ? '此图按规则跳过，不进入最终套图' : job.outputUrl ? (copied ? '原图直接复制，未调用 API' : '左侧原模板，右侧本次生成结果') : '生成完成后会在右侧自动显示结果'}</figcaption>${actions}</figure>`;
+      return `<figure class="review-image comparison${skipped ? ' skipped' : ''}${copied ? ' copied' : ''}" data-review-job="${index}"><div class="review-image-status"><b>${escapeHtml(job.relativePath)}</b><span>${escapeHtml(job.status)}</span></div><div class="review-compare"><div class="review-compare-side"><span>原套图模板</span><div class="review-compare-frame"><img loading="lazy" decoding="async" src="${job.templateUrl}" data-preview-src="${job.templateUrl}" alt="${escapeHtml(job.relativePath)} 原套图模板"></div></div><div class="review-compare-side result"><span>${escapeHtml(resultLabel)}</span><div class="review-compare-frame">${resultPreview}</div></div></div><figcaption>${skipped ? '此图按规则不输出，不进入最终套图' : job.outputUrl ? (copied ? '原图直接复制，未调用 API' : '左侧原模板，右侧本次生成结果') : '生成完成后会在右侧自动显示结果'}</figcaption>${actions}</figure>`;
     }).join('')
     : item.images.map(image => `<figure class="review-image legacy"><img loading="lazy" decoding="async" src="${image.url}" data-preview-src="${image.url}" alt="${escapeHtml(image.name)}"><figcaption>${escapeHtml(image.name)}</figcaption></figure>`).join('');
   const master = item.masterImage ? `<section class="master-review-strip"><img src="${item.masterImage.url}" alt="母版图"><div><b>母版图</b><span>${escapeHtml(item.masterStatus || '母版已生成')}</span>${item.source?.generationMode !== 'template_print' ? '<button class="secondary" id="regenerateMasterButton">重新生成母版图</button>' : ''}</div></section>` : '';
@@ -1997,15 +2006,16 @@ async function exportSelectedTitles() {
 
 const TEMPLATE_ACTIONS = [
   ['replace_print', '换印花'],
-  ['copy_template', '保留原图'],
-  ['skip_copy', '不处理'],
+  ['copy_original', '保留原图'],
+  ['exclude', '不输出'],
   ['manual_check', '人工确认']
 ];
 
 function templateActionHint(action) {
+  action = normalizeTemplateUiAction(action);
   if (action === 'replace_print') return '调用生图 API，只替换已标注的家具留白面板。';
-  if (action === 'copy_template') return '直接复制原模板，不消耗生图 API。';
-  if (action === 'skip_copy') return '不生成也不复制，最终套图不包含这张图。';
+  if (action === 'copy_original') return '直接复制原套图，不消耗生图 API。';
+  if (action === 'exclude') return '不生成也不复制，最终套图不包含这张图。';
   return '暂不生成，等运营确认动作和替换区域。';
 }
 
@@ -2075,7 +2085,7 @@ function renderTemplateAnalysisResult() {
   container.innerHTML = `<div class="template-result-layout">
     <figure><img src="${escapeHtml(item.previewUrl || item.templateUrl)}" alt="${escapeHtml(item.relativePath)}"><figcaption>${escapeHtml(item.relativePath)}</figcaption></figure>
     <div class="template-result-fields" data-template-index="${itemIndex}">
-      <label class="template-result-action"><span>动作</span><select data-template-field="action">${TEMPLATE_ACTIONS.map(([value, label]) => `<option value="${value}"${item.action === value ? ' selected' : ''}>${label}</option>`).join('')}</select><small class="template-action-hint">${escapeHtml(templateActionHint(item.action))}</small></label>
+      <label class="template-result-action"><span>动作</span><select data-template-field="action">${TEMPLATE_ACTIONS.map(([value, label]) => `<option value="${value}"${normalizeTemplateUiAction(item.action) === value ? ' selected' : ''}>${label}</option>`).join('')}</select><small class="template-action-hint">${escapeHtml(templateActionHint(item.action))}</small></label>
       <label><span>图片理解</span><textarea rows="3" data-template-field="reason" placeholder="AI 对画面内容和用途的理解">${escapeHtml(item.reason)}</textarea></label>
       <label><span>可修改</span><textarea rows="2" data-template-field="replaceArea" placeholder="允许替换印花的区域">${escapeHtml(item.replaceArea)}</textarea></label>
       <label><span>不可修改</span><textarea rows="2" data-template-field="forbiddenArea" placeholder="人物、文字、背景等必须保留的区域">${escapeHtml(item.forbiddenArea)}</textarea></label>
@@ -2105,7 +2115,7 @@ async function saveTemplateConfig() {
       folder,
       items: [{
         relativePath: item.relativePath,
-        action: item.action,
+        action: normalizeTemplateUiAction(item.action),
         reason: item.reason,
         replaceArea: item.replaceArea,
         forbiddenArea: item.forbiddenArea,
@@ -3362,7 +3372,7 @@ function bindEvents() {
     if (!field || !card) return;
     const item = state.templateItems[Number(card.dataset.templateIndex)];
     if (!item) return;
-    item[field] = event.target.value;
+    item[field] = field === 'action' ? normalizeTemplateUiAction(event.target.value) : event.target.value;
     if (field === 'action') {
       applyTemplateActionDefaults(item, card);
       card.querySelector('.template-action-hint').textContent = templateActionHint(item.action);
