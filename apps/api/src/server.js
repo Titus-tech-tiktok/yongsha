@@ -23,7 +23,7 @@ const jobRoot = () => path.join(runtime.WORKSPACE_ROOT, 'jobs');
 const thumbnailRoot = () => path.join(runtime.WORKSPACE_ROOT, '.cache', 'thumbnails');
 const LONG_JOB_METHODS = new Set([
   'analyzeProductProfile', 'analyzeTemplates', 'prepareTemplates', 'generateFree', 'generateTask',
-  'generateTemplates', 'regenerateMaster', 'regenerateTemplate', 'analyzeTemplateItems'
+  'generateTemplates', 'regenerateMaster', 'regenerateTemplate', 'analyzeTemplateItems', 'analyzeTemplateItemWithReference'
 ]);
 const SUPERADMIN_RPC_METHODS = new Set([
   'getApiSettings', 'saveApiSettings', 'testApiSettings', 'testAnalysisApi'
@@ -829,6 +829,11 @@ const rpc = {
   analyzeTemplateItems: ([payload], context) => runtime.analyzeTemplateItems({
     folder: workspacePath(payload?.folder),
     relativePaths: Array.isArray(payload?.relativePaths) ? payload.relativePaths.map(String) : []
+  }, context || {}),
+  analyzeTemplateItemWithReference: ([payload], context) => runtime.analyzeTemplateItemWithReference({
+    folder: workspacePath(payload?.folder),
+    relativePath: String(payload?.relativePath || ''),
+    referenceRelativePath: String(payload?.referenceRelativePath || '')
   }, context || {}),
   saveTemplateMask: ([payload]) => runtime.saveTemplateMask({ ...(payload || {}), folder: workspacePath(payload?.folder) }),
   getProductProfile: ([folder]) => runtime.loadTemplateProductProfile(workspacePath(folder)),

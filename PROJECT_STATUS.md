@@ -1,5 +1,14 @@
 # PROJECT_STATUS
 
+## 2026-07-14 Update - Reference-guided template re-analysis
+
+- Added a manual-confirmation recovery workflow: the analysis-result modal now shows recognized `replace_print` images as references.
+- Clicking `Reference re-analyze` sends both the target image and the selected reference image to the analysis API.
+- The reference is used only as decision guidance. The prompt explicitly forbids copying reference polygons, coordinates, panel count, door count, proportions, or replace areas.
+- The target image is independently re-analyzed and must output its own `printableSurfaces`, so a 3-door reference cannot be directly applied to a 4-door target.
+- Added API regression coverage for this flow in `apps/api/tests/template-analysis-batch.test.js`.
+- Verification completed: `npm test -w @caishen/api -- tests/template-analysis-batch.test.js`, `npm run build -w @caishen/web`, and `git diff --check`.
+
 ## 2026-07-14 Update - Template AI fallback
 
 - Current pushed base before this change: `a268eb2 Allow parallel template analysis retries`.

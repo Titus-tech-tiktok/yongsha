@@ -2078,6 +2078,52 @@ function activeTemplateItem() {
   return state.templateItems.find(item => item.path === state.activeTemplatePath) || null;
 }
 
+function templateDirectoryKey(item) {
+  const normalized = String(item?.relativePath || '').replaceAll('\\', '/');
+  return normalized.includes('/') ? normalized.slice(0, normalized.lastIndexOf('/')) : '';
+}
+
+function templateNameTokens(value) {
+  return new Set(String(value || '').toLowerCase().split(/[^a-z0-9\u4e00-\u9fa5]+/).filter(token => token.length >= 2));
+}
+
+function templateReferenceCandidates(item) {
+  if (!item) return [];
+  const activeFolder = templateDirectoryKey(item);
+  const activeTokens = templateNameTokens(item.relativePath);
+  return state.templateItems
+    .filter(candidate => candidate.path !== item.path && normalizeTemplateUiAction(candidate.action) === 'replace_print')
+    .map(candidate => {
+      const candidateTokens = templateNameTokens(candidate.relativePath);
+      let tokenMatches = 0;
+      for (const token of activeTokens) if (candidateTokens.has(token)) tokenMatches += 1;
+      const sameFolder = templateDirectoryKey(candidate) === activeFolder ? 1 : 0;
+      const hasMask = candidate.maskUrl || candidate.cleanMaskUrl || (candidate.regions || []).length ? 1 : 0;
+      const confidence = Number(candidate.confidence || 0);
+      return { candidate, score: sameFolder * 100 + tokenMatches * 8 + hasMask * 12 + confidence };
+    })
+    .sort((left, right) => right.score - left.score || String(left.candidate.relativePath).localeCompare(String(right.candidate.relativePath), 'zh-CN', { numeric: true }))
+    .slice(0, 8)
+    .map(entry => entry.candidate);
+}
+
+function renderTemplateReferencePanel(item) {
+  const candidates = templateReferenceCandidates(item);
+  if (!candidates.length) {
+    return `<aside class="template-reference-panel"><div class="template-reference-head"><b>Reference analysis</b><span>No replace_print reference is available.</span></div></aside>`;
+  }
+  return `<aside class="template-reference-panel">
+    <div class="template-reference-head"><b>Reference analysis</b><span>Reference helps AI judge. Coordinates are not copied.</span></div>
+    <div class="template-reference-list">
+      ${candidates.map(candidate => `<article class="template-reference-card">
+        <img src="${escapeHtml(candidate.thumbnailUrl || candidate.previewUrl || candidate.templateUrl)}" alt="${escapeHtml(candidate.relativePath)}">
+        <div><b>${escapeHtml(candidate.name)}</b><span>${escapeHtml(candidate.relativePath)}</span><small>${escapeHtml(templateRegionSummary(candidate))}</small></div>
+        <button class="secondary" type="button" data-reference-analysis="${escapeHtml(candidate.path)}">Reference re-analyze</button>
+      </article>`).join('')}
+    </div>
+  </aside>`;
+}
+
 function renderTemplateAnalysisResult() {
   const item = activeTemplateItem();
   const container = $('#templateAnalysisResult');
@@ -2107,6 +2153,7 @@ function renderTemplateAnalysisResult() {
       <div class="template-region-row"><span>${escapeHtml(templateRegionSummary(item))}</span><button class="secondary" type="button" data-edit-region="${itemIndex}">修改标注区域</button></div>
     </div>
   </div>`;
+  container.querySelector('.template-result-layout')?.insertAdjacentHTML('beforeend', renderTemplateReferencePanel(item));
 }
 
 async function openTemplateAnalysisResult(pathValue) {
@@ -2147,6 +2194,43 @@ async function saveTemplateConfig() {
     toast(errorText(error), true);
   } finally {
     $('#saveTemplateConfigButton').disabled = false;
+  }
+}
+
+async function analyzeActiveTemplateWithReference(referencePath) {
+  const item = activeTemplateItem();
+  const reference = state.templateItems.find(candidate => candidate.path === referencePath);
+  if (!item || !reference) return toast('Please choose a reference image first.', true);
+  if (normalizeTemplateUiAction(reference.action) !== 'replace_print') return toast('Reference image must already be replace_print.', true);
+  const folder = templateFolderPathForItem(item);
+  $('#templateConfigStatus').textContent = `Reference analysis running with ${reference.name}`;
+  state.assetAnalysisProgress.set(item.path, { status: 'running', attempt: 1 });
+  renderAssetManagementGrid();
+  try {
+    await window.caishen.analyzeTemplateItemWithReference({
+      folder,
+      relativePath: item.relativePath,
+      referenceRelativePath: reference.relativePath
+    }, progress => {
+      const attempt = Number(progress.attempt || 0);
+      $('#templateConfigStatus').textContent = attempt
+        ? `Reference analysis running with ${reference.name} - attempt ${attempt}`
+        : `Reference analysis running with ${reference.name}`;
+    });
+    state.assetPreviewCache.delete('detailSetsPath');
+    await loadAssetLibraryPreview('detailSetsPath', { preserveSelection: true, force: true });
+    const refreshed = state.templateItems.find(candidate => candidate.relativePath === item.relativePath && templateFolderPathForItem(candidate) === folder);
+    if (refreshed) state.activeTemplatePath = refreshed.path;
+    renderTemplateAnalysisResult();
+    if (folder === state.config.detailSetsPath) await loadTemplatePreparation();
+    $('#templateConfigStatus').textContent = 'Reference analysis completed';
+    toast('Reference analysis completed');
+  } catch (error) {
+    toast(errorText(error), true);
+  } finally {
+    state.assetAnalysisProgress.delete(item.path);
+    renderAssetManagementGrid();
+    renderAssetSelectionState();
   }
 }
 
@@ -3398,6 +3482,8 @@ function bindEvents() {
   $('#templateAnalysisResult').oninput = handleTemplateAnalysisFieldChange;
   $('#templateAnalysisResult').onchange = handleTemplateAnalysisFieldChange;
   $('#templateAnalysisResult').onclick = event => {
+    const referenceButton = event.target.closest('[data-reference-analysis]');
+    if (referenceButton) return analyzeActiveTemplateWithReference(referenceButton.dataset.referenceAnalysis);
     const button = event.target.closest('[data-edit-region]');
     if (button) openRegionEditor(Number(button.dataset.editRegion));
   };

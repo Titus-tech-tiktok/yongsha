@@ -1921,14 +1921,28 @@ async function saveTemplateConfiguration(payload) {
 async function analyzeTemplateJob(job, options = {}) {
   const api = requireApiConfig('analysis');
   const prompt = await getPromptValue('templateAnalysis');
+  const messageContent = [{ type: 'text', text: prompt }];
+  if (options.referenceJob) {
+    messageContent.push({
+      type: 'text',
+      text: [
+        'Reference analysis guidance:',
+        `Reference relative path: ${options.referenceJob.relativePath}`,
+        `Reference analysis JSON: ${String(options.referenceAnalysis || '').slice(0, 12000)}`,
+        'Use the reference only to understand why a similar ecommerce cabinet image should be classified as replace_print.',
+        'Do not copy reference polygons, coordinates, panel count, door count, proportions, or replace areas.',
+        'Analyze the target image independently and output printableSurfaces that match only the target image geometry.'
+      ].join('\n')
+    });
+    messageContent.push({ type: 'image_url', image_url: { url: options.referenceImageDataUrl || await imageAsAnalysisDataUrl(options.referenceJob.templatePath) } });
+    messageContent.push({ type: 'text', text: `Target image to analyze independently: ${job.relativePath}` });
+  }
+  messageContent.push({ type: 'image_url', image_url: { url: options.imageDataUrl || await imageAsAnalysisDataUrl(job.templatePath) } });
   const body = await analysisApiJson(api, {
     model: api.analysisModel,
     messages: [{
       role: 'user',
-      content: [
-        { type: 'text', text: prompt },
-        { type: 'image_url', image_url: { url: options.imageDataUrl || await imageAsAnalysisDataUrl(job.templatePath) } }
-      ]
+      content: messageContent
     }],
     max_tokens: 6000
   }, (api.requestTimeoutSeconds || 300) * 1000, { description: '套图模板 AI 分析', reference: job.relativePath });
@@ -1991,7 +2005,7 @@ async function analyzeTemplateJob(job, options = {}) {
   return parseTemplateAnalysisSummary(normalizedAnalysis);
 }
 
-async function analyzeTemplateJobWithRetry(job, retries = 3, onProgress = async () => {}) {
+async function analyzeTemplateJobWithRetry(job, retries = 3, onProgress = async () => {}, analyzeOptions = {}) {
   const maximumAttempts = Math.max(1, Number(retries) + 1);
   let lastError;
   await writeTemplateAnalysisStatus(job, { status: 'running', attempts: 0, error: '' });
@@ -2005,7 +2019,7 @@ async function analyzeTemplateJobWithRetry(job, retries = 3, onProgress = async 
   for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
     await onProgress({ phase: 'analyzing', relativePath: job.relativePath, attempt, maximumAttempts });
     try {
-      const summary = await analyzeTemplateJob(job, { imageDataUrl });
+      const summary = await analyzeTemplateJob(job, { ...analyzeOptions, imageDataUrl });
       await writeTemplateAnalysisStatus(job, { status: 'success', source: 'ai', attempts: attempt, error: '' });
       return { ok: true, relativePath: job.relativePath, attempts: attempt, summary };
     } catch (error) {
@@ -2019,6 +2033,50 @@ async function analyzeTemplateJobWithRetry(job, retries = 3, onProgress = async 
   const message = lastError?.message || String(lastError || 'AI 分析失败');
   await writeTemplateAnalysisStatus(job, { status: 'failed', source: 'ai', attempts: maximumAttempts, error: message });
   return { ok: false, relativePath: job.relativePath, attempts: maximumAttempts, error: message };
+}
+
+async function analyzeTemplateItemWithReference(payload = {}, options = {}) {
+  const folder = String(payload.folder || '');
+  if (!folder || !fs.existsSync(folder)) throw new Error('Template folder does not exist.');
+  const relativePath = String(payload.relativePath || '');
+  const referenceRelativePath = String(payload.referenceRelativePath || '');
+  if (!relativePath || !referenceRelativePath) throw new Error('Target and reference image are required.');
+  const byKey = new Map((await buildTemplateJobs(folder)).map(job => [templateRelativeKey(job.relativePath), job]));
+  const job = byKey.get(templateRelativeKey(relativePath));
+  const referenceJob = byKey.get(templateRelativeKey(referenceRelativePath));
+  if (!job) throw new Error('Target template image was not found.');
+  if (!referenceJob) throw new Error('Reference template image was not found.');
+  const referenceDetails = await templateAnalysisForJob(referenceJob);
+  const referenceAction = normalizeTemplateProcessingMode(referenceDetails.summary.action);
+  if (referenceAction !== 'replace_print') throw new Error('Reference image must already be recognized as replace_print.');
+  const report = typeof options.reportProgress === 'function' ? options.reportProgress : async () => {};
+  await report({ phase: 'queued', current: 0, total: 1, failed: 0, concurrency: 1, message: 'Reference analysis queued' });
+  const result = await analyzeTemplateJobWithRetry(job, 3, async progress => {
+    await report({ ...progress, current: 0, total: 1, failed: 0, concurrency: 1, referenceRelativePath: referenceJob.relativePath });
+  }, {
+    referenceJob,
+    referenceAnalysis: referenceDetails.analysis,
+    referenceImageDataUrl: await imageAsAnalysisDataUrl(referenceJob.templatePath)
+  });
+  await report({
+    phase: 'completed',
+    current: 1,
+    total: 1,
+    failed: result.ok ? 0 : 1,
+    concurrency: 1,
+    completedRelativePath: job.relativePath,
+    completedStatus: result.ok ? 'success' : 'failed',
+    referenceRelativePath: referenceJob.relativePath,
+    message: result.ok ? 'Reference analysis completed' : `Reference analysis failed: ${result.error}`
+  });
+  return {
+    total: 1,
+    completed: 1,
+    failed: result.ok ? 0 : 1,
+    referenceRelativePath: referenceJob.relativePath,
+    failures: result.ok ? [] : [{ relativePath: result.relativePath, error: result.error, attempts: result.attempts }],
+    items: await listTemplates(folder)
+  };
 }
 
 async function analyzeTemplateItems(payload = {}, options = {}) {
@@ -3056,6 +3114,7 @@ async function initializeRuntime() {
 const runtimeExports = {
   DATA_ROOT,
   analyzeProductProfile,
+  analyzeTemplateItemWithReference,
   analyzeTemplateItems,
   analyzeTemplateFolder,
   apiSettingsStatus,

@@ -202,3 +202,76 @@ test('paid analysis responses are not shown as failed when content needs local f
   assert.equal(requests, 4);
 
 });
+
+test('referenced template analysis sends target and reference images without copying reference geometry', async (t) => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-template-reference-analysis-'));
+  let capturedPayload = null;
+  const server = http.createServer((req, res) => {
+    if (req.url !== '/v1/chat/completions') return res.writeHead(404).end();
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      capturedPayload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      res.setHeader('Content-Type', 'application/json');
+      return res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+        version: TEMPLATE_CACHE_VERSION,
+        imageRole: 'size image',
+        processingMode: 'replace_print',
+        confidence: 0.94,
+        imageUnderstanding: 'target four-door cabinet analyzed independently with reference only as decision guidance',
+        printableArea: 'four target cabinet front panels',
+        printableSurfaces: [0.12, 0.31, 0.5, 0.69].map((x, index) => ({
+          id: `target-door-${index + 1}`,
+          label: `target door ${index + 1}`,
+          polygon: [[x, 0.32], [x + 0.13, 0.32], [x + 0.13, 0.68], [x, 0.68]]
+        })),
+        preserveAreas: 'text, dimensions, frame, seams, handles and legs'
+      }) } }] }));
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    server.closeAllConnections?.();
+    await new Promise(resolve => server.close(resolve));
+    await fs.rm(temp, { recursive: true, force: true });
+  });
+
+  process.env.CAISHEN_DATA_DIR = temp;
+  process.env.CAISHEN_WORKSPACE_ID = 'template-reference-analysis';
+  process.env.CAISHEN_API_BASE_URL = `http://127.0.0.1:${server.address().port}/v1`;
+  process.env.CAISHEN_API_KEY = 'test-key';
+  process.env.CAISHEN_ANALYSIS_API_KEY = 'test-key';
+  process.env.CAISHEN_ANALYSIS_WIRE_API = 'chat_completions';
+  process.env.CAISHEN_ANALYSIS_RETRY_BASE_MS = '1';
+  const runtimePath = require.resolve('../src/runtime');
+  delete require.cache[runtimePath];
+  const runtime = require('../src/runtime');
+  const folder = path.join(runtime.WORKSPACE_ROOT, 'assets', 'template', 'set');
+  await fs.mkdir(folder, { recursive: true });
+  await Promise.all(['target.png', 'reference.png'].map(name => sharp({ create: { width: 160, height: 120, channels: 3, background: '#dcdcdc' } }).png().toFile(path.join(folder, name))));
+  await runtime.saveTemplateConfiguration({
+    folder,
+    items: [{
+      relativePath: 'reference.png',
+      action: 'replace_print',
+      reason: 'reference three-door cabinet was recognized as replace_print',
+      replaceArea: 'three reference panels',
+      forbiddenArea: 'text and frame',
+      regions: [{ x: 0.2, y: 0.3, width: 0.5, height: 0.4 }]
+    }]
+  });
+
+  const result = await runtime.analyzeTemplateItemWithReference({
+    folder,
+    relativePath: 'target.png',
+    referenceRelativePath: 'reference.png'
+  });
+  const target = result.items.find(item => item.relativePath === 'target.png');
+  assert.equal(target.action, 'replace_print');
+  assert.equal(target.regions.length, 4);
+  const content = capturedPayload.messages[0].content;
+  assert.equal(content.filter(item => item.type === 'image_url').length, 2);
+  const text = content.filter(item => item.type === 'text').map(item => item.text).join('\n');
+  assert.match(text, /reference/i);
+  assert.match(text, /Do not copy/i);
+});

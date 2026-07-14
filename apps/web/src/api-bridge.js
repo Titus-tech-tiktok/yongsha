@@ -335,6 +335,7 @@ window.caishen = {
   saveTemplateConfig: payload => rpc('saveTemplateConfig', payload),
   analyzeTemplates: folder => runJob('analyzeTemplates', [folder]),
   analyzeTemplateItems: (payload, onProgress) => runJob('analyzeTemplateItems', [payload], `template-analysis:${Date.now()}:${createClientId()}`, onProgress),
+  analyzeTemplateItemWithReference: (payload, onProgress) => runJob('analyzeTemplateItemWithReference', [payload], `template-reference-analysis:${Date.now()}:${createClientId()}`, onProgress),
   saveTemplateMask: payload => rpc('saveTemplateMask', payload),
   getProductProfile: folder => rpc('getProductProfile', folder),
   analyzeProductProfile: path => runJob('analyzeProductProfile', [path]),
