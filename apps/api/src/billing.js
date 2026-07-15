@@ -50,6 +50,11 @@ function createBillingService(dataRoot) {
     return workspaceId;
   }
 
+  function normalizeBillingOnceKey(value) {
+    const text = String(value || '').trim();
+    return text ? crypto.createHash('sha256').update(text).digest('hex') : '';
+  }
+
   async function readJson(file, fallback) {
     try { return JSON.parse(await fs.readFile(file, 'utf8')); }
     catch { return fallback; }
@@ -123,6 +128,7 @@ function createBillingService(dataRoot) {
       ? existingBalance
       : Math.max(0, Number(initialBalance) || 0);
     value.reservations = value.reservations && typeof value.reservations === 'object' ? value.reservations : {};
+    value.chargedOnce = value.chargedOnce && typeof value.chargedOnce === 'object' ? value.chargedOnce : {};
     value.createdAt ||= new Date().toISOString();
     value.updatedAt ||= value.createdAt;
     cleanReservations(value);
@@ -168,7 +174,39 @@ function createBillingService(dataRoot) {
       ensureAccount(workspaceId),
       listTransactions(workspaceId, limit)
     ]);
-    return { rules, account, transactions };
+    const spendTotals = await getSpendTotals(workspaceId, [1, 7, 30]);
+    return { rules, account, transactions, spendTotals };
+  }
+
+  async function getSpendTotals(workspaceIdValue = '', daysValues = [1, 7, 30]) {
+    const workspaceId = workspaceIdValue ? normalizeWorkspaceId(workspaceIdValue) : '';
+    const days = [...new Set((Array.isArray(daysValues) ? daysValues : [daysValues])
+      .map(value => Math.max(1, Math.min(3660, Math.trunc(Number(value) || 0))))
+      .filter(Boolean))];
+    const totals = Object.fromEntries(days.map(day => [String(day), 0]));
+    const now = Date.now();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStart = today.getTime();
+    const windows = Object.fromEntries(days.map(day => [String(day), day === 1 ? todayStart : now - day * 24 * 60 * 60 * 1000]));
+    let text = '';
+    try { text = await fs.readFile(ledgerFile, 'utf8'); } catch { return totals; }
+    for (const line of text.trim().split('\n').filter(Boolean)) {
+      try {
+        const entry = JSON.parse(line);
+        if (workspaceId && entry.workspaceId !== workspaceId) continue;
+        if (!BILLING_TYPES.has(String(entry.kind || ''))) continue;
+        const created = new Date(entry.createdAt).getTime();
+        if (!Number.isFinite(created)) continue;
+        const sourceScale = entry?.amountScale === BILLING_SCALE ? BILLING_SCALE : 100;
+        const amountMinor = sourceScale === BILLING_SCALE ? Math.trunc(Number(entry.amountMinor) || 0) : migrateMoney(entry.amountMinor, sourceScale);
+        if (amountMinor >= 0) continue;
+        for (const day of days) {
+          if (created >= windows[String(day)]) totals[String(day)] += Math.abs(amountMinor);
+        }
+      } catch {}
+    }
+    return totals;
   }
 
   async function saveRules(payload = {}) {
@@ -258,6 +296,11 @@ function createBillingService(dataRoot) {
       if (!rules.enabled || amountMinor <= 0) return { billable: false, workspaceId, type, amountMinor: 0 };
       const state = await readAccounts();
       const account = normalizeAccount(state.accounts[workspaceId], rules.defaultBalanceMinor);
+      const onceKey = normalizeBillingOnceKey(metadata.onceKey || metadata.billingOnceKey);
+      if (onceKey && account.chargedOnce?.[onceKey]) return { billable: false, workspaceId, type, amountMinor: 0, onceKey, alreadyCharged: true };
+      if (onceKey && Object.values(account.reservations || {}).some(reservation => reservation?.onceKey === onceKey)) {
+        return { billable: false, workspaceId, type, amountMinor: 0, onceKey, alreadyReserved: true };
+      }
       const available = account.balanceMinor - reservedMinor(account);
       if (available < amountMinor) {
         const required = (amountMinor / BILLING_SCALE).toFixed(6).replace(/0+$/, '').replace(/\.$/, '.00');
@@ -273,6 +316,7 @@ function createBillingService(dataRoot) {
         amountScale: BILLING_SCALE,
         description: String(metadata.description || (type === 'image' ? '图片生成' : '语言模型调用')).slice(0, 160),
         reference: String(metadata.reference || '').slice(0, 240),
+        onceKey,
         createdAt: Date.now()
       };
       account.updatedAt = new Date().toISOString();
@@ -293,6 +337,8 @@ function createBillingService(dataRoot) {
       account.balanceMinor = Math.max(0, account.balanceMinor - amountMinor);
       delete account.reservations[reservation.id];
       account.updatedAt = new Date().toISOString();
+      if (stored.onceKey) account.chargedOnce ||= {};
+      if (stored.onceKey) account.chargedOnce[stored.onceKey] = account.updatedAt;
       state.accounts[reservation.workspaceId] = account;
       const entry = {
         id: crypto.randomUUID(),
@@ -304,6 +350,7 @@ function createBillingService(dataRoot) {
         balanceMinor: account.balanceMinor,
         description: stored.description,
         reference: stored.reference,
+        onceKey: stored.onceKey || '',
         createdAt: account.updatedAt
       };
       await writeJson(accountsFile, state);
@@ -423,6 +470,7 @@ function createBillingService(dataRoot) {
     ensureAccount,
     getRules: readRules,
     getSummary,
+    getSpendTotals,
     listAccounts,
     listTransactions,
     release,

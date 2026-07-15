@@ -987,7 +987,14 @@ async function startServer() {
 
   app.get('/api/billing/me', async (req, res) => {
     try {
-      return res.json({ data: await runtime.billing.getSummary(req.user.workspaceId, 30) });
+      const days = Math.max(1, Math.min(3660, Math.trunc(Number(req.query.days) || 30)));
+      const data = await runtime.billing.getSummary(req.user.workspaceId, 30);
+      if (![1, 7, 30].includes(days)) data.spendTotals = {
+        ...(data.spendTotals || {}),
+        ...(await runtime.billing.getSpendTotals(req.user.workspaceId, [days]))
+      };
+      data.customSpendDays = days;
+      return res.json({ data });
     } catch (error) {
       return res.status(400).json({ error: error?.message || String(error) });
     }

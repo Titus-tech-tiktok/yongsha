@@ -142,6 +142,7 @@ const state = {
   apiModelChannel: 'image',
   selectedApiModelId: '',
   settingsTab: 'general',
+  billingCustomDays: 30,
   assetStages: {},
   assetPreviewKey: 'detailSetsPath',
   templateFolderView: '',
@@ -390,20 +391,39 @@ function renderBillingLedger(entries = [], userMap = new Map()) {
   }).join('');
 }
 
+function renderBillingSpendTotals(summary) {
+  const totals = summary?.spendTotals || {};
+  const customDays = Math.max(1, Math.min(3660, Number(summary?.customSpendDays || state.billingCustomDays) || 30));
+  const customValue = totals[String(customDays)] ?? totals[customDays] ?? 0;
+  return [
+    `<div class="billing-rate-item"><span>今日费用</span><b>${formatMoney(totals['1'] || 0)}</b></div>`,
+    `<div class="billing-rate-item"><span>7日费用</span><b>${formatMoney(totals['7'] || 0)}</b></div>`,
+    `<div class="billing-rate-item"><span>30天费用</span><b>${formatMoney(totals['30'] || 0)}</b></div>`,
+    `<label class="billing-rate-item billing-custom-days"><span>自定义时长费用</span><div><input id="billingCustomDaysInput" type="number" min="1" max="3660" step="1" value="${customDays}" aria-label="自定义统计天数"><em>天</em></div><b>${formatMoney(customValue)}</b></label>`
+  ].join('');
+}
+
 function renderBillingSummary() {
   const summary = state.billingSummary;
   if (!summary) return;
   $('#currentBalance').textContent = formatMoney(summary.account?.balanceMinor);
   $('#currentBillingHint').textContent = '点击查看余额明细';
   $('#billingDetailSummary').textContent = `当前可用 ${formatMoney(summary.account?.availableMinor)}${summary.account?.reservedMinor ? `，任务预占 ${formatMoney(summary.account.reservedMinor)}` : ''}`;
-  $('#billingDetailRates').innerHTML = '';
-  $('#billingDetailRates').hidden = true;
+  $('#billingDetailRates').innerHTML = renderBillingSpendTotals(summary);
+  $('#billingDetailRates').hidden = false;
   $('#billingDetailList').innerHTML = renderBillingLedger(summary.transactions || []);
+  const customInput = $('#billingCustomDaysInput');
+  if (customInput) {
+    customInput.onchange = async () => {
+      state.billingCustomDays = Math.max(1, Math.min(3660, Number(customInput.value) || 30));
+      await loadBillingSummary();
+    };
+  }
 }
 
 async function loadBillingSummary() {
   try {
-    state.billingSummary = await window.caishen.getBillingSummary();
+    state.billingSummary = await window.caishen.getBillingSummary(state.billingCustomDays);
     renderBillingSummary();
   } catch (error) {
     $('#currentBalance').textContent = '读取失败';

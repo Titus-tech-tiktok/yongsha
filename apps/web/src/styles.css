@@ -326,6 +326,9 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .billing-rate-item span, .billing-rate-item b { display: block; }
 .billing-rate-item span { color: var(--subtle); font-size: 9px; }
 .billing-rate-item b { margin-top: 4px; font-size: 15px; }
+.billing-custom-days div { margin-top: 6px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; }
+.billing-custom-days input { min-height: 30px; padding: 0 8px; border-radius: 6px; font-size: 11px; }
+.billing-custom-days em { color: var(--subtle); font-style: normal; font-size: 10px; }
 .billing-detail-list { flex: 1; min-height: 0; max-height: none; padding: 8px 20px; }
 
 @media (max-width: 900px) {

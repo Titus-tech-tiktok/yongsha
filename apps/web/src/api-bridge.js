@@ -298,7 +298,7 @@ window.caishen = {
   createUser: payload => authRequest('/api/auth/users', { method: 'POST', body: JSON.stringify(payload) }),
   setUserActive: (id, active) => authRequest(`/api/auth/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ active }) }),
   updateUser: (id, payload) => authRequest(`/api/auth/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  getBillingSummary: () => authRequest('/api/billing/me'),
+  getBillingSummary: days => authRequest(`/api/billing/me${Number(days) > 0 ? `?days=${encodeURIComponent(Math.trunc(Number(days)))}` : ''}`),
   getBillingAdmin: () => authRequest('/api/billing/admin'),
   saveBillingRules: payload => authRequest('/api/billing/rules', { method: 'PUT', body: JSON.stringify(payload) }),
   adjustBillingBalance: payload => authRequest('/api/billing/adjust', { method: 'POST', body: JSON.stringify(payload) }),

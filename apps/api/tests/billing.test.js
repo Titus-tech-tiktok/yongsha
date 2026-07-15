@@ -38,6 +38,22 @@ test('成功调用按规则扣费并写入流水', async t => {
   assert.equal(summary.transactions[0].reference, '1.jpg');
 });
 
+test('同一业务计费 key 只在首次成功时扣费', async t => {
+  const { root, billing } = await fixture();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await billing.saveRules({ enabled: true, imageFeeMinor: 125, llmFeeMinor: 8, defaultBalanceMinor: 1000 });
+  const first = await billing.reserve('user-once', 'image', { description: '套图换印花生图', reference: '1.jpg', onceKey: 'task-a/1.jpg' });
+  await billing.commit(first);
+  const second = await billing.reserve('user-once', 'image', { description: '套图图片重新生成', reference: '1.jpg', onceKey: 'task-a/1.jpg' });
+  await billing.commit(second);
+  const summary = await billing.getSummary('user-once');
+  assert.equal(first.billable, true);
+  assert.equal(second.billable, false);
+  assert.equal(second.alreadyCharged, true);
+  assert.equal(summary.account.balanceMinor, 875);
+  assert.equal(summary.transactions.filter(entry => entry.kind === 'image').length, 1);
+});
+
 test('成功调用按区间随机扣费并预占同一金额', async t => {
   const { root, billing } = await fixture();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -113,4 +129,19 @@ test('清空费用流水只删除明细，不改变账号余额', async t => {
   assert.equal(result.cleared, 1);
   assert.equal((await billing.listTransactions('', 10)).length, 0);
   assert.equal((await billing.getSummary('user-clear')).account.balanceMinor, 500);
+});
+
+test('spend totals only include successful model charges', async t => {
+  const { root, billing } = await fixture();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await billing.saveRules({ enabled: true, imageFeeMinor: 100, llmFeeMinor: 20, defaultBalanceMinor: 1000 });
+  await billing.adjustBalance('user-total', 500, { operatorUserId: 'admin' });
+  await billing.commit(await billing.reserve('user-total', 'image', { reference: 'img' }));
+  await billing.commit(await billing.reserve('user-total', 'llm', { reference: 'text' }));
+
+  const summary = await billing.getSummary('user-total');
+
+  assert.equal(summary.spendTotals['1'], 120);
+  assert.equal(summary.spendTotals['7'], 120);
+  assert.equal(summary.spendTotals['30'], 120);
 });

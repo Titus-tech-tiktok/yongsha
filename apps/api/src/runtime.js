@@ -121,6 +121,11 @@ function currentWorkspaceRoot() {
   return path.join(DATA_ROOT, 'workspaces', currentWorkspaceId());
 }
 
+function billingOnceKey(...parts) {
+  const text = parts.map(part => String(part || '')).join('\u0000');
+  return crypto.createHash('sha256').update(text).digest('hex');
+}
+
 function currentUserDataRoot() {
   return path.join(currentWorkspaceRoot(), 'state');
 }
@@ -1090,7 +1095,10 @@ async function apiJson(url, options = {}, timeoutMs = 120000) {
 }
 
 async function billableLlmJson(url, options = {}, timeoutMs = 120000, metadata = {}) {
-  const reservation = await billing.reserve(currentWorkspaceId(), 'llm', metadata);
+  const reservation = await billing.reserve(currentWorkspaceId(), 'llm', {
+    ...metadata,
+    onceKey: metadata.onceKey || metadata.billingOnceKey || ''
+  });
   try {
     const body = await apiJson(url, options, timeoutMs);
     await billing.commit(reservation);
@@ -1323,7 +1331,8 @@ async function generateImage(prompt, imagePaths, options = {}) {
   };
   const reservation = options.skipBilling ? null : await billing.reserve(currentWorkspaceId(), 'image', {
     description: options.billingDescription || 'Image generation',
-    reference: options.billingReference || ''
+    reference: options.billingReference || '',
+    onceKey: options.billingOnceKey || ''
   });
   try {
     const attemptStartedAt = new Map();
@@ -1819,7 +1828,11 @@ async function analyzeTemplateJob(job, options = {}) {
       content: messageContent
     }],
     max_tokens: 6000
-  }, (api.requestTimeoutSeconds || 300) * 1000, { description: '套图模板 AI 分析', reference: job.relativePath });
+  }, (api.requestTimeoutSeconds || 300) * 1000, {
+    description: '套图模板 AI 分析',
+    reference: job.relativePath,
+    onceKey: billingOnceKey('llm:template-analysis', job.templateRoot, job.relativePath)
+  });
   const choice = body?.choices?.[0] || {};
   const content = choice?.message?.content ?? choice?.delta?.content ?? choice?.text ?? body?.output_text ?? body?.content;
   const analysisText = analysisContentToString(content);
@@ -2011,7 +2024,11 @@ async function analyzeProductProfile(productPath) {
     model: api.analysisModel,
     imageDataUrl: await imageAsDataUrl(productPath),
     prompt: await getPromptValue('productProfileAnalysis')
-  }), (api.requestTimeoutSeconds || 300) * 1000, { description: '商品图片理解', reference: path.basename(productPath) });
+  }), (api.requestTimeoutSeconds || 300) * 1000, {
+    description: '商品图片理解',
+    reference: path.basename(productPath),
+    onceKey: billingOnceKey('llm:product-profile', productPath)
+  });
   return parseProductProfileChatResponse(response);
 }
 
@@ -2162,7 +2179,11 @@ async function auditGeneratedTemplate(masterImage, job, templateAnalysis) {
     const response = await analysisApiJson(api,
       buildTemplateAuditPayload({ ...common, model: api.analysisModel, promptTemplate: firstPromptTemplate }),
       (api.requestTimeoutSeconds || 300) * 1000,
-      { description: '生成结果 AI 质检', reference: job.relativePath });
+      {
+        description: '生成结果 AI 质检',
+        reference: job.relativePath,
+        onceKey: billingOnceKey('llm:template-audit', job.outputRoot, job.relativePath)
+      });
     rawText = String(response?.choices?.[0]?.message?.content || '').trim();
     first = parseTemplateAuditResult(rawText);
   } catch (error) {
@@ -2176,7 +2197,11 @@ async function auditGeneratedTemplate(masterImage, job, templateAnalysis) {
       const response = await analysisApiJson(api,
         buildTemplateAuditRecheckPayload({ ...common, model: api.analysisModel, firstAudit: first, promptTemplate: recheckPromptTemplate }),
         (api.requestTimeoutSeconds || 300) * 1000,
-        { description: '生成结果 AI 复核', reference: job.relativePath });
+        {
+          description: '生成结果 AI 复核',
+          reference: job.relativePath,
+          onceKey: billingOnceKey('llm:template-audit-recheck', job.outputRoot, job.relativePath)
+        });
       const content = String(response?.choices?.[0]?.message?.content || '').trim();
       const recheck = parseTemplateAuditResult(content);
       final = isInvalidAuditRequestingProductReplacement(recheck)
@@ -2261,6 +2286,7 @@ async function generateTemplateJob(job, source, config, options = {}) {
     quality: config.imageQuality || 'high',
     billingDescription: options.extraInstruction ? '套图图片重新生成' : '套图换印花生图',
     billingReference: job.relativePath,
+    billingOnceKey: billingOnceKey('image:template-job', job.outputRoot, job.relativePath),
     signal: options.signal,
     onRequestState: options.onRequestState
   });
@@ -2623,6 +2649,7 @@ async function generateMaster(task, options = {}) {
     quality: config.imageQuality || 'high',
     billingDescription: '母版图生成',
     billingReference: task.id || path.basename(task.productPath),
+    billingOnceKey: billingOnceKey('image:master', folder),
     signal: options.signal,
     onRequestState: options.onRequestState
   });
@@ -2918,6 +2945,7 @@ async function generateFree(payload = {}, options = {}) {
     quality: config.imageQuality || 'auto',
     billingDescription: '自由生图',
     billingReference: path.basename(payload.sourcePath),
+    billingOnceKey: billingOnceKey('image:free', payload.sourcePath, String(payload.prompt).trim()),
     signal: options.signal
   }));
   return { outputPath, url: imageUrl(outputPath) };

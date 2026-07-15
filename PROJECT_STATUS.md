@@ -1,5 +1,13 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - One-time billing and spend totals
+
+- Added persistent one-time billing keys so successful image/LLM charges are recorded per account and repeat generation or re-analysis for the same business item no longer reserves or deducts balance.
+- Template full-set image generation now bills once per output task folder and template image; regenerating the same image in that task is free after the first successful charge.
+- Template master generation remains free; free image generation bills once per source image and prompt; LLM template analysis, product profile, audit, and recheck each bill once per target.
+- Added account spend totals for today, 7 days, 30 days, and a custom day range in the balance modal.
+- Verification completed: `node --check`, `npm run build -w @caishen/web`, `npm test -w @caishen/api -- tests/billing.test.js tests/billing-usd-micro.test.js`, `npm test -w @caishen/api -- tests/runtime.test.js`, and `git diff --check`.
+
 ## 2026-07-15 Update - Review retry wording and task duration
 
 - Renamed the review progress wording from `等待上游恢复` to `生图接口等待重试` so operators understand it means image API retry wait.
