@@ -11,7 +11,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 const runtime = require('./runtime');
 const { createAuthService } = require('./auth');
-const { metadataPaths } = require('./core/review-engine');
+const { metadataPaths, normalizeSourceMetadata } = require('./core/review-engine');
 const { isSameOrChildPath } = require('./core/path-utils');
 
 const PORT = Math.max(1, Number(process.env.PORT || 8788));
@@ -162,6 +162,61 @@ function zipAttachmentName(name) {
   const fallback = safeSegment(name, 'task');
   const ascii = fallback.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
   return `attachment; filename="${ascii}.zip"; filename*=UTF-8''${encodeURIComponent(`${fallback}.zip`)}`;
+}
+
+async function readZipSourceMetadata(folder) {
+  const paths = metadataPaths(folder);
+  for (const file of [paths.wpfSource, paths.macSource]) {
+    try {
+      return normalizeSourceMetadata(JSON.parse(await fsp.readFile(file, 'utf8')));
+    } catch {
+      // Try the next known metadata location.
+    }
+  }
+  return normalizeSourceMetadata({});
+}
+
+function zipDateStamp(folder, fallbackDate = new Date()) {
+  const match = path.basename(folder).match(/^(\d{4})(?:-|$)/);
+  if (match) return match[1];
+  return `${String(fallbackDate.getMonth() + 1).padStart(2, '0')}${String(fallbackDate.getDate()).padStart(2, '0')}`;
+}
+
+function normalizedComparablePath(value) {
+  return path.resolve(String(value || '')).toLocaleLowerCase('en-US');
+}
+
+function sameTemplateSource(left, right) {
+  if (!left || !right) return false;
+  if (normalizedComparablePath(left) === normalizedComparablePath(right)) return true;
+  return path.basename(left).toLocaleLowerCase('zh-CN') === path.basename(right).toLocaleLowerCase('zh-CN');
+}
+
+async function buildZipDownloadName(folder) {
+  const source = await readZipSourceMetadata(folder);
+  const templateFolderPath = source.templateFolderPath;
+  const templateName = safeSegment(templateFolderPath ? path.basename(templateFolderPath) : path.basename(folder), 'task');
+  const stamp = zipDateStamp(folder);
+  let sequence = 1;
+
+  try {
+    const parent = path.dirname(folder);
+    const siblings = await fsp.readdir(parent, { withFileTypes: true });
+    const matching = [];
+    for (const entry of siblings) {
+      if (!entry.isDirectory() || zipDateStamp(entry.name) !== stamp) continue;
+      const siblingFolder = path.join(parent, entry.name);
+      const siblingSource = await readZipSourceMetadata(siblingFolder);
+      if (sameTemplateSource(siblingSource.templateFolderPath, templateFolderPath)) matching.push(siblingFolder);
+    }
+    matching.sort((a, b) => path.basename(a).localeCompare(path.basename(b), 'zh-CN', { numeric: true }));
+    const index = matching.findIndex(item => path.resolve(item) === path.resolve(folder));
+    if (index >= 0) sequence = index + 1;
+  } catch {
+    sequence = 1;
+  }
+
+  return `${templateName}-${stamp}-${String(sequence).padStart(2, '0')}`;
 }
 
 async function collectZipEntries(root, folder = root, entries = []) {
@@ -1204,9 +1259,10 @@ async function startServer() {
       const stat = folder ? await fsp.stat(folder).catch(() => null) : null;
       if (!stat?.isDirectory()) return res.sendStatus(404);
       const archive = await createFolderZip(folder);
+      const downloadName = await buildZipDownloadName(folder);
       res.set({
         'Content-Type': 'application/zip',
-        'Content-Disposition': zipAttachmentName(path.basename(folder)),
+        'Content-Disposition': zipAttachmentName(downloadName),
         'Cache-Control': 'private, no-cache'
       });
       return res.send(archive);
@@ -1278,4 +1334,17 @@ if (require.main === module) startServer().catch(error => {
   process.exitCode = 1;
 });
 
-module.exports = { addAssetFiles, canAccessRpc, createAssetThumbnail, decodeFileToken, deleteAssetFiles, isWithin, normalizedThumbnailWidth, safeRelative, startServer, UPLOAD_FILE_LIMIT_MB, writeJob };
+module.exports = {
+  addAssetFiles,
+  buildZipDownloadName,
+  canAccessRpc,
+  createAssetThumbnail,
+  decodeFileToken,
+  deleteAssetFiles,
+  isWithin,
+  normalizedThumbnailWidth,
+  safeRelative,
+  startServer,
+  UPLOAD_FILE_LIMIT_MB,
+  writeJob
+};

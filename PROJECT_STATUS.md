@@ -1,5 +1,11 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Template-based ZIP download names
+
+- Task ZIP downloads now use the source template folder name, task date stamp, and a two-digit sequence, for example `款式1-0715-02.zip`.
+- The sequence is calculated among output tasks from the same template folder on the same date; image names and paths inside the ZIP are unchanged.
+- Verification completed: `node --check apps/api/src/server.js`, `npm test -w @caishen/api -- tests/server-zip-name.test.js`.
+
 ## 2026-07-15 Update - Single-image regeneration feedback
 
 - Single-image regeneration in manual review now shows immediate in-page feedback instead of waiting silently for the image API response.
