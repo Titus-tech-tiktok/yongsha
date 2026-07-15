@@ -2550,8 +2550,9 @@ input:focus, textarea:focus, select:focus {
 .review-regenerate-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 80;
-  background: rgba(10, 19, 31, .55);
+  z-index: 120;
+  background: #0a121d9e;
+  backdrop-filter: blur(6px);
   display: grid;
   place-items: center;
   padding: 24px;
@@ -2560,10 +2561,10 @@ input:focus, textarea:focus, select:focus {
 .review-regenerate-modal {
   width: min(980px, 96vw);
   max-height: min(820px, 92vh);
-  background: var(--surface);
+  background: var(--paper);
   border-radius: 12px;
-  box-shadow: 0 28px 70px rgba(10, 19, 31, .34);
-  border: 1px solid var(--line);
+  box-shadow: 0 34px 90px #050b1457;
+  border: 1px solid #ffffff38;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
@@ -2580,11 +2581,13 @@ input:focus, textarea:focus, select:focus {
 
 .review-regenerate-modal header {
   border-bottom: 1px solid var(--line);
+  background: var(--paper);
 }
 
 .review-regenerate-modal footer {
   border-top: 1px solid var(--line);
   justify-content: flex-end;
+  background: var(--paper);
 }
 
 .review-regenerate-modal h2 {
@@ -2612,6 +2615,7 @@ input:focus, textarea:focus, select:focus {
   padding: 18px 22px 22px;
   display: grid;
   gap: 16px;
+  background: var(--paper);
 }
 
 .review-regenerate-field b,
@@ -2624,6 +2628,7 @@ input:focus, textarea:focus, select:focus {
   width: 100%;
   resize: vertical;
   min-height: 96px;
+  background: #fff;
 }
 
 .review-regenerate-check {
