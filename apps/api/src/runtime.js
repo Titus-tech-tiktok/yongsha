@@ -173,14 +173,14 @@ function requireApiConfig(channel = 'image') {
   return settings;
 }
 
-const IMAGE_API_CONCURRENCY = Math.min(50, Math.max(1, Number(
+const DEFAULT_IMAGE_API_CONCURRENCY = Math.min(50, Math.max(1, Number(
   process.env.CAISHEN_IMAGE_API_MAX_CONCURRENCY
   || 30
 )));
-const IMAGE_API_INITIAL_CONCURRENCY = Math.min(IMAGE_API_CONCURRENCY, Math.max(1, Number(
+const DEFAULT_IMAGE_API_INITIAL_CONCURRENCY = Math.min(DEFAULT_IMAGE_API_CONCURRENCY, Math.max(1, Number(
   process.env.CAISHEN_IMAGE_API_INITIAL_CONCURRENCY || 8
 )));
-const IMAGE_API_START_INTERVAL_MS = Math.max(0, Number(
+const DEFAULT_IMAGE_API_START_INTERVAL_MS = Math.max(0, Number(
   process.env.CAISHEN_IMAGE_API_START_INTERVAL_MS
   || 500
 ));
@@ -197,9 +197,9 @@ const IMAGE_API_TIMEOUT_MS = Math.max(1000, Number(process.env.CAISHEN_IMAGE_API
 const IMAGE_URL_TIMEOUT_MS = Math.max(1000, Number(process.env.CAISHEN_IMAGE_URL_TIMEOUT_MS || 300000));
 const ANALYSIS_RETRY_BASE_MS = Math.max(1, Number(process.env.CAISHEN_ANALYSIS_RETRY_BASE_MS || 600));
 const imageApiScheduler = new AdaptiveImageScheduler({
-  initialConcurrency: IMAGE_API_INITIAL_CONCURRENCY,
-  maxConcurrency: IMAGE_API_CONCURRENCY,
-  minStartIntervalMs: IMAGE_API_START_INTERVAL_MS,
+  initialConcurrency: DEFAULT_IMAGE_API_INITIAL_CONCURRENCY,
+  maxConcurrency: DEFAULT_IMAGE_API_CONCURRENCY,
+  minStartIntervalMs: DEFAULT_IMAGE_API_START_INTERVAL_MS,
   healthyWindowSize: 10,
   healthySuccessRatio: 0.9,
   maxAttempts: IMAGE_API_MAX_ATTEMPTS,
@@ -300,6 +300,26 @@ function normalizeRequestTimeoutSeconds(value, fallback = 300) {
   return Math.round(number);
 }
 
+function normalizeImageConcurrencySettings(value = {}, fallback = {}) {
+  const maxValue = Number(value.imageMaxConcurrency ?? value.ImageMaxConcurrency ?? fallback.imageMaxConcurrency ?? DEFAULT_IMAGE_API_CONCURRENCY);
+  const initialValue = Number(value.imageInitialConcurrency ?? value.ImageInitialConcurrency ?? fallback.imageInitialConcurrency ?? DEFAULT_IMAGE_API_INITIAL_CONCURRENCY);
+  const intervalValue = Number(value.imageStartIntervalMs ?? value.ImageStartIntervalMs ?? fallback.imageStartIntervalMs ?? DEFAULT_IMAGE_API_START_INTERVAL_MS);
+  const maxConcurrency = Math.min(50, Math.max(1, Math.trunc(Number.isFinite(maxValue) ? maxValue : DEFAULT_IMAGE_API_CONCURRENCY)));
+  const initialConcurrency = Math.min(maxConcurrency, Math.max(1, Math.trunc(Number.isFinite(initialValue) ? initialValue : DEFAULT_IMAGE_API_INITIAL_CONCURRENCY)));
+  const startInterval = Math.min(60000, Math.max(0, Math.trunc(Number.isFinite(intervalValue) ? intervalValue : DEFAULT_IMAGE_API_START_INTERVAL_MS)));
+  return { imageInitialConcurrency: initialConcurrency, imageMaxConcurrency: maxConcurrency, imageStartIntervalMs: startInterval };
+}
+
+function applyImageSchedulerSettings(settings = {}) {
+  const normalized = normalizeImageConcurrencySettings(settings);
+  imageApiScheduler.configure({
+    initialConcurrency: normalized.imageInitialConcurrency,
+    maxConcurrency: normalized.imageMaxConcurrency,
+    minStartIntervalMs: normalized.imageStartIntervalMs
+  });
+  return normalized;
+}
+
 function normalizeAnalysisWireApi(value, fallback = 'chat_completions') {
   const text = String(value || fallback || 'chat_completions').trim().toLowerCase().replaceAll('-', '_');
   if (text === 'responses') return 'responses';
@@ -332,6 +352,7 @@ function maskedApiKey(value) {
 async function readPrivateApiSettings() {
   const saved = await readGlobalSettingWithLegacy(apiSettingsFile(), 'api-settings.json');
   const legacyImageKey = String(saved.key || ENV_API.imageKey || ENV_API.key || '').trim();
+  const concurrency = normalizeImageConcurrencySettings(saved);
   const next = {
     version: 2,
     serviceUrl: String(saved.serviceUrl || ENV_API.serviceUrl || '').trim(),
@@ -342,9 +363,11 @@ async function readPrivateApiSettings() {
     analysisModel: normalizeModelName(saved.analysisModel, ENV_API.analysisModel),
     analysisWireApi: normalizeAnalysisWireApi(saved.analysisWireApi, ENV_API.analysisWireApi),
     responseFormat: normalizeResponseFormat(saved.responseFormat, ENV_API.responseFormat),
-    requestTimeoutSeconds: normalizeRequestTimeoutSeconds(saved.requestTimeoutSeconds, ENV_API.requestTimeoutSeconds)
+    requestTimeoutSeconds: normalizeRequestTimeoutSeconds(saved.requestTimeoutSeconds, ENV_API.requestTimeoutSeconds),
+    ...concurrency
   };
   runtimeApiSettings = next;
+  applyImageSchedulerSettings(next);
   return next;
 }
 
@@ -359,6 +382,7 @@ function publicApiSettings(value = currentApiSettings()) {
     analysisWireApi: normalizeAnalysisWireApi(value.analysisWireApi, ENV_API.analysisWireApi),
     responseFormat: normalizeResponseFormat(value.responseFormat, ENV_API.responseFormat),
     requestTimeoutSeconds: normalizeRequestTimeoutSeconds(value.requestTimeoutSeconds, ENV_API.requestTimeoutSeconds),
+    ...normalizeImageConcurrencySettings(value),
     imageKeyConfigured: Boolean(value.imageKey),
     imageKeyMasked: maskedApiKey(value.imageKey),
     analysisKeyConfigured: Boolean(value.analysisKey),
@@ -376,6 +400,7 @@ async function loadApiSettings() {
 async function saveApiSettings(payload = {}) {
   const operation = apiSettingsWriteChain.then(async () => {
     const current = await readPrivateApiSettings();
+    const concurrency = normalizeImageConcurrencySettings(payload, current);
     const next = {
       version: 2,
       serviceUrl: current.serviceUrl,
@@ -386,13 +411,15 @@ async function saveApiSettings(payload = {}) {
       analysisModel: normalizeModelName(payload.analysisModel, current.analysisModel),
       analysisWireApi: normalizeAnalysisWireApi(payload.analysisWireApi, current.analysisWireApi),
       responseFormat: normalizeResponseFormat(payload.responseFormat, current.responseFormat),
-      requestTimeoutSeconds: normalizeRequestTimeoutSeconds(payload.requestTimeoutSeconds, current.requestTimeoutSeconds)
+      requestTimeoutSeconds: normalizeRequestTimeoutSeconds(payload.requestTimeoutSeconds, current.requestTimeoutSeconds),
+      ...concurrency
     };
     if (!next.baseUrl) throw new Error('请填写 API 地址');
     if (!next.imageKey && !next.analysisKey) throw new Error('请至少填写一个 API 密钥');
     await fsp.mkdir(path.dirname(apiSettingsFile()), { recursive: true });
     await fsp.writeFile(apiSettingsFile(), JSON.stringify(next, null, 2), { encoding: 'utf8', mode: 0o600 });
     runtimeApiSettings = next;
+    applyImageSchedulerSettings(next);
     return publicApiSettings(next);
   });
   apiSettingsWriteChain = operation.catch(() => {});
@@ -2406,7 +2433,7 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
         : `正在处理 ${live.current}/${live.total}`
     }).catch(() => {});
   };
-  const results = await runWithConcurrency(jobs, IMAGE_API_CONCURRENCY, async job => {
+  const results = await runWithConcurrency(jobs, currentApiSettings().imageMaxConcurrency || DEFAULT_IMAGE_API_CONCURRENCY, async job => {
     try {
       if (options.signal?.aborted) throw new Error('任务已停止');
       const result = await generateTemplateJob(job, source, config, {

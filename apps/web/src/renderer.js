@@ -3559,6 +3559,9 @@ function renderApiSettings() {
   $('#analysisWireApi').value = settings.analysisWireApi || 'chat_completions';
   $('#apiResponseFormat').value = settings.responseFormat || 'url';
   $('#apiRequestTimeout').value = String(settings.requestTimeoutSeconds || 300);
+  $('#imageInitialConcurrency').value = String(settings.imageInitialConcurrency || 8);
+  $('#imageMaxConcurrency').value = String(settings.imageMaxConcurrency || 30);
+  $('#imageStartIntervalMs').value = String(settings.imageStartIntervalMs ?? 500);
   $('#imageSize').value = state.config?.imageSize || '1024x1024';
   $('#imageQuality').value = state.config?.imageQuality || 'auto';
 
@@ -3663,7 +3666,10 @@ function apiSettingsPayload() {
     analysisModel: $('#analysisModel').value.trim(),
     analysisWireApi: $('#analysisWireApi').value,
     responseFormat: $('#apiResponseFormat').value,
-    requestTimeoutSeconds: Number($('#apiRequestTimeout').value)
+    requestTimeoutSeconds: Number($('#apiRequestTimeout').value),
+    imageInitialConcurrency: Number($('#imageInitialConcurrency').value),
+    imageMaxConcurrency: Number($('#imageMaxConcurrency').value),
+    imageStartIntervalMs: Number($('#imageStartIntervalMs').value)
   };
 }
 

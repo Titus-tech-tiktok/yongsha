@@ -221,6 +221,9 @@
                   <label>文字接口协议<select id="analysisWireApi"><option value="chat_completions">Chat Completions（推荐）</option><option value="responses">Responses API</option></select></label>
                   <label>图片响应格式<select id="apiResponseFormat"><option value="url">图片链接（推荐）</option><option value="b64_json">Base64</option></select></label>
                   <label>请求超时<select id="apiRequestTimeout"><option value="60">60 秒</option><option value="120">120 秒</option><option value="180">180 秒</option><option value="300">300 秒</option></select></label>
+                  <label>生图初始并发<input id="imageInitialConcurrency" type="number" min="1" max="50" step="1" value="8"></label>
+                  <label>生图最高并发<input id="imageMaxConcurrency" type="number" min="1" max="50" step="1" value="30"></label>
+                  <label>启动间隔毫秒<input id="imageStartIntervalMs" type="number" min="0" max="60000" step="100" value="500"></label>
                   <div class="api-fixed-parameter"><b>单任务生成数量</b><span>固定 1 张；批量数量由生成任务列表控制。</span></div>
                 </div>
               </details>

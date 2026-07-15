@@ -48,15 +48,30 @@ test('API settings keep Change2Pro image and analysis credentials isolated', asy
       imageModel: 'gpt-image-custom',
       analysisModel: 'gpt-analysis-custom',
       responseFormat: 'url',
-      requestTimeoutSeconds: 180
+      requestTimeoutSeconds: 180,
+      imageInitialConcurrency: 9,
+      imageMaxConcurrency: 21,
+      imageStartIntervalMs: 250
     });
     assert.equal(saved.version, 2);
     assert.equal(saved.baseUrl, 'https://api.change2pro.com');
     assert.equal(saved.imageKeyConfigured, true);
     assert.equal(saved.analysisKeyConfigured, true);
     assert.equal(saved.configured, true);
+    assert.equal(saved.imageInitialConcurrency, 9);
+    assert.equal(saved.imageMaxConcurrency, 21);
+    assert.equal(saved.imageStartIntervalMs, 250);
     assert.equal(Object.hasOwn(saved, 'imageApiKey'), false);
     assert.equal(Object.hasOwn(saved, 'analysisApiKey'), false);
+    assert.deepEqual({
+      currentConcurrency: runtime.getImageSchedulerSnapshot().currentConcurrency,
+      maxConcurrency: runtime.getImageSchedulerSnapshot().maxConcurrency,
+      minStartIntervalMs: runtime.getImageSchedulerSnapshot().minStartIntervalMs
+    }, {
+      currentConcurrency: 9,
+      maxConcurrency: 21,
+      minStartIntervalMs: 250
+    });
 
     const preserved = await runtime.saveApiSettings({
       ...saved,

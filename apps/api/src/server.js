@@ -954,7 +954,8 @@ async function startServer() {
       activeImageRequests: queue.active,
       queuedImageRequests: queue.queued,
       currentImageConcurrency: queue.currentConcurrency,
-      maxImageConcurrency: queue.maxConcurrency
+      maxImageConcurrency: queue.maxConcurrency,
+      imageStartIntervalMs: queue.minStartIntervalMs
     });
   });
 

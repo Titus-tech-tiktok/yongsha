@@ -1,5 +1,11 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Admin image concurrency controls
+
+- Super admins can now adjust image API initial concurrency, max concurrency, and start interval in System Settings > API Settings.
+- Saved values persist in the global API settings and hot-update the adaptive image queue without code changes; health output includes the current start interval.
+- Verification completed: `node --check apps/api/src/runtime.js`, `node --check apps/api/src/core/adaptive-image-scheduler.js`, `node --check apps/api/src/server.js`, `node --check apps/web/src/renderer.js`, `node --test apps/api/tests/runtime-api-settings.test.js apps/api/tests/core-adaptive-image-scheduler.test.js apps/api/tests/server-health.test.js apps/api/tests/runtime-image-retry.test.js`, `npm run build -w @caishen/web`, `git diff --check`.
+
 ## 2026-07-15 Update - Image API concurrency defaults
 
 - Changed the adaptive image API queue defaults to start at 8 concurrent requests and scale up to 30 when the upstream remains healthy.

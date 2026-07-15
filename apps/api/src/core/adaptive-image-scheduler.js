@@ -61,8 +61,23 @@ class AdaptiveImageScheduler {
       active: this.active,
       queued: this.queue.filter(item => !item.settled).length,
       currentConcurrency: this.currentConcurrency,
-      maxConcurrency: this.maxConcurrency
+      maxConcurrency: this.maxConcurrency,
+      minStartIntervalMs: this.minStartIntervalMs
     };
+  }
+
+  configure(options = {}) {
+    const nextMax = boundedInteger(options.maxConcurrency, this.maxConcurrency, 1, 50);
+    const requestedCurrent = Object.prototype.hasOwnProperty.call(options, 'initialConcurrency')
+      ? options.initialConcurrency
+      : this.currentConcurrency;
+    this.maxConcurrency = nextMax;
+    this.currentConcurrency = boundedInteger(requestedCurrent, Math.min(this.currentConcurrency, nextMax), 1, nextMax);
+    if (Object.prototype.hasOwnProperty.call(options, 'minStartIntervalMs')) {
+      this.minStartIntervalMs = boundedInteger(options.minStartIntervalMs, this.minStartIntervalMs, 0);
+    }
+    this._pump();
+    return this.snapshot();
   }
 
   schedule(operation, options = {}) {

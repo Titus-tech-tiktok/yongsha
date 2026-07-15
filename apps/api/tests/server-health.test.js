@@ -26,6 +26,7 @@ test('health endpoint exposes deployment and image queue state only', async () =
       'activeImageRequests',
       'commit',
       'currentImageConcurrency',
+      'imageStartIntervalMs',
       'maxImageConcurrency',
       'ok',
       'queuedImageRequests',
