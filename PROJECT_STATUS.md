@@ -1,5 +1,11 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Image API concurrency defaults
+
+- Changed the adaptive image API queue defaults to start at 8 concurrent requests and scale up to 30 when the upstream remains healthy.
+- Updated `.env.example` to document `CAISHEN_IMAGE_API_INITIAL_CONCURRENCY=8` and `CAISHEN_IMAGE_API_MAX_CONCURRENCY=30`.
+- Verification completed: `node --check apps/api/src/runtime.js`, `npm test -w @caishen/api -- tests/core-adaptive-image-scheduler.test.js tests/runtime-image-retry.test.js`.
+
 ## 2026-07-15 Update - Template-based ZIP download names
 
 - Task ZIP downloads now use the source template folder name, task date stamp, and a two-digit sequence, for example `款式1-0715-02.zip`.

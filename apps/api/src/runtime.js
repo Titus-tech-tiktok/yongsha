@@ -175,10 +175,10 @@ function requireApiConfig(channel = 'image') {
 
 const IMAGE_API_CONCURRENCY = Math.min(50, Math.max(1, Number(
   process.env.CAISHEN_IMAGE_API_MAX_CONCURRENCY
-  || 50
+  || 30
 )));
 const IMAGE_API_INITIAL_CONCURRENCY = Math.min(IMAGE_API_CONCURRENCY, Math.max(1, Number(
-  process.env.CAISHEN_IMAGE_API_INITIAL_CONCURRENCY || 4
+  process.env.CAISHEN_IMAGE_API_INITIAL_CONCURRENCY || 8
 )));
 const IMAGE_API_START_INTERVAL_MS = Math.max(0, Number(
   process.env.CAISHEN_IMAGE_API_START_INTERVAL_MS
