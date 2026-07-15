@@ -555,6 +555,26 @@ async function cancelJob(id) {
   return job;
 }
 
+async function cancelWorkspaceJobs(workspaceId = runtime.WORKSPACE_ID) {
+  const ids = new Set();
+  for (const job of pendingJobs) {
+    if (job.workspaceId === workspaceId) ids.add(job.id);
+  }
+  for (const id of activeJobControllers.keys()) {
+    const job = await readJob(id);
+    if (job?.workspaceId === workspaceId) ids.add(id);
+  }
+  const cancelled = [];
+  for (const id of ids) {
+    const job = await cancelJob(id);
+    if (job) cancelled.push(job);
+  }
+  return {
+    count: cancelled.length,
+    jobs: cancelled.map(publicJob)
+  };
+}
+
 async function initializeJobs() {
   await fsp.mkdir(jobRoot(), { recursive: true });
   const files = await fsp.readdir(jobRoot()).catch(() => []);
@@ -871,6 +891,7 @@ async function deleteAssetFiles(kindValue, requestedRoot, paths = []) {
 
 const rpc = {
   getConfig: async () => publicConfig(await runtime.loadConfig()),
+  getApiConcurrencySettings: () => runtime.publicApiConcurrencySettings(),
   getApiSettings: () => runtime.loadApiSettings(),
   saveApiSettings: ([payload]) => runtime.saveApiSettings(payload || {}),
   testApiSettings: ([payload]) => runtime.testApiSettings(payload || {}),
@@ -1182,6 +1203,10 @@ async function startServer() {
     const job = await cancelJob(req.params.id);
     if (!job) return res.sendStatus(404);
     return res.json({ data: publicJob(job) });
+  });
+
+  app.post('/api/jobs/cancel-active', async (req, res) => {
+    return res.json({ data: await cancelWorkspaceJobs(req.user.workspaceId) });
   });
 
   app.post('/api/assets/sync/prepare/:kind', async (req, res, next) => {

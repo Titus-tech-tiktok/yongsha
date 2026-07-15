@@ -123,6 +123,7 @@ const state = {
   reviews: [],
   activeReview: null,
   activeReviewGenerationJobId: '',
+  stopGenerationRequested: false,
   reviewLogFilter: 'all',
   viewedReviewJobs: new Set(),
   regeneratingReviewJobs: new Set(),
@@ -140,6 +141,7 @@ const state = {
   activePromptId: '',
   freePromptDefaultApplied: false,
   apiSettings: null,
+  apiConcurrencySettings: null,
   imageApiModels: [],
   analysisApiModels: [],
   apiModelChannel: 'image',
@@ -2083,16 +2085,43 @@ async function startTemplateSetsFromAllMasters() {
 async function generateAllTemplateMasterCandidates() {
   const selected = selectedTemplateMasterCandidates();
   if (!selected.length) return toast('请先勾选要生成的母版任务', true);
-  await Promise.all(selected.map(refreshTemplateMasterReference));
+  await runClientConcurrency(selected, await apiBatchConcurrencyLimit(selected.length), refreshTemplateMasterReference);
   const runnable = selected.filter(candidate =>
     candidate.masterReferencePath
     && candidate.printPath
     && !['生成中', '重新生成'].includes(candidate.masterStatus)
   );
   if (!runnable.length) return toast('没有可生成的母版任务卡', true);
-  for (const candidate of runnable) {
-    await generateTemplateMasterCandidate(candidate.id);
+  await runClientConcurrency(runnable, await apiBatchConcurrencyLimit(runnable.length), candidate => generateTemplateMasterCandidate(candidate.id));
+}
+
+async function apiBatchConcurrencyLimit(total = Infinity) {
+  if (!state.apiConcurrencySettings) {
+    try {
+      state.apiConcurrencySettings = await window.caishen.getApiConcurrencySettings();
+    } catch {
+      state.apiConcurrencySettings = { imageInitialConcurrency: 8, imageMaxConcurrency: 8, imageStartIntervalMs: 500 };
+    }
   }
+  const configured = Number(state.apiConcurrencySettings?.imageMaxConcurrency);
+  const max = Math.min(50, Math.max(1, Math.trunc(Number.isFinite(configured) ? configured : 8)));
+  const count = Number(total);
+  return Number.isFinite(count) ? Math.min(max, Math.max(1, Math.trunc(count))) : max;
+}
+
+async function runClientConcurrency(items, limit, worker) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return [];
+  const results = new Array(list.length);
+  let cursor = 0;
+  async function run() {
+    while (cursor < list.length) {
+      const index = cursor++;
+      results[index] = await worker(list[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, Number(limit) || 1), list.length) }, run));
+  return results;
 }
 
 function queueTaskPreviews(task) {
@@ -2348,6 +2377,7 @@ async function generateTemplateMasterCandidate(candidateId) {
 }
 
 async function generateQueue(options = {}) {
+  state.stopGenerationRequested = false;
   const selected = state.queue.filter(task => task.selected);
   let source = selected.length ? selected : state.queue;
   if (source.length && source.every(task => task.status === '已完成')) {
@@ -2403,40 +2433,58 @@ async function generateQueue(options = {}) {
     grouped.get(groupKey).push(task);
   }
   const taskGroups = [...grouped.values()];
-  let cursor = 0;
-  async function worker() {
-    while (cursor < taskGroups.length) {
-      const tasks = taskGroups[cursor++];
-      const task = tasks[0];
-      const payload = tasks.length > 1
-        ? { ...task, templateRelativePaths: tasks.map(item => item.templateRelativePath).filter(Boolean) }
-        : { ...task, templateRelativePaths: task.templateRelativePath ? [task.templateRelativePath] : [] };
-      tasks.forEach(item => { item.status = '生成中'; });
+  for (let groupIndex = 0; groupIndex < taskGroups.length; groupIndex += 1) {
+    if (state.stopGenerationRequested) {
+      taskGroups.slice(groupIndex).flat().forEach(item => {
+        if (item.status === '排队中') {
+          item.status = '未开始';
+          item.progress = { ...(item.progress || {}), phase: 'stopped', message: '已停止，重新点击生成后再处理' };
+        }
+      });
       renderQueue();
-      try {
-        const result = await window.caishen.generateTask(payload, progress => {
-          tasks.forEach(item => {
-            item.progress = { ...(item.progress || {}), ...(progress || {}) };
-            item.status = item.progress.phase === 'queued' ? '排队中' : '生成中';
-          });
-          renderQueue();
-        });
-        tasks.forEach(item => {
-          item.result = result;
-          item.status = '已完成';
-          item.progress = { ...(item.progress || {}), ...(result?.summary || {}), phase: 'completed', percent: 100, message: '处理完成' };
-        });
-      } catch (error) {
-        tasks.forEach(item => {
-          item.status = '失败';
-          item.error = errorText(error);
-          item.progress = { ...(item.progress || {}), phase: 'failed', message: item.error };
-        });
-      }
-      renderQueue();
+      break;
     }
+    const tasks = taskGroups[groupIndex];
+    const task = tasks[0];
+    const payload = tasks.length > 1
+      ? { ...task, templateRelativePaths: tasks.map(item => item.templateRelativePath).filter(Boolean) }
+      : { ...task, templateRelativePaths: task.templateRelativePath ? [task.templateRelativePath] : [] };
+    tasks.forEach(item => { item.status = '生成中'; });
+    renderQueue();
+    try {
+      const result = await window.caishen.generateTask(payload, progress => {
+        tasks.forEach(item => {
+          item.progress = { ...(item.progress || {}), ...(progress || {}) };
+          item.status = item.progress.phase === 'queued' ? '排队中' : '生成中';
+        });
+        renderQueue();
+      });
+      tasks.forEach(item => {
+        item.result = result;
+        item.status = '已完成';
+        item.progress = { ...(item.progress || {}), ...(result?.summary || {}), phase: 'completed', percent: 100, message: '处理完成' };
+      });
+    } catch (error) {
+      tasks.forEach(item => {
+        item.status = '失败';
+        item.error = errorText(error);
+        item.progress = { ...(item.progress || {}), phase: 'failed', message: item.error };
+      });
+      if (state.stopGenerationRequested || /手动停止|强制停止/.test(errorText(error))) {
+        state.stopGenerationRequested = true;
+      }
+    }
+    renderQueue();
   }
-  await Promise.all(Array.from({ length: Math.min(50, taskGroups.length) }, worker));
+  if (state.stopGenerationRequested) {
+    runnable.forEach(item => {
+      if (item.status === '排队中') {
+        item.status = '未开始';
+        item.progress = { ...(item.progress || {}), phase: 'stopped', message: '已停止，重新点击生成后再处理' };
+      }
+    });
+    renderQueue();
+  }
   $('#generateAllButton').disabled = false;
   const failed = runnable.filter(task => task.status === '失败').length;
   const uniqueResults = new Map();
@@ -2496,20 +2544,19 @@ function reviewGenerationSummary(item) {
 function renderReviewGenerationControls() {
   const stopButton = $('#stopReviewGenerationButton');
   if (!stopButton) return;
-  stopButton.disabled = !state.activeReviewGenerationJobId;
-  stopButton.textContent = state.activeReviewGenerationJobId ? '立即停止当前任务' : '没有运行任务';
+  stopButton.disabled = false;
+  stopButton.textContent = '强制停止全部任务';
 }
 
 async function stopCurrentReviewGeneration() {
-  const jobId = state.activeReviewGenerationJobId;
-  if (!jobId) return toast('当前没有正在运行的生成任务', true);
   const button = $('#stopReviewGenerationButton');
   button.disabled = true;
   button.textContent = '正在停止…';
   try {
-    await window.caishen.cancelJob(jobId);
+    const result = await window.caishen.cancelActiveJobs();
+    state.stopGenerationRequested = true;
     state.activeReviewGenerationJobId = '';
-    toast('已发送停止指令，正在刷新任务状态');
+    toast(Number(result?.count) > 0 ? `已强制停止 ${result.count} 个后台任务` : '已发送停止指令，当前没有排队或运行中的后台任务');
     await loadReviews();
   } catch (error) {
     toast(errorText(error), true);
@@ -2626,6 +2673,10 @@ function renderReviewTrackingLog(item, summary, running) {
       const updated = formatLocalDateTime(summary.updatedAt || Date.now());
       return updated ? `更新 ${updated}` : '';
     }
+    if ((running || entry.state.key === 'pending') && summary.updatedAt) {
+      const updated = formatLocalDateTime(summary.updatedAt);
+      return updated ? `更新 ${updated}` : '';
+    }
     return '';
   };
   const items = visible.length
@@ -2641,7 +2692,7 @@ function renderReviewTrackingLog(item, summary, running) {
     summary.completedAt ? `完成 ${formatLocalDateTime(summary.completedAt)}` : '',
     !summary.completedAt && summary.updatedAt ? `更新 ${formatLocalDateTime(summary.updatedAt)}` : ''
   ].filter(Boolean).join(' · ');
-  $('#reviewOperationLog').innerHTML = `<div class="review-log-summary"><b>${running ? '任务正在处理' : counts.failed ? '任务需要处理' : '任务处理完成'}</b><span>${summary.current}/${summary.total} 张已处理</span><small>完成 ${counts.completed} · 失败 ${counts.failed} · 待处理 ${counts.pending} · 未查看 ${counts.unread}${summary.billingCostMinor ? ` · 成本 ${formatMoney(summary.billingCostMinor)}` : ''}${summaryTimes ? ` · ${escapeHtml(summaryTimes)}` : ''}</small></div><div class="review-log-filters">${filterButton('all', '全部', entries.length)}${filterButton('unread', '未查看', counts.unread)}${filterButton('completed', '完成', counts.completed)}${filterButton('failed', '失败', counts.failed)}${filterButton('pending', '待处理', counts.pending)}</div><div class="review-track-list">${items}</div><details class="review-log-history"><summary>查看任务记录</summary>${history}</details>`;
+  $('#reviewOperationLog').innerHTML = `<div class="review-log-summary"><b>${running ? '当前任务正在处理' : counts.failed ? '当前任务需要处理' : '当前任务处理完成'}</b><span>${summary.current}/${summary.total} 张已处理</span><small>完成 ${counts.completed} · 失败 ${counts.failed} · 待处理 ${counts.pending} · 未查看 ${counts.unread}${summary.billingCostMinor ? ` · 成本 ${formatMoney(summary.billingCostMinor)}` : ''}${summaryTimes ? ` · ${escapeHtml(summaryTimes)}` : ''}</small></div><div class="review-log-filters">${filterButton('all', '当前任务全部', entries.length)}${filterButton('unread', '未查看', counts.unread)}${filterButton('completed', '完成', counts.completed)}${filterButton('failed', '失败', counts.failed)}${filterButton('pending', '待处理', counts.pending)}</div><div class="review-track-list">${items}</div><details class="review-log-history"><summary>查看当前任务记录</summary>${history}</details>`;
 }
 
 async function loadReviews({ silent = false } = {}) {
@@ -3262,6 +3313,7 @@ function analyzeSelectedTemplateAssets() {
 }
 
 async function runReviewGeneration(onlyMissing, folders) {
+  state.stopGenerationRequested = false;
   const targets = Array.isArray(folders)
     ? [...new Set(folders)]
     : state.activeReview ? [state.activeReview.folder] : [];
@@ -3288,13 +3340,13 @@ async function runReviewGeneration(onlyMissing, folders) {
     if (state.activeReview?.folder === folder) state.activeReview = review;
   };
   try {
-    targets.forEach(folder => applyLocalProgress(folder, {
+    applyLocalProgress(targets[0], {
       phase: 'preparing',
       current: 0,
       percent: 0,
-      pending: Math.max(1, state.reviews.find(item => item.folder === folder)?.jobs?.length || 1),
+      pending: Math.max(1, state.reviews.find(item => item.folder === targets[0])?.jobs?.length || 1),
       message: onlyMissing ? '正在补生成缺失图片，任务已提交' : '正在重新生成整套图，任务已提交'
-    }));
+    });
     renderReviewList();
     renderReviewStagePreservingScroll();
     renderReviewGenerationControls();
@@ -3981,7 +4033,14 @@ async function saveSettings() {
       || state.apiSettings?.imageKeyConfigured
       || state.apiSettings?.analysisKeyConfigured
     );
-    if (shouldSaveApi) state.apiSettings = await window.caishen.saveApiSettings(apiPayload);
+    if (shouldSaveApi) {
+      state.apiSettings = await window.caishen.saveApiSettings(apiPayload);
+      state.apiConcurrencySettings = {
+        imageInitialConcurrency: state.apiSettings.imageInitialConcurrency,
+        imageMaxConcurrency: state.apiSettings.imageMaxConcurrency,
+        imageStartIntervalMs: state.apiSettings.imageStartIntervalMs
+      };
+    }
     state.config = await window.caishen.saveConfig(state.config);
     renderConfig();
     if (canSaveSystemSettings) renderApiSettings();

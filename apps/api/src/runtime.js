@@ -320,6 +320,18 @@ function applyImageSchedulerSettings(settings = {}) {
   return normalized;
 }
 
+function apiConcurrencyLimit(total = Infinity) {
+  const normalized = normalizeImageConcurrencySettings(currentApiSettings());
+  const max = Math.max(1, normalized.imageMaxConcurrency || DEFAULT_IMAGE_API_CONCURRENCY);
+  const count = Number(total);
+  if (!Number.isFinite(count)) return max;
+  return Math.min(max, Math.max(1, Math.trunc(count)));
+}
+
+function publicApiConcurrencySettings(value = currentApiSettings()) {
+  return normalizeImageConcurrencySettings(value);
+}
+
 function normalizeAnalysisWireApi(value, fallback = 'chat_completions') {
   const text = String(value || fallback || 'chat_completions').trim().toLowerCase().replaceAll('-', '_');
   if (text === 'responses') return 'responses';
@@ -1789,7 +1801,7 @@ async function prepareTemplateFolder(folderValue) {
   for (const job of jobs) {
     if (!(await templateAnalysisForJob(job)).cached) missing.push(job);
   }
-  const results = missing.length ? await runWithConcurrency(missing, 3, analyzeTemplateJob) : [];
+  const results = missing.length ? await runWithConcurrency(missing, apiConcurrencyLimit(missing.length), analyzeTemplateJob) : [];
   const failed = results.filter(result => !result.ok);
   const { items } = await collectTemplateItems(folder);
   return summarizeTemplatePreparation(folder, items, {
@@ -1982,7 +1994,7 @@ async function analyzeTemplateItems(payload = {}, options = {}) {
   if (!requested.size) throw new Error('请先选择需要 AI 分析的图片');
   const jobs = (await buildTemplateJobs(folder)).filter(job => requested.has(job.relativePath.replaceAll('\\', '/').toLocaleLowerCase('zh-CN')));
   if (!jobs.length) throw new Error('没有找到需要分析的套图图片');
-  const concurrency = Math.min(jobs.length, crypto.randomInt(2, 6));
+  const concurrency = apiConcurrencyLimit(jobs.length);
   let completed = 0;
   let failed = 0;
   const report = typeof options.reportProgress === 'function' ? options.reportProgress : async () => {};
@@ -2018,7 +2030,7 @@ async function analyzeTemplateItems(payload = {}, options = {}) {
 async function analyzeTemplateFolder(folder) {
   if (warmingTemplateFolders.has(folder)) throw new Error('当前套图正在后台分析，请稍后重新打开配置窗口。');
   const jobs = await buildTemplateJobs(folder);
-  const results = await runWithConcurrency(jobs, 3, analyzeTemplateJob);
+  const results = await runWithConcurrency(jobs, apiConcurrencyLimit(jobs.length), analyzeTemplateJob);
   const failed = results.filter(result => !result.ok);
   if (failed.length === jobs.length && jobs.length) throw failed[0].error;
   return listTemplates(folder);
@@ -2040,7 +2052,7 @@ function startTemplateAnalysisWarmup(folder, knownJobs = null) {
     for (const job of jobs) {
       if (!(await templateAnalysisForJob(job)).cached) missing.push(job);
     }
-    if (missing.length) await runWithConcurrency(missing, 2, analyzeTemplateJob);
+    if (missing.length) await runWithConcurrency(missing, apiConcurrencyLimit(missing.length), analyzeTemplateJob);
   })().catch(() => {}).finally(() => warmingTemplateFolders.delete(folder));
 }
 
@@ -2438,7 +2450,7 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
         : `正在处理 ${live.current}/${live.total}`
     }).catch(() => {});
   };
-  const results = await runWithConcurrency(jobs, currentApiSettings().imageMaxConcurrency || DEFAULT_IMAGE_API_CONCURRENCY, async job => {
+  const results = await runWithConcurrency(jobs, apiConcurrencyLimit(jobs.length), async job => {
     try {
       if (options.signal?.aborted) throw new Error('任务已停止');
       const result = await generateTemplateJob(job, source, config, {
@@ -2486,7 +2498,7 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
     if (masterImage && auditJobs.length) {
       await addOperationLog(folder, `开始 AI 质检：${auditJobs.length} 张`);
       await publishProgress({ ...live, phase: 'auditing', percent: 100, message: `图片处理完成，正在 AI 质检 ${auditJobs.length} 张` });
-      const audits = await runWithConcurrency(auditJobs, 10, item => auditGeneratedTemplate(masterImage, item.job, item.analysis));
+      const audits = await runWithConcurrency(auditJobs, apiConcurrencyLimit(auditJobs.length), item => auditGeneratedTemplate(masterImage, item.job, item.analysis));
       rejected = audits.filter(result => !result.ok || result.value?.passed === false).length;
     }
   }
@@ -3141,6 +3153,7 @@ const runtimeExports = {
   reviewFolders,
   saveConfig,
   saveApiSettings,
+  publicApiConcurrencySettings,
   savePromptSetting,
   saveTemplateConfiguration,
   saveTemplateProductProfile,

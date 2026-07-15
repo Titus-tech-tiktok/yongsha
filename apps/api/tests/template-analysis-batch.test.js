@@ -78,6 +78,68 @@ test('单张和批量 AI 分析失败会重试三次并持久显示最终状态'
 
 });
 
+test('批量 AI 分析使用系统 API 并发配置', async (t) => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-template-analysis-concurrency-'));
+  let active = 0;
+  let maxActive = 0;
+  const server = http.createServer((req, res) => {
+    if (req.url !== '/v1/chat/completions') return res.writeHead(404).end();
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    req.resume();
+    req.on('end', () => {
+      setTimeout(() => {
+        active -= 1;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+          version: 6,
+          action: 'replace_print',
+          confidence: 0.93,
+          reason: '商品场景图，柜门面板可以替换印花',
+          replace_area: '正面柜门外表面',
+          forbidden_area: '文字、背景、把手和柜体结构',
+          replace_regions: []
+        }) } }] }));
+      }, 25);
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    server.closeAllConnections?.();
+    await new Promise(resolve => server.close(resolve));
+    await fs.rm(temp, { recursive: true, force: true });
+  });
+
+  process.env.CAISHEN_DATA_DIR = temp;
+  process.env.CAISHEN_WORKSPACE_ID = 'template-analysis-concurrency';
+  process.env.CAISHEN_API_BASE_URL = `http://127.0.0.1:${server.address().port}/v1`;
+  process.env.CAISHEN_API_KEY = 'test-key';
+  process.env.CAISHEN_ANALYSIS_API_KEY = 'test-key';
+  process.env.CAISHEN_ANALYSIS_WIRE_API = 'chat_completions';
+  const runtimePath = require.resolve('../src/runtime');
+  delete require.cache[runtimePath];
+  const runtime = require('../src/runtime');
+  await runtime.initializeRuntime();
+  await runtime.saveApiSettings({
+    baseUrl: `http://127.0.0.1:${server.address().port}/v1`,
+    imageApiKey: 'image-key',
+    analysisApiKey: 'test-key',
+    imageInitialConcurrency: 7,
+    imageMaxConcurrency: 7,
+    imageStartIntervalMs: 0
+  });
+  const folder = path.join(runtime.WORKSPACE_ROOT, 'assets', 'template', 'set');
+  await fs.mkdir(folder, { recursive: true });
+  const names = Array.from({ length: 8 }, (_, index) => `${String(index + 1).padStart(2, '0')}.png`);
+  await Promise.all(names.map(name => sharp({ create: { width: 24, height: 24, channels: 3, background: '#d8c59b' } }).png().toFile(path.join(folder, name))));
+
+  const batch = await runtime.analyzeTemplateItems({ folder, relativePaths: names });
+  assert.equal(batch.concurrency, 7);
+  assert.equal(maxActive, 7);
+  assert.equal(batch.completed, 8);
+  assert.equal(batch.failed, 0);
+});
+
 test('paid analysis responses are not shown as failed when content needs local fallback', async (t) => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-template-analysis-paid-'));
   let mode = 'array';

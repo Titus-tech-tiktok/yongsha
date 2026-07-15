@@ -77,6 +77,13 @@ async function cancelJob(jobId) {
   return body.data;
 }
 
+async function cancelActiveJobs() {
+  const response = await fetch('/api/jobs/cancel-active', { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `停止任务失败：HTTP ${response.status}`);
+  return body.data;
+}
+
 function pickFiles({ accept = '', directory = false, multiple = false } = {}) {
   return new Promise(resolve => {
     const input = document.createElement('input');
@@ -304,7 +311,9 @@ window.caishen = {
   adjustBillingBalance: payload => authRequest('/api/billing/adjust', { method: 'POST', body: JSON.stringify(payload) }),
   clearBillingLedger: () => authRequest('/api/billing/ledger', { method: 'DELETE' }),
   cancelJob,
+  cancelActiveJobs,
   getConfig: () => rpc('getConfig'),
+  getApiConcurrencySettings: () => rpc('getApiConcurrencySettings'),
   getApiSettings: () => rpc('getApiSettings'),
   saveApiSettings: payload => rpc('saveApiSettings', payload),
   testApiSettings: payload => rpc('testApiSettings', payload),

@@ -107,7 +107,7 @@
         <div class="review-layout">
           <aside class="review-sidebar"><div class="review-sidebar-head"><h2>人工筛图</h2><div><button class="text-button" id="openCurrentReviewButton">任务文件</button><button class="text-button" id="refreshReviewsButton">刷新</button></div></div><input class="search" id="reviewSearch" placeholder="搜索任务"><select id="reviewFilter"><option>全部图片</option><option>待生成</option><option>AI不通过</option><option>待人工确认</option><option>已通过</option><option>直接套模板</option></select><div class="mini-actions review-mini-actions"><button class="secondary" id="selectAllReviewButton">全选</button><button class="secondary" id="clearReviewSelectionButton">取消</button><button class="secondary danger-outline" id="deleteSelectedReviewsButton">删除</button></div><div class="review-list" id="reviewList"></div></aside>
           <article class="review-stage" id="reviewStage"><div class="empty-state"><b>选择一个任务</b><span>点击左侧任务卡片查看套图生成结果。</span></div></article>
-          <aside class="review-log"><div class="review-log-head"><h2>任务动态</h2><span>生成中自动刷新</span></div><div id="reviewOperationLog"><span>选择任务后显示处理进度和操作记录。</span></div></aside>
+          <aside class="review-log"><div class="review-log-head"><h2>任务动态</h2><span>当前任务自动刷新</span></div><div id="reviewOperationLog"><span>选择任务后显示处理进度和操作记录。</span></div></aside>
         </div>
         <div class="review-bottom-actions"><button class="secondary danger-outline" id="stopReviewGenerationButton" title="立即停止当前正在等待的生成请求" disabled>立即停止当前任务</button><button class="primary" id="downloadSelectedReviewsButton" title="下载左侧已勾选任务；未勾选时下载当前打开任务">下载任务 ZIP</button><button class="primary" id="generateMissingTemplatesButton" title="只处理当前打开任务中缺失的图片">补生成缺失图片</button><button class="primary" id="batchGenerateMissingButton" title="处理当前搜索和筛选结果中的全部可见任务">批量补生成</button><button class="primary" id="regenerateTemplateSetButton" title="只处理当前打开的任务">重新生成整套图</button><button class="primary" id="batchApproveReviewsButton" title="处理当前搜索和筛选结果中的全部可见任务">批量确认通过</button></div>
       </section>
@@ -221,9 +221,9 @@
                   <label>文字接口协议<select id="analysisWireApi"><option value="chat_completions">Chat Completions（推荐）</option><option value="responses">Responses API</option></select></label>
                   <label>图片响应格式<select id="apiResponseFormat"><option value="url">图片链接（推荐）</option><option value="b64_json">Base64</option></select></label>
                   <label>请求超时<select id="apiRequestTimeout"><option value="60">60 秒</option><option value="120">120 秒</option><option value="180">180 秒</option><option value="300">300 秒</option></select></label>
-                  <label>生图初始并发<input id="imageInitialConcurrency" type="number" min="1" max="50" step="1" value="8"></label>
-                  <label>生图最高并发<input id="imageMaxConcurrency" type="number" min="1" max="50" step="1" value="30"></label>
-                  <label>启动间隔毫秒<input id="imageStartIntervalMs" type="number" min="0" max="60000" step="100" value="500"></label>
+                  <label>API 初始并发<input id="imageInitialConcurrency" type="number" min="1" max="50" step="1" value="8"></label>
+                  <label>API 最高并发<input id="imageMaxConcurrency" type="number" min="1" max="50" step="1" value="30"></label>
+                  <label>API 启动间隔毫秒<input id="imageStartIntervalMs" type="number" min="0" max="60000" step="100" value="500"></label>
                   <div class="api-fixed-parameter"><b>单任务生成数量</b><span>固定 1 张；批量数量由生成任务列表控制。</span></div>
                 </div>
               </details>
