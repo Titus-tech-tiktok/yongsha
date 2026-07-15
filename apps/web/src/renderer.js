@@ -2569,6 +2569,13 @@ function markReviewJobViewed(item, job) {
   persistViewedReviewJobs();
 }
 
+function renderReviewStagePreservingScroll() {
+  const stage = $('#reviewStage');
+  const top = stage ? stage.scrollTop : 0;
+  renderReviewStage();
+  if (stage) stage.scrollTop = top;
+}
+
 function renderReviewTrackingLog(item, summary, running) {
   const jobs = item?.jobs || [];
   const activeRelativePath = normalizedRelativePath(summary?.activeRelativePath);
@@ -2578,6 +2585,7 @@ function renderReviewTrackingLog(item, summary, running) {
     state: reviewJobTrackingState({ ...job, regenerating: state.regeneratingReviewJobs.has(reviewJobActionKey(item, job)) || (running && activeRelativePath && normalizedRelativePath(job.relativePath) === activeRelativePath) }, running),
     viewed: state.viewedReviewJobs.has(reviewJobViewedKey(item, job))
   }));
+  const stateRank = entry => entry.state.key === 'pending' ? 0 : entry.state.key === 'failed' ? 1 : 2;
   const counts = entries.reduce((result, entry) => {
     result[entry.state.key] += 1;
     if (!entry.viewed) result.unread += 1;
@@ -2585,7 +2593,7 @@ function renderReviewTrackingLog(item, summary, running) {
   }, { completed: 0, failed: 0, pending: 0, unread: 0 });
   const activeFilter = ['all', 'unread', 'completed', 'failed', 'pending'].includes(state.reviewLogFilter) ? state.reviewLogFilter : 'all';
   const visible = activeFilter === 'all'
-    ? entries
+    ? entries.slice().sort((left, right) => stateRank(left) - stateRank(right) || left.index - right.index)
     : activeFilter === 'unread' ? entries.filter(entry => !entry.viewed) : entries.filter(entry => entry.state.key === activeFilter);
   const logs = item.logs?.length
     ? item.logs.map(log => ({ time: log.time || log.Time || '', message: log.message || log.Message || '' }))
@@ -2609,7 +2617,8 @@ async function loadReviews({ silent = false } = {}) {
     const visible = visibleReviewEntries();
     if (!visible.some(({ item }) => item.folder === state.activeReview?.folder)) state.activeReview = visible[0]?.item || null;
     renderReviewList();
-    renderReviewStage();
+    if (silent) renderReviewStagePreservingScroll();
+    else renderReviewStage();
     renderReviewGenerationControls();
     scheduleReviewRefresh();
   } catch (error) {
@@ -2756,7 +2765,7 @@ function renderReviewStage() {
           const regenReferenceResultRelativePath = regenerationOptions.referenceResultRelativePath || '';
           const reviewRegenerateKey = reviewJobActionKey(item, job);
           state.regeneratingReviewJobs.add(reviewRegenerateKey);
-          renderReviewStage();
+          renderReviewStagePreservingScroll();
           toast(`已提交重新生成：${job.relativePath}`);
           await window.caishen.regenerateTemplate({ folder: item.folder, relativePath: job.relativePath, extraInstruction: regenExtraInstruction, includePreviousResult: regenIncludePreviousResult, referenceResultRelativePath: regenReferenceResultRelativePath }, progress => {
             if (!state.activeReview || state.activeReview.folder !== item.folder) return;
@@ -2768,7 +2777,7 @@ function renderReviewStage() {
               activeRelativePath: progress?.activeRelativePath || job.relativePath,
               message: progress?.message || `正在重新生成图片：${job.relativePath}`
             };
-            renderReviewStage();
+            renderReviewStagePreservingScroll();
           });
           state.regeneratingReviewJobs.delete(reviewRegenerateKey);
           toast(`已重新生成：${job.relativePath}`);
