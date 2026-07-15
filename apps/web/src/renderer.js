@@ -2,6 +2,7 @@ const QUEUE_STORAGE_KEY = 'caishen-web-task-queue-v1';
 const TEMPLATE_MASTER_CANDIDATES_STORAGE_KEY = 'caishen-web-template-master-candidates-v1';
 const ASSET_PREVIEW_SIZE_STORAGE_KEY = 'caishen-web-asset-preview-sizes-v1';
 const REVIEW_VIEWED_STORAGE_KEY = 'caishen-web-viewed-review-jobs-v1';
+const REVIEW_REGENERATION_RECORDS_STORAGE_KEY = 'caishen-web-review-regeneration-records-v1';
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'caishen-web-sidebar-collapsed-v1';
 let storageScope = 'anonymous';
 const scopedStorageKey = key => `${key}:${storageScope}`;
@@ -90,6 +91,20 @@ function persistViewedReviewJobs() {
   try { localStorage.setItem(scopedStorageKey(REVIEW_VIEWED_STORAGE_KEY), JSON.stringify([...state.viewedReviewJobs].slice(-3000))); } catch {}
 }
 
+function loadReviewRegenerationRecords() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(scopedStorageKey(REVIEW_REGENERATION_RECORDS_STORAGE_KEY)) || '[]');
+    if (!Array.isArray(saved)) return [];
+    return saved.filter(record => record && record.id && record.folder && record.relativePath).slice(-300);
+  } catch {
+    return [];
+  }
+}
+
+function persistReviewRegenerationRecords() {
+  try { localStorage.setItem(scopedStorageKey(REVIEW_REGENERATION_RECORDS_STORAGE_KEY), JSON.stringify(state.reviewRegenerationRecords.slice(-300))); } catch {}
+}
+
 const state = {
   currentUser: null,
   teamUsers: [],
@@ -126,6 +141,7 @@ const state = {
   stopGenerationRequested: false,
   reviewLogFilter: 'all',
   viewedReviewJobs: new Set(),
+  reviewRegenerationRecords: [],
   regeneratingReviewJobs: new Set(),
   selectedReviewFolders: new Set(),
   reviewRegenerationDialog: null,
@@ -229,6 +245,7 @@ function applyCurrentUser(user) {
   state.queue = loadStoredQueue();
   state.templateMasterCandidates = loadStoredTemplateMasterCandidates();
   state.viewedReviewJobs = loadViewedReviewJobs();
+  state.reviewRegenerationRecords = loadReviewRegenerationRecords();
   state.assetPreviewSizes = loadStoredAssetPreviewSizes();
   $('#currentUserName').textContent = user.displayName || user.username;
   $('#currentUserName').title = `${user.username} · ${roleLabel(user.role)}`;
@@ -2618,11 +2635,61 @@ function reviewJobViewedKey(item, job) {
   return `${item?.folder || ''}\u0000${job?.relativePath || ''}\u0000${Number(job?.outputModifiedAt) || 0}\u0000${job?.generationError || ''}`;
 }
 
+function reviewJobMatchKey(item, job) {
+  return `${item?.folder || ''}\u0000${normalizedRelativePath(job?.relativePath)}`;
+}
+
 function markReviewJobViewed(item, job) {
   const key = reviewJobViewedKey(item, job);
   if (!key || state.viewedReviewJobs.has(key)) return;
   state.viewedReviewJobs.add(key);
   persistViewedReviewJobs();
+}
+
+function markReviewItemViewed(item) {
+  let changed = false;
+  (item?.jobs || []).forEach(job => {
+    const key = reviewJobViewedKey(item, job);
+    if (key && !state.viewedReviewJobs.has(key)) {
+      state.viewedReviewJobs.add(key);
+      changed = true;
+    }
+  });
+  if (changed) persistViewedReviewJobs();
+}
+
+function formatRegenerationAttempt(value) {
+  const number = Number(value) || 1;
+  const zh = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+  if (number > 0 && number <= 10) return `第${zh[number]}次`;
+  return `第${number}次`;
+}
+
+function createReviewRegenerationRecord(item, job) {
+  const matchKey = reviewJobMatchKey(item, job);
+  const attempt = state.reviewRegenerationRecords.filter(record => `${record.folder || ''}\u0000${normalizedRelativePath(record.relativePath)}` === matchKey).length + 1;
+  const record = {
+    id: createClientId(),
+    folder: item.folder,
+    relativePath: job.relativePath,
+    attempt,
+    status: 'running',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  state.reviewRegenerationRecords.push(record);
+  state.reviewRegenerationRecords = state.reviewRegenerationRecords.slice(-300);
+  persistReviewRegenerationRecords();
+  return record;
+}
+
+function updateReviewRegenerationRecord(record, status) {
+  if (!record?.id) return;
+  const target = state.reviewRegenerationRecords.find(item => item.id === record.id);
+  if (!target) return;
+  target.status = status;
+  target.updatedAt = new Date().toISOString();
+  persistReviewRegenerationRecords();
 }
 
 function renderReviewStagePreservingScroll() {
@@ -2635,12 +2702,38 @@ function renderReviewStagePreservingScroll() {
 function renderReviewTrackingLog(item, summary, running) {
   const jobs = item?.jobs || [];
   const activeRelativePath = normalizedRelativePath(summary?.activeRelativePath);
-  const entries = jobs.map((job, index) => ({
+  const jobEntries = jobs.map((job, index) => ({
     job: { ...job, regenerating: state.regeneratingReviewJobs.has(reviewJobActionKey(item, job)) || (running && activeRelativePath && normalizedRelativePath(job.relativePath) === activeRelativePath) },
     index,
+    type: 'job',
     state: reviewJobTrackingState({ ...job, regenerating: state.regeneratingReviewJobs.has(reviewJobActionKey(item, job)) || (running && activeRelativePath && normalizedRelativePath(job.relativePath) === activeRelativePath) }, running),
     viewed: state.viewedReviewJobs.has(reviewJobViewedKey(item, job))
   }));
+  const regenerationEntries = state.reviewRegenerationRecords
+    .filter(record => record.folder === item?.folder)
+    .slice()
+    .reverse()
+    .map((record, recordIndex) => {
+      const index = jobs.findIndex(job => normalizedRelativePath(job.relativePath) === normalizedRelativePath(record.relativePath));
+      const job = jobs[index] || { relativePath: record.relativePath };
+      const status = record.status === 'failed' ? 'failed' : record.status === 'completed' ? 'completed' : 'pending';
+      const label = record.status === 'failed' ? '重新生成失败' : record.status === 'completed' ? '重新生成完成' : '重新生成中';
+      const updated = formatLocalDateTime(record.updatedAt || record.createdAt);
+      return {
+        job,
+        index,
+        record,
+        recordIndex,
+        type: 'regeneration',
+        state: {
+          key: status,
+          label,
+          detail: `${formatRegenerationAttempt(record.attempt)} · ${updated ? `更新 ${updated}` : '等待结果'}`
+        },
+        viewed: index >= 0 ? state.viewedReviewJobs.has(reviewJobViewedKey(item, job)) : true
+      };
+    });
+  const entries = [...regenerationEntries, ...jobEntries];
   const stateRank = entry => entry.state.key === 'pending' ? 0 : entry.state.key === 'failed' ? 1 : 2;
   const counts = entries.reduce((result, entry) => {
     result[entry.state.key] += 1;
@@ -2656,6 +2749,7 @@ function renderReviewTrackingLog(item, summary, running) {
     : [{ time: '', message: `${item.status}：${item.name}` }];
   const filterButton = (key, label, count) => `<button type="button" class="review-log-filter${activeFilter === key ? ' active' : ''}" data-review-log-filter="${key}">${label}<b>${count}</b></button>`;
   const jobTimeText = entry => {
+    if (entry.type === 'regeneration') return '';
     if (entry.job.regenerating) {
       const updated = formatLocalDateTime(summary.updatedAt || Date.now());
       return updated ? `更新 ${updated}` : '';
@@ -2683,7 +2777,11 @@ function renderReviewTrackingLog(item, summary, running) {
     ? visible.map(entry => {
       const timeText = jobTimeText(entry);
       const detail = timeText ? `${entry.state.detail} · ${timeText}` : entry.state.detail;
-      return `<button type="button" class="review-track-item ${entry.state.key} ${entry.viewed ? 'viewed' : 'unread'}" data-review-log-job="${entry.index}" title="跳转到 ${escapeHtml(entry.job.relativePath)}"><i aria-hidden="true"></i><span><b>${escapeHtml(entry.job.relativePath)}</b><small>${escapeHtml(detail)}</small></span><span class="review-track-badges"><em>${escapeHtml(entry.state.label)}</em><u>${entry.viewed ? '已查看' : '未查看'}</u></span></button>`;
+      const title = entry.type === 'regeneration'
+        ? `重新生成 ${entry.job.relativePath} ${formatRegenerationAttempt(entry.record?.attempt)}`
+        : entry.job.relativePath;
+      const data = entry.index >= 0 ? ` data-review-log-job="${entry.index}"` : '';
+      return `<button type="button" class="review-track-item ${entry.type === 'regeneration' ? 'regeneration ' : ''}${entry.state.key} ${entry.viewed ? 'viewed' : 'unread'}"${data} title="跳转到 ${escapeHtml(entry.job.relativePath)}"><i aria-hidden="true"></i><span><b>${escapeHtml(title)}</b><small>${escapeHtml(detail)}</small></span><span class="review-track-badges"><em>${escapeHtml(entry.state.label)}</em><u>${entry.viewed ? '已查看' : '未查看'}</u></span></button>`;
     }).join('')
     : '<div class="review-track-empty">当前筛选没有图片</div>';
   const history = logs.slice().reverse().slice(0, 20).map(log => `<div class="review-log-entry"><span>${escapeHtml(log.time ? new Date(log.time).toLocaleString('zh-CN', { hour12: false }) : '')}</span><div>${escapeHtml(log.message)}</div></div>`).join('');
@@ -2726,24 +2824,59 @@ function visibleReviewEntries() {
     const reviewableJobs = jobs.filter(job => job.status !== '已跳过');
     const fullyApproved = reviewableJobs.length > 0 && reviewableJobs.every(job => job.status === '已通过');
     if (filter === '已通过') return fullyApproved;
-    if (fullyApproved) return false;
     return filter === '全部图片' || item.status === filter || jobs.some(job => job.status === filter);
   });
 }
 
+function pendingReviewQueueEntries() {
+  const query = ($('#reviewSearch')?.value || '').trim().toLocaleLowerCase('zh-CN');
+  const filter = $('#reviewFilter')?.value || '全部图片';
+  if (filter !== '全部图片' && filter !== '待生成') return [];
+  const grouped = new Map();
+  for (const task of state.queue) {
+    if (task.generationMode !== 'template_print') continue;
+    if (!['排队中', '生成中'].includes(task.status)) continue;
+    if (task.result?.folder || task.progress?.folder) continue;
+    const key = queueGroupKey(task);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(task);
+  }
+  return [...grouped.values()].map(tasks => {
+    const title = queueGroupTitle(tasks);
+    const running = tasks.some(task => task.status === '生成中');
+    const selectedCount = tasks.filter(task => task.selected).length;
+    const total = Math.max(1, tasks.length);
+    const current = tasks.reduce((sum, task) => sum + (Number(task.progress?.current) || 0), 0);
+    const progressTotal = tasks.reduce((sum, task) => sum + (Number(task.progress?.total) || 0), 0);
+    const percent = progressTotal ? Math.min(100, Math.round(current / progressTotal * 100)) : running ? 5 : 0;
+    return { title, running, selectedCount, total, percent };
+  }).filter(entry => !query || entry.title.toLocaleLowerCase('zh-CN').includes(query));
+}
+
 function renderReviewList() {
   const visible = visibleReviewEntries();
-  $('#reviewList').innerHTML = visible.length ? visible.map(({ item, index }) => {
+  const pendingQueue = pendingReviewQueueEntries();
+  const reviewMarkup = visible.length ? visible.map(({ item, index }) => {
     const summary = reviewGenerationSummary(item);
+    const reviewableJobs = (item.jobs || []).filter(job => job.status !== '已跳过');
+    const fullyApproved = reviewableJobs.length > 0 && reviewableJobs.every(job => job.status === '已通过');
     const running = ['queued', 'preparing', 'generating', 'auditing', 'running'].includes(summary.phase);
     const detail = running
       ? `处理中 ${summary.current}/${summary.total}`
-      : `API ${summary.apiGenerated} · 复制 ${summary.copied} · 跳过 ${summary.skipped}`;
+      : fullyApproved
+        ? `已人工筛过 · API ${summary.apiGenerated} · 复制 ${summary.copied} · 跳过 ${summary.skipped}`
+        : `API ${summary.apiGenerated} · 复制 ${summary.copied} · 跳过 ${summary.skipped}`;
     const cost = summary.billingCostMinor ? ` · 成本 ${formatMoney(summary.billingCostMinor)}` : '';
     const elapsed = reviewElapsedMs(summary, running);
     const duration = elapsed ? ` · ${running ? '已用时' : '总耗时'} ${formatDurationMs(elapsed)}` : '';
-    return `<div class="review-row${state.activeReview?.folder === item.folder ? ' active' : ''}"><input type="checkbox" data-review-select="${index}"${state.selectedReviewFolders.has(item.folder) ? ' checked' : ''}><button class="review-row-main" data-review-index="${index}"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.status)} · ${summary.total || item.images.length} 张${escapeHtml(duration)}</span><small>${escapeHtml(detail + cost)}</small><progress max="100" value="${Math.max(0, Math.min(100, summary.percent))}"></progress></button></div>`;
-  }).join('') : '<div class="empty-inline">没有匹配的任务</div>';
+    return `<div class="review-row${state.activeReview?.folder === item.folder ? ' active' : ''}${fullyApproved ? ' approved' : ''}"><input type="checkbox" data-review-select="${index}"${state.selectedReviewFolders.has(item.folder) ? ' checked' : ''}><button class="review-row-main" data-review-index="${index}"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(fullyApproved ? '已人工筛过' : item.status)} · ${summary.total || item.images.length} 张${escapeHtml(duration)}</span><small>${escapeHtml(detail + cost)}</small><progress max="100" value="${Math.max(0, Math.min(100, summary.percent))}"></progress></button></div>`;
+  }).join('') : '';
+  const pendingMarkup = pendingQueue.length
+    ? `<div class="review-queued-section"><span>待启动任务</span>${pendingQueue.map(entry => `<div class="review-row queued"><i aria-hidden="true"></i><div class="review-row-main"><b>${escapeHtml(entry.title)}</b><span>${entry.running ? '正在创建人工筛图任务' : '等待前序任务完成'} · ${entry.total} 张${entry.selectedCount ? ` · 已选 ${entry.selectedCount}` : ''}</span><small>系统会按任务卡片顺序启动，当前任务完成后自动处理。</small><progress max="100" value="${Math.max(0, Math.min(100, entry.percent))}"></progress></div></div>`).join('')}</div>`
+    : '';
+  $('#reviewList').innerHTML = reviewMarkup || pendingMarkup
+    ? `${reviewMarkup}${pendingMarkup}`
+    : '<div class="empty-inline">没有匹配的任务</div>';
 }
 
 function renderReviewStage() {
@@ -2853,11 +2986,13 @@ function renderReviewStage() {
           const regenIncludePreviousResult = Boolean(regenerationOptions.includePreviousResult);
           const regenReferenceResultRelativePath = regenerationOptions.referenceResultRelativePath || '';
           const reviewRegenerateKey = reviewJobActionKey(item, job);
+          const regenerationRecord = createReviewRegenerationRecord(item, job);
           state.regeneratingReviewJobs.add(reviewRegenerateKey);
           renderReviewStagePreservingScroll();
-          toast(`已提交重新生成：${job.relativePath}`);
+          toast(`已提交重新生成：${job.relativePath} ${formatRegenerationAttempt(regenerationRecord.attempt)}`);
           await window.caishen.regenerateTemplate({ folder: item.folder, relativePath: job.relativePath, extraInstruction: regenExtraInstruction, includePreviousResult: regenIncludePreviousResult, referenceResultRelativePath: regenReferenceResultRelativePath }, progress => {
             if (!state.activeReview || state.activeReview.folder !== item.folder) return;
+            updateReviewRegenerationRecord(regenerationRecord, 'running');
             state.activeReview.generationProgress = {
               ...(state.activeReview.generationProgress || {}),
               ...(progress || {}),
@@ -2869,6 +3004,7 @@ function renderReviewStage() {
             renderReviewStagePreservingScroll();
           });
           state.regeneratingReviewJobs.delete(reviewRegenerateKey);
+          updateReviewRegenerationRecord(regenerationRecord, 'completed');
           toast(`已重新生成：${job.relativePath}`);
           await loadReviews();
         } else {
@@ -2877,6 +3013,8 @@ function renderReviewStage() {
         }
         await loadReviews();
       } catch (error) {
+        const record = state.reviewRegenerationRecords.slice().reverse().find(itemRecord => itemRecord.folder === item.folder && normalizedRelativePath(itemRecord.relativePath) === normalizedRelativePath(job.relativePath) && itemRecord.status === 'running');
+        updateReviewRegenerationRecord(record, 'failed');
         state.regeneratingReviewJobs.delete(reviewJobActionKey(item, job));
         if (state.activeReview?.folder === item.folder) renderReviewStage();
         toast(errorText(error), true);
@@ -4316,6 +4454,10 @@ function bindEvents() {
     try {
       const results = await window.caishen.batchApproveReviews(folders);
       const approved = (results || []).filter(result => result.approved).length;
+      if (approved) {
+        const approvedFolders = new Set((results || []).filter(result => result.approved).map(result => result.folder));
+        state.reviews.filter(item => approvedFolders.has(item.folder)).forEach(markReviewItemViewed);
+      }
       await loadReviews();
       toast(approved ? `已通过 ${approved}/${folders.length} 个可见任务` : '当前可见任务均缺图，未完成归档', approved === 0);
     } catch (error) { toast(errorText(error), true); }
