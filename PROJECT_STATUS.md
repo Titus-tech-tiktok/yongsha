@@ -1,5 +1,75 @@
 # PROJECT_STATUS
 
+## 2026-07-15 GitHub Push Summary
+
+Recent pushed versions, newest first:
+
+- `d36e9d6` Keep active review regeneration visible
+  - Fixed manual-review task activity so regenerating/pending/failed images stay visible in the `All` list.
+  - Preserved review page scroll position during silent progress refresh, stopping the page from auto-scrolling upward while images regenerate.
+- `52ca518` Fix review regeneration modal background
+  - Fixed the regeneration dialog transparency issue with solid modal panels, stronger backdrop, blur, and higher z-index.
+- `dec96c4` Add review regeneration reference UI
+  - Replaced browser prompt regeneration with an in-page panel.
+  - Added optional extra instructions and optional reference result images from the same review task.
+  - Backend can send the selected reference result as an extra image input for regeneration.
+  - Strengthened prompts to prevent print from covering black cabinet frames, side panels, tops, legs, handles, shadows, and scene props.
+- `5f88d80` Add admin image concurrency settings
+  - Added super-admin controls for image API initial concurrency, max concurrency, and request start interval.
+  - Settings persist globally and hot-update the adaptive image queue without code changes.
+- `deeaf61` Tune image API concurrency defaults
+  - Changed default image API concurrency from conservative values to initial `8`, max `30`.
+  - Updated `.env.example` with the new defaults.
+- `67f3256` Name ZIP downloads from template folder
+  - Downloaded task ZIP names now use `{template-folder}-{MMDD}-{sequence}`, for example `款式1-0715-02.zip`.
+  - Image names inside the ZIP remain unchanged.
+- `09d5be2` Show progress during single image regeneration
+  - Single-image regeneration now shows immediate running status on the image card and review progress area.
+  - Regeneration progress is written into task metadata and task logs.
+- `d6e1617` Add one-time billing and spend totals
+  - Added one-time billing keys so repeated generation/re-analysis of the same item is free after the first successful charge.
+  - Master image generation remains free.
+  - Balance modal now shows today, 7-day, 30-day, and custom-range spend totals while keeping transaction records.
+- `4f2280d` Add review task duration display
+  - Renamed `等待上游恢复` to `生图接口等待重试`.
+  - Added task start/end timestamps and elapsed duration display for review tasks.
+- `1626b35` Add full set start feedback
+  - Starting a single full-set task now automatically switches to `人工筛图`.
+  - Starting multiple full-set tasks stays on the material-generation page and shows a non-blocking status hint.
+- `c2dca2a` Fix stale master reference generation
+  - Fixed stale master-reference paths after deleting/reimporting/switching template folders.
+  - UI and API both recover the selected master base image by current folder relative path/name.
+- `f6e26fa` Fix admin prompts and account controls
+  - Fixed prompt settings loading for admin accounts.
+  - Allowed every account role to change its own password.
+  - Renamed visible brand to `庞大科技`.
+  - Added sidebar hide/expand behavior.
+  - Cleared stale material-generation previews after template folders are deleted.
+  - Removed misleading `加入母版` wording and added sorting for template/print assets.
+- `7112c34` Fix task source panel sizing
+  - Fixed material-generation print tab layout, vertical text, blank scroll area, and oversized preview cards.
+- `b2a7f28` Refine task source layout and import flow
+  - Reworked material generation to use tabbed template/print source areas with more room for task cards.
+  - Removed the print preview-size slider.
+  - Asset library folder import now starts immediately after folder selection.
+- `9ae99fd` Fix master task card controls
+  - Fixed combined master/full-set task list scrolling, clipping, selection, batch generation, batch start, delete, and edit behavior.
+- `1d34f8e` Combine master task workflow
+  - Combined master image generation and full-set generation into one larger task-list workflow.
+  - Clicking template base images or print images fills the latest incomplete master card, otherwise creates a new card.
+  - The same base image can be used repeatedly for different prints.
+- `fe96b67` Remove template region masking flow
+  - Removed the old template region/area marking flow from the material-generation path.
+  - Shifted generation toward the master-image-first workflow.
+- `23ef69a`, `dd0eeec`, `127a7d0`, `35df5b9`, `c59cd14`
+  - Built and refined the template master workflow: candidate selection, clearer UI language, respecting selected reference images, and master-first generation.
+- `0eb924a` Restore API template print generation
+  - Restored real API-based template print generation after the local-composite path was removed.
+- `21222ea` Localize reference reanalysis UI
+  - Converted reference re-analysis UI text to Chinese.
+- `a87bfe8` Add reference-guided template reanalysis
+  - Added reference-guided AI re-analysis for template images needing manual confirmation.
+
 ## 2026-07-15 Update - Review regeneration references
 
 - Manual review single-image regeneration now uses an in-app regeneration panel instead of the browser prompt, with optional extra instructions and selectable generated-result references from the same task.
