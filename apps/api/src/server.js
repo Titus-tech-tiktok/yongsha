@@ -909,7 +909,12 @@ const rpc = {
     return results;
   },
   regenerateMaster: ([folder]) => runtime.regenerateMasterForReviewFolder(managedPath(folder)),
-  regenerateTemplate: ([payload], context) => runtime.regenerateSingleTemplate({ ...(payload || {}), folder: managedPath(payload?.folder) }, context || {}),
+  regenerateTemplate: ([payload], context) => runtime.regenerateSingleTemplate({
+    ...(payload || {}),
+    folder: managedPath(payload?.folder),
+    relativePath: String(payload?.relativePath || ''),
+    referenceResultRelativePath: String(payload?.referenceResultRelativePath || '')
+  }, context || {}),
   batchApproveReviews: ([folders]) => runtime.batchApproveReviewFolders((folders || []).map(value => managedPath(value))),
   deleteReviews: ([folders]) => runtime.deleteReviewFolders((folders || []).map(value => managedPath(value))),
   getTitleLibrary: async () => runtime.publicTitleLibrary(await runtime.loadTitleLibrary()),

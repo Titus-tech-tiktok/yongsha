@@ -2291,7 +2291,12 @@ async function generateTemplateJob(job, source, config, options = {}) {
       templatePath: job.relativePath
     });
     prompt += '\n\n本次输入图顺序：第一张是当前套图模板图，第二张是已生成的母版产品图，第三张是原始印花图。母版产品图是产品外观、柜门图案、颜色和印花效果的标准；当前套图模板图只提供本页构图、场景、文字、尺寸标注和透视关系；原始印花图只用于核对图案，不允许重新设计、拼贴或替换成相似风格。最终结果必须把母版产品迁移到当前模板场景中，并保持当前模板的文字和页面布局。';
+    prompt += '\n\n硬性质量要求：印花只能落在柜门或抽屉的正面可替换面板内部，必须完整保留家具黑色外框、黑色门缝/分隔线、黑色侧板、黑色台面、黑色底边、柜脚、把手、阴影和所有场景物品。不得让印花跨过或覆盖任何黑色边框黑边，不得把黑框染成印花，不得延伸到地面、墙面、台面、咖啡机、杯子、人物或其他道具。';
+    if (options.referenceResultPath && fs.existsSync(options.referenceResultPath)) {
+      prompt += '\n\n第四张输入图是运营选定的合格参考结果图。只参考它如何保留黑色边框、黑色侧板、台面、柜脚、门缝以及印花在柜门面板内的落位方式；不要复制它的构图、视角、家具尺寸、场景元素或具体像素。当前第一张套图模板仍然是最终构图标准。';
+    }
     imagePaths = [job.templatePath, source.masterImagePath, source.printPath];
+    if (options.referenceResultPath && fs.existsSync(options.referenceResultPath)) imagePaths.push(options.referenceResultPath);
   } else {
     const masterImage = (await fsp.readdir(job.outputRoot).catch(() => [])).map(name => path.join(job.outputRoot, name)).find(file => isImagePath(file) && path.basename(file, path.extname(file)) === '母版图');
     if (!masterImage || !fs.existsSync(masterImage)) throw new Error('母版图不存在');
@@ -2526,6 +2531,7 @@ async function regenerateSingleTemplate(payload, options = {}) {
   const auditText = await fsp.readFile(auditFile, 'utf8').catch(() => '');
   const audit = parseTemplateAuditResult(auditText);
   const extraInstruction = String(payload?.extraInstruction || audit.retryInstruction || '').trim();
+  const referenceResultPath = await resolveReviewReferenceResultPath(folder, payload?.referenceResultRelativePath || '');
   const progressFile = metadataPaths(folder).generationProgress;
   const startedAt = new Date().toISOString();
   const publishSingleProgress = async update => {
@@ -2544,6 +2550,7 @@ async function regenerateSingleTemplate(payload, options = {}) {
       failed: Math.max(0, Number(existing?.failed) || 0),
       billingCostMinor: Math.max(0, Number(existing?.billingCostMinor) || 0),
       ...(update || {}),
+      message: String(update?.message || `正在重新生成图片：${job.relativePath}`),
       activeRelativePath: job.relativePath,
       startedAt: existing?.startedAt || startedAt,
       updatedAt: new Date().toISOString()
@@ -2553,6 +2560,7 @@ async function regenerateSingleTemplate(payload, options = {}) {
     return next;
   };
   await addOperationLog(folder, `开始重新生成单张：${job.relativePath}${extraInstruction ? '（含修正要求）' : ''}`);
+  await addOperationLog(folder, `开始重新生成图片：${job.relativePath}${referenceResultPath ? `（参考结果图：${path.basename(referenceResultPath)}）` : ''}${extraInstruction ? '（含修正要求）' : ''}`);
   await publishSingleProgress({
     phase: 'generating',
     pending: 1,
@@ -2561,6 +2569,7 @@ async function regenerateSingleTemplate(payload, options = {}) {
   const generated = await generateTemplateJob(job, source, config, {
     extraInstruction,
     includePreviousResult: Boolean(payload?.includePreviousResult),
+    referenceResultPath,
     signal: options.signal,
     onRequestState: event => {
       void publishSingleProgress({
@@ -2932,6 +2941,16 @@ async function findReviewJob(folder, relativePath) {
   });
   if (!job) throw new Error(`未找到套图图片：${relativePath}`);
   return job;
+}
+
+async function resolveReviewReferenceResultPath(folder, relativePath) {
+  const value = String(relativePath || '').trim();
+  if (!value) return '';
+  const referenceJob = await findReviewJob(folder, value);
+  if (!referenceJob.outputPath || !fs.existsSync(referenceJob.outputPath)) {
+    throw new Error(`参考结果图尚未生成：${referenceJob.relativePath}`);
+  }
+  return referenceJob.outputPath;
 }
 
 async function setTemplateManualStatus(payload) {

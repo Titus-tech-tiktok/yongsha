@@ -1,5 +1,12 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Review regeneration references
+
+- Manual review single-image regeneration now uses an in-app regeneration panel instead of the browser prompt, with optional extra instructions and selectable generated-result references from the same task.
+- Regeneration can send the selected reference result as an extra image input; prompts now explicitly protect black cabinet frames, black side panels, tops, legs, handles, shadows, and scene props from print coverage.
+- Review task activity now marks the active image as `重新生成中` / `正在重新生成图片：xxx` while the single-image regeneration is running.
+- Verification completed: `node --check apps/web/src/renderer.js`, `node --check apps/api/src/runtime.js`, `node --check apps/api/src/server.js`, `npm run build -w @caishen/web`, `node --test apps/api/tests/runtime-image-retry.test.js`.
+
 ## 2026-07-15 Update - Admin image concurrency controls
 
 - Super admins can now adjust image API initial concurrency, max concurrency, and start interval in System Settings > API Settings.

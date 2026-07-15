@@ -126,6 +126,7 @@ const state = {
   viewedReviewJobs: new Set(),
   regeneratingReviewJobs: new Set(),
   selectedReviewFolders: new Set(),
+  reviewRegenerationDialog: null,
   freeSource: null,
   freeResult: null,
   titleLibrary: null,
@@ -1791,6 +1792,90 @@ function escapeHtml(value) {
   return String(value || '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
 }
 
+function normalizedRelativePath(value = '') {
+  return String(value || '').replaceAll('\\', '/').toLocaleLowerCase('zh-CN');
+}
+
+function reviewRegenerationReferenceCandidates(item, currentJob) {
+  const current = normalizedRelativePath(currentJob?.relativePath);
+  return (item?.jobs || [])
+    .filter(job => job?.outputUrl && normalizedRelativePath(job.relativePath) !== current)
+    .filter(job => {
+      const action = normalizeTemplateUiAction(job.action);
+      return action !== 'exclude' && action !== 'copy_original';
+    })
+    .map(job => ({
+      relativePath: job.relativePath,
+      outputUrl: job.outputUrl,
+      templateUrl: job.templateUrl,
+      status: job.status || ''
+    }));
+}
+
+function closeReviewRegenerationDialog(result = null) {
+  const dialog = state.reviewRegenerationDialog;
+  if (!dialog) return;
+  state.reviewRegenerationDialog = null;
+  dialog.element.remove();
+  dialog.resolve(result);
+}
+
+function openReviewRegenerationDialog(item, job) {
+  if (state.reviewRegenerationDialog) closeReviewRegenerationDialog(null);
+  const candidates = reviewRegenerationReferenceCandidates(item, job);
+  const element = document.createElement('div');
+  element.className = 'review-regenerate-modal-backdrop';
+  element.innerHTML = `<section class="review-regenerate-modal" role="dialog" aria-modal="true" aria-labelledby="reviewRegenerateTitle">
+    <header>
+      <div><span>REGENERATE</span><h2 id="reviewRegenerateTitle">重新生成图片</h2><p>当前图片：${escapeHtml(job.relativePath)}</p></div>
+      <button class="icon-button" type="button" data-review-regenerate-close aria-label="关闭">×</button>
+    </header>
+    <div class="review-regenerate-body">
+      <label class="review-regenerate-field"><b>本次额外要求</b><textarea data-review-regenerate-note rows="4" placeholder="例如：印花只能覆盖柜门面板，不能盖住黑色边框、台面、侧板、柜脚和场景物品。"></textarea></label>
+      <label class="review-regenerate-check"><input type="checkbox" data-review-regenerate-previous ${job.outputUrl ? '' : 'disabled'}>参考当前这张不合格结果，只修正问题</label>
+      <div class="review-regenerate-reference">
+        <div><b>可选参考结果图</b><span>只参考印花落位和黑边保留方式，不复制参考图的构图或尺寸。</span></div>
+        <div class="review-regenerate-reference-list">
+          <label class="review-regenerate-reference-card selected">
+            <input type="radio" name="review-regenerate-reference" value="" checked>
+            <span>不使用其他参考图</span>
+          </label>
+          ${candidates.map(candidate => `<label class="review-regenerate-reference-card">
+            <input type="radio" name="review-regenerate-reference" value="${escapeHtml(candidate.relativePath)}">
+            <img src="${escapeHtml(candidate.outputUrl)}" data-preview-src="${escapeHtml(candidate.outputUrl)}" alt="${escapeHtml(candidate.relativePath)} 参考结果">
+            <span><b>${escapeHtml(candidate.relativePath)}</b><small>${escapeHtml(candidate.status || '已生成')}</small></span>
+          </label>`).join('')}
+        </div>
+      </div>
+    </div>
+    <footer><button class="secondary" type="button" data-review-regenerate-cancel>取消</button><button class="primary" type="button" data-review-regenerate-submit>提交重新生成</button></footer>
+  </section>`;
+  document.body.appendChild(element);
+  const promise = new Promise(resolve => { state.reviewRegenerationDialog = { element, resolve }; });
+  element.addEventListener('click', event => {
+    if (event.target === element || event.target.closest('[data-review-regenerate-close], [data-review-regenerate-cancel]')) {
+      closeReviewRegenerationDialog(null);
+      return;
+    }
+    const card = event.target.closest('.review-regenerate-reference-card');
+    if (card) {
+      element.querySelectorAll('.review-regenerate-reference-card').forEach(item => item.classList.remove('selected'));
+      card.classList.add('selected');
+      const input = card.querySelector('input[type="radio"]');
+      if (input) input.checked = true;
+    }
+    if (event.target.closest('[data-review-regenerate-submit]')) {
+      const reference = element.querySelector('input[name="review-regenerate-reference"]:checked')?.value || '';
+      closeReviewRegenerationDialog({
+        extraInstruction: element.querySelector('[data-review-regenerate-note]')?.value || '',
+        includePreviousResult: Boolean(element.querySelector('[data-review-regenerate-previous]')?.checked),
+        referenceResultRelativePath: reference
+      });
+    }
+  });
+  return promise;
+}
+
 function renderAssetFolders(type, items) {
   const isProduct = type === 'product';
   const selectedFolder = isProduct ? state.productFolder : state.printFolder;
@@ -2381,10 +2466,11 @@ function reviewGenerationSummary(item) {
     startedAt: saved.startedAt || '',
     completedAt: saved.completedAt || '',
     elapsedMs: Number(saved.elapsedMs) || 0,
-    updatedAt: saved.updatedAt || ''
+    updatedAt: saved.updatedAt || '',
+    activeRelativePath: saved.activeRelativePath || ''
   };
   const jobs = item?.jobs || [];
-  const summary = { total: jobs.length, current: 0, percent: 0, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, waitingUpstream: 0, pending: 0, billingCostMinor: 0, phase: 'completed', message: '', startedAt: '', completedAt: '', elapsedMs: 0, updatedAt: '' };
+  const summary = { total: jobs.length, current: 0, percent: 0, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, waitingUpstream: 0, pending: 0, billingCostMinor: 0, phase: 'completed', message: '', startedAt: '', completedAt: '', elapsedMs: 0, updatedAt: '', activeRelativePath: '' };
   for (const job of jobs) {
     const action = normalizeTemplateUiAction(job.action);
     if (job.status === '已跳过' || action === 'exclude') summary.skipped += 1;
@@ -2460,7 +2546,7 @@ function friendlyGenerationError(value) {
 }
 
 function reviewJobTrackingState(job, running) {
-  if (job.regenerating) return { key: 'pending', label: '重新生成中', detail: '已提交重生任务，正在等待生图结果' };
+  if (job.regenerating) return { key: 'pending', label: '重新生成中', detail: `正在重新生成图片：${job.relativePath || ''}` };
   if (job.generationError && !job.outputUrl) return { key: 'failed', label: '生成失败', detail: friendlyGenerationError(job.generationError) };
   if (job.status === '已跳过' || normalizeTemplateUiAction(job.action) === 'exclude') return { key: 'completed', label: '已跳过', detail: '按套图规则不输出此图' };
   if (job.outputUrl) return { key: 'completed', label: '生成完成', detail: job.status === '已通过' ? '已通过人工确认' : '点击查看并确认图片' };
@@ -2485,10 +2571,11 @@ function markReviewJobViewed(item, job) {
 
 function renderReviewTrackingLog(item, summary, running) {
   const jobs = item?.jobs || [];
+  const activeRelativePath = normalizedRelativePath(summary?.activeRelativePath);
   const entries = jobs.map((job, index) => ({
-    job: { ...job, regenerating: state.regeneratingReviewJobs.has(reviewJobActionKey(item, job)) },
+    job: { ...job, regenerating: state.regeneratingReviewJobs.has(reviewJobActionKey(item, job)) || (running && activeRelativePath && normalizedRelativePath(job.relativePath) === activeRelativePath) },
     index,
-    state: reviewJobTrackingState({ ...job, regenerating: state.regeneratingReviewJobs.has(reviewJobActionKey(item, job)) }, running),
+    state: reviewJobTrackingState({ ...job, regenerating: state.regeneratingReviewJobs.has(reviewJobActionKey(item, job)) || (running && activeRelativePath && normalizedRelativePath(job.relativePath) === activeRelativePath) }, running),
     viewed: state.viewedReviewJobs.has(reviewJobViewedKey(item, job))
   }));
   const counts = entries.reduce((result, entry) => {
@@ -2573,7 +2660,10 @@ function renderReviewStage() {
   const needsAttention = summary.failed > 0 || summary.pending > 0;
   const noApiGeneration = !running && summary.total > 0 && summary.apiGenerated === 0 && (summary.copied > 0 || summary.skipped > 0);
   const jobs = item.jobs || [];
-  const localRegenerating = jobs.filter(job => state.regeneratingReviewJobs.has(reviewJobActionKey(item, job))).length;
+  const activeRegeneratingPath = normalizedRelativePath(summary.activeRelativePath);
+  const isReviewJobRegenerating = job => state.regeneratingReviewJobs.has(reviewJobActionKey(item, job))
+    || (running && activeRegeneratingPath && normalizedRelativePath(job.relativePath) === activeRegeneratingPath);
+  const localRegenerating = jobs.filter(isReviewJobRegenerating).length;
   if (localRegenerating) {
     running = true;
     summary.phase = 'generating';
@@ -2582,7 +2672,7 @@ function renderReviewStage() {
   }
   const imageMarkup = jobs.length
     ? jobs.map((job, index) => {
-      const regenerating = state.regeneratingReviewJobs.has(reviewJobActionKey(item, job));
+      const regenerating = isReviewJobRegenerating(job);
       const action = normalizeTemplateUiAction(job.action);
       const skipped = job.status === '已跳过' || action === 'exclude';
       const copied = !skipped && (job.status === '直接套模板' || action === 'copy_original');
@@ -2659,26 +2749,30 @@ function renderReviewStage() {
           return;
         }
         if (button.dataset.jobAction === 'regenerate') {
-          const extraInstruction = window.prompt(`可选：填写本次重生成的额外要求\n当前图片：${job.relativePath}`, '');
-          if (extraInstruction === null) return;
-          const includePreviousResult = Boolean(job.outputUrl) && window.confirm('是否参考上一张结果图？\n只在上一张整体可用、只需局部微调时选择“确定”。');
-          const regenerateKey = reviewJobActionKey(item, job);
-          state.regeneratingReviewJobs.add(regenerateKey);
+          const regenerationOptions = await openReviewRegenerationDialog(item, job);
+          if (!regenerationOptions) return;
+          const regenExtraInstruction = regenerationOptions.extraInstruction || '';
+          const regenIncludePreviousResult = Boolean(regenerationOptions.includePreviousResult);
+          const regenReferenceResultRelativePath = regenerationOptions.referenceResultRelativePath || '';
+          const reviewRegenerateKey = reviewJobActionKey(item, job);
+          state.regeneratingReviewJobs.add(reviewRegenerateKey);
           renderReviewStage();
           toast(`已提交重新生成：${job.relativePath}`);
-          await window.caishen.regenerateTemplate({ folder: item.folder, relativePath: job.relativePath, extraInstruction, includePreviousResult }, progress => {
+          await window.caishen.regenerateTemplate({ folder: item.folder, relativePath: job.relativePath, extraInstruction: regenExtraInstruction, includePreviousResult: regenIncludePreviousResult, referenceResultRelativePath: regenReferenceResultRelativePath }, progress => {
             if (!state.activeReview || state.activeReview.folder !== item.folder) return;
             state.activeReview.generationProgress = {
               ...(state.activeReview.generationProgress || {}),
               ...(progress || {}),
               phase: progress?.phase || 'generating',
               pending: Math.max(1, Number(progress?.pending) || 1),
-              message: progress?.message || `正在重新生成：${job.relativePath}`
+              activeRelativePath: progress?.activeRelativePath || job.relativePath,
+              message: progress?.message || `正在重新生成图片：${job.relativePath}`
             };
             renderReviewStage();
           });
-          state.regeneratingReviewJobs.delete(regenerateKey);
+          state.regeneratingReviewJobs.delete(reviewRegenerateKey);
           toast(`已重新生成：${job.relativePath}`);
+          await loadReviews();
         } else {
           await window.caishen.setReviewStatus({ folder: item.folder, relativePath: job.relativePath, status: button.dataset.jobAction === 'pass' ? '人工通过' : '人工不通过' });
           toast(button.dataset.jobAction === 'pass' ? '已标记通过' : '已标记不通过');
