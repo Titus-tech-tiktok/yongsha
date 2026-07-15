@@ -1,5 +1,13 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Single-image regeneration feedback
+
+- Single-image regeneration in manual review now shows immediate in-page feedback instead of waiting silently for the image API response.
+- The clicked image card is tracked as `regenerating`, the review progress card shows a running message, and the review task log marks that image as `重新生成中`.
+- The regenerate API now writes single-image progress to the review metadata and reports image API retry-wait status back through the background job progress channel.
+- Balance details keep the real-time transaction list while also showing spend totals.
+- Verification completed: `node --check apps/web/src/renderer.js`, `node --check apps/web/src/api-bridge.js`, `node --check apps/api/src/runtime.js`, `npm run build -w @caishen/web`, and `npm test -w @caishen/api -- tests/runtime.test.js`.
+
 ## 2026-07-15 Update - One-time billing and spend totals
 
 - Added persistent one-time billing keys so successful image/LLM charges are recorded per account and repeat generation or re-analysis for the same business item no longer reserves or deducts balance.

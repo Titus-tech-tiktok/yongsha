@@ -124,6 +124,7 @@ const state = {
   activeReviewGenerationJobId: '',
   reviewLogFilter: 'all',
   viewedReviewJobs: new Set(),
+  regeneratingReviewJobs: new Set(),
   selectedReviewFolders: new Set(),
   freeSource: null,
   freeResult: null,
@@ -2459,11 +2460,16 @@ function friendlyGenerationError(value) {
 }
 
 function reviewJobTrackingState(job, running) {
+  if (job.regenerating) return { key: 'pending', label: '重新生成中', detail: '已提交重生任务，正在等待生图结果' };
   if (job.generationError && !job.outputUrl) return { key: 'failed', label: '生成失败', detail: friendlyGenerationError(job.generationError) };
   if (job.status === '已跳过' || normalizeTemplateUiAction(job.action) === 'exclude') return { key: 'completed', label: '已跳过', detail: '按套图规则不输出此图' };
   if (job.outputUrl) return { key: 'completed', label: '生成完成', detail: job.status === '已通过' ? '已通过人工确认' : '点击查看并确认图片' };
   if (running) return { key: 'pending', label: '生成中', detail: '正在等待生成结果' };
   return { key: 'pending', label: '待处理', detail: '尚未生成，可单独重新生成' };
+}
+
+function reviewJobActionKey(item, job) {
+  return `${item?.folder || ''}\u0000${job?.relativePath || ''}`;
 }
 
 function reviewJobViewedKey(item, job) {
@@ -2480,9 +2486,9 @@ function markReviewJobViewed(item, job) {
 function renderReviewTrackingLog(item, summary, running) {
   const jobs = item?.jobs || [];
   const entries = jobs.map((job, index) => ({
-    job,
+    job: { ...job, regenerating: state.regeneratingReviewJobs.has(reviewJobActionKey(item, job)) },
     index,
-    state: reviewJobTrackingState(job, running),
+    state: reviewJobTrackingState({ ...job, regenerating: state.regeneratingReviewJobs.has(reviewJobActionKey(item, job)) }, running),
     viewed: state.viewedReviewJobs.has(reviewJobViewedKey(item, job))
   }));
   const counts = entries.reduce((result, entry) => {
@@ -2563,23 +2569,32 @@ function renderReviewStage() {
     return;
   }
   const summary = reviewGenerationSummary(item);
-  const running = ['queued', 'preparing', 'generating', 'auditing', 'running'].includes(summary.phase);
+  let running = ['queued', 'preparing', 'generating', 'auditing', 'running'].includes(summary.phase);
   const needsAttention = summary.failed > 0 || summary.pending > 0;
   const noApiGeneration = !running && summary.total > 0 && summary.apiGenerated === 0 && (summary.copied > 0 || summary.skipped > 0);
   const jobs = item.jobs || [];
+  const localRegenerating = jobs.filter(job => state.regeneratingReviewJobs.has(reviewJobActionKey(item, job))).length;
+  if (localRegenerating) {
+    running = true;
+    summary.phase = 'generating';
+    summary.pending = Math.max(summary.pending, localRegenerating);
+    summary.message = `正在重新生成 ${localRegenerating} 张图片，完成后会自动刷新`;
+  }
   const imageMarkup = jobs.length
     ? jobs.map((job, index) => {
+      const regenerating = state.regeneratingReviewJobs.has(reviewJobActionKey(item, job));
       const action = normalizeTemplateUiAction(job.action);
       const skipped = job.status === '已跳过' || action === 'exclude';
       const copied = !skipped && (job.status === '直接套模板' || action === 'copy_original');
       const resultLabel = job.generationError && !job.outputUrl ? '生成失败' : skipped ? '不输出' : copied ? '保留原图' : job.outputUrl ? '生成结果' : running ? '生成中' : '待生成';
+      const displayResultLabel = regenerating ? '重新生成中' : resultLabel;
       const resultPreview = job.outputUrl
         ? `<img loading="lazy" decoding="async" src="${job.outputUrl}" data-preview-src="${job.outputUrl}" alt="${escapeHtml(job.relativePath)} 生成结果">`
         : `<div class="review-compare-placeholder${job.generationError ? ' failed' : running && !skipped ? ' running' : ''}"><span>${escapeHtml(job.generationError ? '生成失败' : skipped ? '按规则不输出' : running ? '正在生成' : '待生成')}</span>${running && !skipped && !job.generationError ? '<i aria-hidden="true"></i>' : ''}</div>`;
       const actions = skipped
         ? `<div class="review-image-actions review-image-skipped"><span>按套图规则不输出，不进入最终图片</span><button class="text-button" data-job-action="configure" data-job-index="${index}">检查规则</button></div>`
-        : `<div class="review-image-actions"><button class="secondary" data-job-action="pass" data-job-index="${index}"${!job.outputUrl ? ' disabled' : ''}>通过</button><button class="secondary danger-outline" data-job-action="reject" data-job-index="${index}"${!job.outputUrl ? ' disabled' : ''}>不通过</button><button class="secondary" data-job-action="${copied ? 'configure' : 'regenerate'}" data-job-index="${index}">${copied ? '检查规则' : '重新生成'}</button></div>`;
-      return `<figure class="review-image comparison${skipped ? ' skipped' : ''}${copied ? ' copied' : ''}" data-review-job="${index}"><div class="review-image-status"><b>${escapeHtml(job.relativePath)}</b><span>${escapeHtml(job.status)}</span></div><div class="review-compare"><div class="review-compare-side"><span>原套图模板</span><div class="review-compare-frame"><img loading="lazy" decoding="async" src="${job.templateUrl}" data-preview-src="${job.templateUrl}" alt="${escapeHtml(job.relativePath)} 原套图模板"></div></div><div class="review-compare-side result"><span>${escapeHtml(resultLabel)}</span><div class="review-compare-frame">${resultPreview}</div></div></div><figcaption>${skipped ? '此图按规则不输出，不进入最终套图' : job.outputUrl ? (copied ? '原图直接复制，未调用 API' : '左侧原模板，右侧本次生成结果') : '生成完成后会在右侧自动显示结果'}</figcaption>${actions}</figure>`;
+        : `<div class="review-image-actions"><button class="secondary" data-job-action="pass" data-job-index="${index}"${!job.outputUrl || regenerating ? ' disabled' : ''}>通过</button><button class="secondary danger-outline" data-job-action="reject" data-job-index="${index}"${!job.outputUrl || regenerating ? ' disabled' : ''}>不通过</button><button class="secondary" data-job-action="${copied ? 'configure' : 'regenerate'}" data-job-index="${index}"${regenerating ? ' disabled' : ''}>${regenerating ? '重新生成中' : copied ? '检查规则' : '重新生成'}</button></div>`;
+      return `<figure class="review-image comparison${skipped ? ' skipped' : ''}${copied ? ' copied' : ''}${regenerating ? ' regenerating' : ''}" data-review-job="${index}"><div class="review-image-status"><b>${escapeHtml(job.relativePath)}</b><span>${escapeHtml(regenerating ? '重新生成中' : job.status)}</span></div><div class="review-compare"><div class="review-compare-side"><span>原套图模板</span><div class="review-compare-frame"><img loading="lazy" decoding="async" src="${job.templateUrl}" data-preview-src="${job.templateUrl}" alt="${escapeHtml(job.relativePath)} 原套图模板"></div></div><div class="review-compare-side result"><span>${escapeHtml(displayResultLabel)}</span><div class="review-compare-frame">${resultPreview}</div></div></div><figcaption>${regenerating ? '已提交重新生成，完成后会自动刷新右侧结果' : skipped ? '此图按规则不输出，不进入最终套图' : job.outputUrl ? (copied ? '原图直接复制，未调用 API' : '左侧原模板，右侧本次生成结果') : '生成完成后会在右侧自动显示结果'}</figcaption>${actions}</figure>`;
     }).join('')
     : item.images.map(image => `<figure class="review-image legacy"><img loading="lazy" decoding="async" src="${image.url}" data-preview-src="${image.url}" alt="${escapeHtml(image.name)}"><figcaption>${escapeHtml(image.name)}</figcaption></figure>`).join('');
   const master = item.masterImage ? `<section class="master-review-strip"><img src="${item.masterImage.url}" alt="母版图"><div><b>母版图</b><span>${escapeHtml(item.masterStatus || '母版已生成')}</span>${item.source?.generationMode !== 'template_print' ? '<button class="secondary" id="regenerateMasterButton">重新生成母版图</button>' : ''}</div></section>` : '';
@@ -2647,7 +2662,22 @@ function renderReviewStage() {
           const extraInstruction = window.prompt(`可选：填写本次重生成的额外要求\n当前图片：${job.relativePath}`, '');
           if (extraInstruction === null) return;
           const includePreviousResult = Boolean(job.outputUrl) && window.confirm('是否参考上一张结果图？\n只在上一张整体可用、只需局部微调时选择“确定”。');
-          await window.caishen.regenerateTemplate({ folder: item.folder, relativePath: job.relativePath, extraInstruction, includePreviousResult });
+          const regenerateKey = reviewJobActionKey(item, job);
+          state.regeneratingReviewJobs.add(regenerateKey);
+          renderReviewStage();
+          toast(`已提交重新生成：${job.relativePath}`);
+          await window.caishen.regenerateTemplate({ folder: item.folder, relativePath: job.relativePath, extraInstruction, includePreviousResult }, progress => {
+            if (!state.activeReview || state.activeReview.folder !== item.folder) return;
+            state.activeReview.generationProgress = {
+              ...(state.activeReview.generationProgress || {}),
+              ...(progress || {}),
+              phase: progress?.phase || 'generating',
+              pending: Math.max(1, Number(progress?.pending) || 1),
+              message: progress?.message || `正在重新生成：${job.relativePath}`
+            };
+            renderReviewStage();
+          });
+          state.regeneratingReviewJobs.delete(regenerateKey);
           toast(`已重新生成：${job.relativePath}`);
         } else {
           await window.caishen.setReviewStatus({ folder: item.folder, relativePath: job.relativePath, status: button.dataset.jobAction === 'pass' ? '人工通过' : '人工不通过' });
@@ -2655,6 +2685,8 @@ function renderReviewStage() {
         }
         await loadReviews();
       } catch (error) {
+        state.regeneratingReviewJobs.delete(reviewJobActionKey(item, job));
+        if (state.activeReview?.folder === item.folder) renderReviewStage();
         toast(errorText(error), true);
       } finally {
         button.disabled = false;

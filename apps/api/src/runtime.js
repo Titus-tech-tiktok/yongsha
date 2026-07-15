@@ -2499,11 +2499,52 @@ async function regenerateSingleTemplate(payload, options = {}) {
   const auditText = await fsp.readFile(auditFile, 'utf8').catch(() => '');
   const audit = parseTemplateAuditResult(auditText);
   const extraInstruction = String(payload?.extraInstruction || audit.retryInstruction || '').trim();
+  const progressFile = metadataPaths(folder).generationProgress;
+  const startedAt = new Date().toISOString();
+  const publishSingleProgress = async update => {
+    const existing = await readJsonFile(progressFile, {});
+    const total = Math.max(1, Number(existing?.total) || Number(source.templateRelativePaths?.length) || 1);
+    const current = Math.max(0, Number(existing?.current) || total);
+    const next = {
+      ...(existing && typeof existing === 'object' ? existing : {}),
+      folder,
+      total,
+      current,
+      percent: Math.max(0, Math.min(100, Number(existing?.percent) || (total ? Math.round(current / total * 100) : 0))),
+      apiGenerated: Math.max(0, Number(existing?.apiGenerated) || 0),
+      copied: Math.max(0, Number(existing?.copied) || 0),
+      skipped: Math.max(0, Number(existing?.skipped) || 0),
+      failed: Math.max(0, Number(existing?.failed) || 0),
+      billingCostMinor: Math.max(0, Number(existing?.billingCostMinor) || 0),
+      ...(update || {}),
+      activeRelativePath: job.relativePath,
+      startedAt: existing?.startedAt || startedAt,
+      updatedAt: new Date().toISOString()
+    };
+    await writeJsonFile(progressFile, next);
+    if (typeof options.reportProgress === 'function') await options.reportProgress(next);
+    return next;
+  };
   await addOperationLog(folder, `开始重新生成单张：${job.relativePath}${extraInstruction ? '（含修正要求）' : ''}`);
+  await publishSingleProgress({
+    phase: 'generating',
+    pending: 1,
+    message: `正在重新生成：${job.relativePath}`
+  });
   const generated = await generateTemplateJob(job, source, config, {
     extraInstruction,
     includePreviousResult: Boolean(payload?.includePreviousResult),
-    signal: options.signal
+    signal: options.signal,
+    onRequestState: event => {
+      void publishSingleProgress({
+        phase: 'generating',
+        pending: 1,
+        waitingUpstream: event?.state === 'retrying' ? 1 : 0,
+        message: event?.state === 'retrying'
+          ? `生图接口等待重试：${job.relativePath}`
+          : `正在重新生成：${job.relativePath}`
+      }).catch(() => {});
+    }
   });
   if (source.generationMode !== 'template_print'
       && config.auditMode === 'quality'
@@ -2528,7 +2569,6 @@ async function regenerateSingleTemplate(payload, options = {}) {
   } else await fsp.rm(generationErrorsFile, { force: true }).catch(() => {});
   const billedMinor = Math.max(0, Number(generated.billedMinor) || 0);
   if (billedMinor > 0) {
-    const progressFile = metadataPaths(folder).generationProgress;
     const progress = await readJsonFile(progressFile, {});
     await writeJsonFile(progressFile, {
       ...(progress && typeof progress === 'object' ? progress : {}),
@@ -2537,6 +2577,13 @@ async function regenerateSingleTemplate(payload, options = {}) {
     });
   }
   await addOperationLog(folder, `重新生成完成：${job.relativePath}`);
+  await publishSingleProgress({
+    phase: 'completed',
+    pending: 0,
+    waitingUpstream: 0,
+    message: `重新生成完成：${job.relativePath}`,
+    completedAt: new Date().toISOString()
+  });
   return { folder, relativePath: job.relativePath, outputPath: job.outputPath };
 }
 

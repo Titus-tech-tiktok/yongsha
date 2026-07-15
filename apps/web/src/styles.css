@@ -2680,6 +2680,12 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 2px #286b6721;
 }
 
+.review-image.regenerating {
+  border-color: var(--teal);
+  background: #f2faf7;
+  box-shadow: 0 0 0 2px rgba(40, 107, 103, .14);
+}
+
 .review-image.log-target {
   border-color: var(--teal);
   outline: 4px solid rgba(40, 107, 103, .62);
