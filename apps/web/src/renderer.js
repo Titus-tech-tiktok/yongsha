@@ -233,7 +233,7 @@ function applyCurrentUser(user) {
   $('#promptSettingsNav').hidden = !canManagePrompts();
   $('[data-settings-tab="general"]').hidden = user.role === 'admin';
   $('#apiSettingsTab').hidden = !isSuperAdmin();
-  $('#billingSettingsTab').hidden = !isTeamAdmin();
+  $('#billingSettingsTab').hidden = !isSuperAdmin();
   $('#teamSettingsTab').hidden = !isTeamAdmin();
   $('#newUserRoleLabel').hidden = !isSuperAdmin();
   $('#authGate').hidden = true;
@@ -563,7 +563,7 @@ function setPage(name) {
   if (name === 'settings') {
     if (state.currentUser?.role === 'admin') state.settingsTab = 'team';
     else if (state.settingsTab === 'api' && !isSuperAdmin()) state.settingsTab = 'general';
-    else if (state.settingsTab === 'billing' && !isTeamAdmin()) state.settingsTab = 'general';
+    else if (state.settingsTab === 'billing' && !isSuperAdmin()) state.settingsTab = 'general';
     else if (state.settingsTab === 'team' && !isTeamAdmin()) state.settingsTab = 'general';
   }
   const nextPage = $(`#page-${name}`);
@@ -3500,7 +3500,7 @@ async function resetAllPrompts() {
 function renderSettingsTabs(name = state.settingsTab) {
   if (state.currentUser?.role === 'admin') name = 'team';
   else if (name === 'api' && !isSuperAdmin()) name = 'general';
-  else if (name === 'billing' && !isTeamAdmin()) name = 'general';
+  else if (name === 'billing' && !isSuperAdmin()) name = 'general';
   else if (name === 'team' && !isTeamAdmin()) name = 'general';
   state.settingsTab = name;
   $$('[data-settings-tab]').forEach(button => {
