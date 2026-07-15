@@ -2298,10 +2298,17 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
   }
   if (onlyMissing) jobs = jobs.filter(job => !fs.existsSync(job.outputPath));
   let progressWrite = Promise.resolve();
+  const generationStartedAt = new Date();
+  const generationStartedAtIso = generationStartedAt.toISOString();
   const publishProgress = progress => {
+    const phase = progress.phase || 'generating';
+    const completedAt = progress.completedAt || (['completed', 'completed_with_errors', 'failed'].includes(phase) ? new Date().toISOString() : '');
+    const elapsedMs = completedAt
+      ? Math.max(0, new Date(completedAt).getTime() - generationStartedAt.getTime())
+      : Math.max(0, Number(progress.elapsedMs) || 0);
     const next = {
       folder,
-      phase: progress.phase || 'generating',
+      phase,
       current: Math.max(0, Number(progress.current) || 0),
       total: Math.max(0, Number(progress.total) || jobs.length),
       percent: Math.max(0, Math.min(100, Number(progress.percent) || 0)),
@@ -2314,6 +2321,9 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
       pending: Math.max(0, Number(progress.pending) || 0),
       billingCostMinor: Math.max(0, Number(progress.billingCostMinor) || 0),
       message: String(progress.message || ''),
+      startedAt: String(progress.startedAt || generationStartedAtIso),
+      completedAt,
+      elapsedMs,
       updatedAt: new Date().toISOString()
     };
     progressWrite = progressWrite.then(async () => {
@@ -2366,7 +2376,7 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
       pending: Math.max(0, live.total - live.current),
       percent: live.total ? Math.round(live.current / live.total * 100) : 0,
       message: live.waitingUpstream
-        ? `等待上游恢复 ${live.waitingUpstream} 张，已完成 ${live.current}/${live.total}`
+        ? `生图接口等待重试 ${live.waitingUpstream} 张，已完成 ${live.current}/${live.total}`
         : `正在处理 ${live.current}/${live.total}`
     }).catch(() => {});
   };

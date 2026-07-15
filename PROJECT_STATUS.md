@@ -1,5 +1,12 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Review retry wording and task duration
+
+- Renamed the review progress wording from `等待上游恢复` to `生图接口等待重试` so operators understand it means image API retry wait.
+- Template generation progress now stores `startedAt`, `completedAt`, and `elapsedMs` in the task metadata.
+- The manual review task list and active task progress card now show elapsed time while running and total duration after all images are processed.
+- Verification completed: `node --check apps/web/src/renderer.js`, `node --check apps/api/src/runtime.js`, `npm run build -w @caishen/web`, `npm test -w @caishen/api -- tests/runtime.test.js`.
+
 ## 2026-07-15 Update - Full-set start feedback
 
 - Clicking a single master card's `开始生成整套` now starts the full-set generation and automatically switches to the `人工筛图` page so operators can see progress immediately.

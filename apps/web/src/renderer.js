@@ -316,6 +316,33 @@ function formatMoney(minor = 0) {
   return `$${formatUsdAmount(Math.max(0, Number(minor) || 0) / BILLING_AMOUNT_SCALE)}`;
 }
 
+function formatDurationMs(ms = 0) {
+  const totalSeconds = Math.max(0, Math.floor(Number(ms) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours) return `${hours}小时${String(minutes).padStart(2, '0')}分${String(seconds).padStart(2, '0')}秒`;
+  if (minutes) return `${minutes}分${String(seconds).padStart(2, '0')}秒`;
+  return `${seconds}秒`;
+}
+
+function reviewElapsedMs(summary, running = false) {
+  if (Number(summary.elapsedMs) > 0) return Number(summary.elapsedMs);
+  if (!summary.startedAt) return 0;
+  const started = new Date(summary.startedAt).getTime();
+  if (!Number.isFinite(started)) return 0;
+  if (running) return Math.max(0, Date.now() - started);
+  if (summary.completedAt) {
+    const completed = new Date(summary.completedAt).getTime();
+    return Number.isFinite(completed) ? Math.max(0, completed - started) : 0;
+  }
+  return 0;
+}
+
+function normalizeProgressMessage(message = '') {
+  return String(message || '').replaceAll('等待上游恢复', '生图接口等待重试');
+}
+
 function roleLabel(role) {
   return { superadmin: '超级管理员', admin: '管理员', member: '成员' }[role] || '成员';
 }
@@ -2329,11 +2356,14 @@ function reviewGenerationSummary(item) {
     pending: Number(saved.pending) || 0,
     billingCostMinor: Number(saved.billingCostMinor) || 0,
     phase: saved.phase || 'completed',
-    message: saved.message || '',
+    message: normalizeProgressMessage(saved.message || ''),
+    startedAt: saved.startedAt || '',
+    completedAt: saved.completedAt || '',
+    elapsedMs: Number(saved.elapsedMs) || 0,
     updatedAt: saved.updatedAt || ''
   };
   const jobs = item?.jobs || [];
-  const summary = { total: jobs.length, current: 0, percent: 0, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, waitingUpstream: 0, pending: 0, billingCostMinor: 0, phase: 'completed', message: '', updatedAt: '' };
+  const summary = { total: jobs.length, current: 0, percent: 0, apiGenerated: 0, copied: 0, skipped: 0, failed: 0, waitingUpstream: 0, pending: 0, billingCostMinor: 0, phase: 'completed', message: '', startedAt: '', completedAt: '', elapsedMs: 0, updatedAt: '' };
   for (const job of jobs) {
     const action = normalizeTemplateUiAction(job.action);
     if (job.status === '已跳过' || action === 'exclude') summary.skipped += 1;
@@ -2499,7 +2529,9 @@ function renderReviewList() {
       ? `处理中 ${summary.current}/${summary.total}`
       : `API ${summary.apiGenerated} · 复制 ${summary.copied} · 跳过 ${summary.skipped}`;
     const cost = summary.billingCostMinor ? ` · 成本 ${formatMoney(summary.billingCostMinor)}` : '';
-    return `<div class="review-row${state.activeReview?.folder === item.folder ? ' active' : ''}"><input type="checkbox" data-review-select="${index}"${state.selectedReviewFolders.has(item.folder) ? ' checked' : ''}><button class="review-row-main" data-review-index="${index}"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.status)} · ${summary.total || item.images.length} 张</span><small>${escapeHtml(detail + cost)}</small><progress max="100" value="${Math.max(0, Math.min(100, summary.percent))}"></progress></button></div>`;
+    const elapsed = reviewElapsedMs(summary, running);
+    const duration = elapsed ? ` · ${running ? '已用时' : '总耗时'} ${formatDurationMs(elapsed)}` : '';
+    return `<div class="review-row${state.activeReview?.folder === item.folder ? ' active' : ''}"><input type="checkbox" data-review-select="${index}"${state.selectedReviewFolders.has(item.folder) ? ' checked' : ''}><button class="review-row-main" data-review-index="${index}"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.status)} · ${summary.total || item.images.length} 张${escapeHtml(duration)}</span><small>${escapeHtml(detail + cost)}</small><progress max="100" value="${Math.max(0, Math.min(100, summary.percent))}"></progress></button></div>`;
   }).join('') : '<div class="empty-inline">没有匹配的任务</div>';
 }
 
@@ -2534,14 +2566,16 @@ function renderReviewStage() {
   const progressTitle = running ? '正在处理套图' : needsAttention ? '套图处理完成，但有图片需要处理' : noApiGeneration ? '本任务没有调用生图 API' : '套图已生成，请逐张确认';
   const progressDetail = running
     ? (summary.message || (summary.waitingUpstream
-      ? `等待上游恢复 ${summary.waitingUpstream} 张，已处理 ${summary.current}/${summary.total} 张`
+      ? `生图接口等待重试 ${summary.waitingUpstream} 张，已处理 ${summary.current}/${summary.total} 张`
       : `已处理 ${summary.current}/${summary.total} 张，页面会自动刷新`))
     : noApiGeneration
       ? `套图识别规则将 ${summary.copied} 张判定为直接复制，${summary.skipped} 张判定为跳过，所以很快完成。`
       : needsAttention
         ? `失败 ${summary.failed} 张，待处理 ${summary.pending} 张。先处理异常图片，再确认整套。`
         : `共 ${summary.total} 张：API 生成 ${summary.apiGenerated}，直接复制 ${summary.copied}，跳过 ${summary.skipped}。`;
-  const progressCard = `<section class="review-progress-card${running ? ' running' : needsAttention || noApiGeneration ? ' attention' : ' complete'}"><div class="review-progress-head"><div><span>${running ? '生成进度' : '本次处理摘要'}</span><b>${escapeHtml(progressTitle)}</b><p>${escapeHtml(progressDetail)}</p></div><strong>${summary.current}/${summary.total}</strong></div><progress class="review-progress-track" aria-label="套图处理进度" max="${Math.max(1, summary.total)}" value="${Math.max(0, summary.current)}"></progress><div class="review-progress-metrics"><span><i class="api"></i>API 生成 <b>${summary.apiGenerated}</b></span><span><i class="copied"></i>直接复制 <b>${summary.copied}</b></span><span><i class="skipped"></i>跳过 <b>${summary.skipped}</b></span><span><i class="cost"></i>任务成本 <b>${formatMoney(summary.billingCostMinor)}</b></span>${summary.waitingUpstream ? `<span><i class="waiting"></i>等待上游恢复 <b>${summary.waitingUpstream}</b></span>` : ''}${summary.failed ? `<span><i class="failed"></i>失败 <b>${summary.failed}</b></span>` : ''}${summary.pending ? `<span><i class="pending"></i>待处理 <b>${summary.pending}</b></span>` : ''}</div>${noApiGeneration ? '<div class="review-progress-guidance"><span>如果原本期望替换印花，说明当前套图识别规则不符合预期。</span><button class="secondary" data-review-configure>返回检查套图规则</button></div>' : ''}</section>`;
+  const elapsed = reviewElapsedMs(summary, running);
+  const durationMetric = elapsed ? `<span><i class="pending"></i>${running ? '已用时' : '总耗时'} <b>${formatDurationMs(elapsed)}</b></span>` : '';
+  const progressCard = `<section class="review-progress-card${running ? ' running' : needsAttention || noApiGeneration ? ' attention' : ' complete'}"><div class="review-progress-head"><div><span>${running ? '生成进度' : '本次处理摘要'}</span><b>${escapeHtml(progressTitle)}</b><p>${escapeHtml(progressDetail)}</p></div><strong>${summary.current}/${summary.total}</strong></div><progress class="review-progress-track" aria-label="套图处理进度" max="${Math.max(1, summary.total)}" value="${Math.max(0, summary.current)}"></progress><div class="review-progress-metrics"><span><i class="api"></i>API 生成 <b>${summary.apiGenerated}</b></span><span><i class="copied"></i>直接复制 <b>${summary.copied}</b></span><span><i class="skipped"></i>跳过 <b>${summary.skipped}</b></span><span><i class="cost"></i>任务成本 <b>${formatMoney(summary.billingCostMinor)}</b></span>${durationMetric}${summary.waitingUpstream ? `<span><i class="waiting"></i>生图接口等待重试 <b>${summary.waitingUpstream}</b></span>` : ''}${summary.failed ? `<span><i class="failed"></i>失败 <b>${summary.failed}</b></span>` : ''}${summary.pending ? `<span><i class="pending"></i>待处理 <b>${summary.pending}</b></span>` : ''}</div>${noApiGeneration ? '<div class="review-progress-guidance"><span>如果原本期望替换印花，说明当前套图识别规则不符合预期。</span><button class="secondary" data-review-configure>返回检查套图规则</button></div>' : ''}</section>`;
   stage.innerHTML = `<div class="review-toolbar"><div><b>${escapeHtml(item.name)}</b><span class="index">${escapeHtml(item.status)}</span></div><div><button class="primary" id="approveReview"${running || needsAttention ? ' disabled' : ''}>确认整套通过</button></div></div>${progressCard}${master}<div class="review-images">${imageMarkup}</div>`;
   renderReviewTrackingLog(item, summary, running);
   stage.querySelectorAll('[data-review-job]').forEach((card, index) => {
