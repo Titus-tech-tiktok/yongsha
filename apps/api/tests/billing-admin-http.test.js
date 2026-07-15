@@ -84,6 +84,16 @@ test('admin billing endpoint hides platform ledger and backend actors', async ()
       body: JSON.stringify({ userId: outsider.id, amountMinor: 2000, description: 'outsider ledger' })
     });
 
+    const superBilling = await jsonFetch(`${base}/api/billing/admin`, {
+      headers: { Cookie: superCookie }
+    });
+    assert.equal(superBilling.response.status, 200);
+    assert.deepEqual(
+      superBilling.body.data.users.map(user => user.id).sort(),
+      [bootstrap.body.data.user.id, admin.id, outsider.id].sort()
+    );
+    assert.ok(superBilling.body.data.transactions.some(entry => entry.description === 'outsider ledger'));
+
     const login = await jsonFetch(`${base}/api/auth/login`, {
       method: 'POST',
       body: JSON.stringify({ username: 'teamadmin', password: 'abc147852' })
@@ -97,9 +107,11 @@ test('admin billing endpoint hides platform ledger and backend actors', async ()
     assert.equal(billing.response.status, 200);
     const data = billing.body.data;
     assert.equal(data.rules, undefined);
-    assert.deepEqual(data.users.map(user => user.id), [admin.id]);
-    assert.deepEqual(data.transactions, []);
-    assert.equal(data.transactionUsers, undefined);
+    assert.deepEqual(data.users.map(user => user.id).sort(), [admin.id, outsider.id].sort());
+    assert.ok(data.transactions.some(entry => entry.description === '账户充值到账' && entry.workspaceId === admin.workspaceId));
+    assert.ok(data.transactions.some(entry => entry.description === 'outsider ledger' && entry.workspaceId === outsider.workspaceId));
+    assert.equal(data.transactions.some(entry => entry.workspaceId === 'local'), false);
+    assert.deepEqual((data.transactionUsers || []).map(user => user.id).sort(), [admin.id, outsider.id].sort());
 
     const summary = await jsonFetch(`${base}/api/billing/me`, {
       headers: { Cookie: adminCookie }

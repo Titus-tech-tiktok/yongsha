@@ -95,6 +95,7 @@ const state = {
   teamUsers: [],
   billingSummary: null,
   billingAdmin: null,
+  billingAdminFilter: '',
   config: null,
   products: [],
   prints: [],
@@ -186,10 +187,10 @@ function applySidebarCollapsed(collapsed) {
     button.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
     button.setAttribute('aria-label', collapsed ? '展开边栏' : '隐藏边栏');
     button.title = collapsed ? '展开边栏' : '隐藏边栏';
-    button.textContent = collapsed ? '展开' : '‹';
+    button.textContent = collapsed ? '›' : '‹';
   }
   const logo = $('.brand img');
-  if (logo) logo.title = collapsed ? '展开边栏' : '隐藏边栏';
+  if (logo) logo.title = '庞大科技';
   try { localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0'); } catch {}
 }
 
@@ -232,7 +233,7 @@ function applyCurrentUser(user) {
   $('#promptSettingsNav').hidden = !canManagePrompts();
   $('[data-settings-tab="general"]').hidden = user.role === 'admin';
   $('#apiSettingsTab').hidden = !isSuperAdmin();
-  $('#billingSettingsTab').hidden = !isSuperAdmin();
+  $('#billingSettingsTab').hidden = !isTeamAdmin();
   $('#teamSettingsTab').hidden = !isTeamAdmin();
   $('#newUserRoleLabel').hidden = !isSuperAdmin();
   $('#authGate').hidden = true;
@@ -327,6 +328,13 @@ function formatDurationMs(ms = 0) {
   if (hours) return `${hours}小时${String(minutes).padStart(2, '0')}分${String(seconds).padStart(2, '0')}秒`;
   if (minutes) return `${minutes}分${String(seconds).padStart(2, '0')}秒`;
   return `${seconds}秒`;
+}
+
+function formatLocalDateTime(value) {
+  if (!value) return '';
+  const date = typeof value === 'number' ? new Date(value) : new Date(String(value));
+  if (!Number.isFinite(date.getTime())) return '';
+  return date.toLocaleString('zh-CN', { hour12: false });
 }
 
 function reviewElapsedMs(summary, running = false) {
@@ -554,7 +562,8 @@ function setPage(name) {
   if (name === 'prompts' && !canManagePrompts()) name = 'settings';
   if (name === 'settings') {
     if (state.currentUser?.role === 'admin') state.settingsTab = 'team';
-    else if (['api', 'billing'].includes(state.settingsTab) && !isSuperAdmin()) state.settingsTab = 'general';
+    else if (state.settingsTab === 'api' && !isSuperAdmin()) state.settingsTab = 'general';
+    else if (state.settingsTab === 'billing' && !isTeamAdmin()) state.settingsTab = 'general';
     else if (state.settingsTab === 'team' && !isTeamAdmin()) state.settingsTab = 'general';
   }
   const nextPage = $(`#page-${name}`);
@@ -2599,11 +2608,40 @@ function renderReviewTrackingLog(item, summary, running) {
     ? item.logs.map(log => ({ time: log.time || log.Time || '', message: log.message || log.Message || '' }))
     : [{ time: '', message: `${item.status}：${item.name}` }];
   const filterButton = (key, label, count) => `<button type="button" class="review-log-filter${activeFilter === key ? ' active' : ''}" data-review-log-filter="${key}">${label}<b>${count}</b></button>`;
+  const jobTimeText = entry => {
+    if (entry.job.regenerating) {
+      const updated = formatLocalDateTime(summary.updatedAt || Date.now());
+      return updated ? `更新 ${updated}` : '';
+    }
+    if (entry.job.outputModifiedAt) {
+      const completed = formatLocalDateTime(Number(entry.job.outputModifiedAt));
+      return completed ? `完成 ${completed}` : '';
+    }
+    const reviewedAt = entry.job.manualReview?.updatedAt || entry.job.reviewedAt || '';
+    if (reviewedAt) {
+      const reviewed = formatLocalDateTime(reviewedAt);
+      return reviewed ? `确认 ${reviewed}` : '';
+    }
+    if (running && activeRelativePath && normalizedRelativePath(entry.job.relativePath) === activeRelativePath) {
+      const updated = formatLocalDateTime(summary.updatedAt || Date.now());
+      return updated ? `更新 ${updated}` : '';
+    }
+    return '';
+  };
   const items = visible.length
-    ? visible.map(entry => `<button type="button" class="review-track-item ${entry.state.key} ${entry.viewed ? 'viewed' : 'unread'}" data-review-log-job="${entry.index}" title="跳转到 ${escapeHtml(entry.job.relativePath)}"><i aria-hidden="true"></i><span><b>${escapeHtml(entry.job.relativePath)}</b><small>${escapeHtml(entry.state.detail)}</small></span><span class="review-track-badges"><em>${escapeHtml(entry.state.label)}</em><u>${entry.viewed ? '已查看' : '未查看'}</u></span></button>`).join('')
+    ? visible.map(entry => {
+      const timeText = jobTimeText(entry);
+      const detail = timeText ? `${entry.state.detail} · ${timeText}` : entry.state.detail;
+      return `<button type="button" class="review-track-item ${entry.state.key} ${entry.viewed ? 'viewed' : 'unread'}" data-review-log-job="${entry.index}" title="跳转到 ${escapeHtml(entry.job.relativePath)}"><i aria-hidden="true"></i><span><b>${escapeHtml(entry.job.relativePath)}</b><small>${escapeHtml(detail)}</small></span><span class="review-track-badges"><em>${escapeHtml(entry.state.label)}</em><u>${entry.viewed ? '已查看' : '未查看'}</u></span></button>`;
+    }).join('')
     : '<div class="review-track-empty">当前筛选没有图片</div>';
   const history = logs.slice().reverse().slice(0, 20).map(log => `<div class="review-log-entry"><span>${escapeHtml(log.time ? new Date(log.time).toLocaleString('zh-CN', { hour12: false }) : '')}</span><div>${escapeHtml(log.message)}</div></div>`).join('');
-  $('#reviewOperationLog').innerHTML = `<div class="review-log-summary"><b>${running ? '任务正在处理' : counts.failed ? '任务需要处理' : '任务处理完成'}</b><span>${summary.current}/${summary.total} 张已处理</span><small>完成 ${counts.completed} · 失败 ${counts.failed} · 待处理 ${counts.pending} · 未查看 ${counts.unread}${summary.billingCostMinor ? ` · 成本 ${formatMoney(summary.billingCostMinor)}` : ''}</small></div><div class="review-log-filters">${filterButton('all', '全部', entries.length)}${filterButton('unread', '未查看', counts.unread)}${filterButton('completed', '完成', counts.completed)}${filterButton('failed', '失败', counts.failed)}${filterButton('pending', '待处理', counts.pending)}</div><div class="review-track-list">${items}</div><details class="review-log-history"><summary>查看任务记录</summary>${history}</details>`;
+  const summaryTimes = [
+    summary.startedAt ? `开始 ${formatLocalDateTime(summary.startedAt)}` : '',
+    summary.completedAt ? `完成 ${formatLocalDateTime(summary.completedAt)}` : '',
+    !summary.completedAt && summary.updatedAt ? `更新 ${formatLocalDateTime(summary.updatedAt)}` : ''
+  ].filter(Boolean).join(' · ');
+  $('#reviewOperationLog').innerHTML = `<div class="review-log-summary"><b>${running ? '任务正在处理' : counts.failed ? '任务需要处理' : '任务处理完成'}</b><span>${summary.current}/${summary.total} 张已处理</span><small>完成 ${counts.completed} · 失败 ${counts.failed} · 待处理 ${counts.pending} · 未查看 ${counts.unread}${summary.billingCostMinor ? ` · 成本 ${formatMoney(summary.billingCostMinor)}` : ''}${summaryTimes ? ` · ${escapeHtml(summaryTimes)}` : ''}</small></div><div class="review-log-filters">${filterButton('all', '全部', entries.length)}${filterButton('unread', '未查看', counts.unread)}${filterButton('completed', '完成', counts.completed)}${filterButton('failed', '失败', counts.failed)}${filterButton('pending', '待处理', counts.pending)}</div><div class="review-track-list">${items}</div><details class="review-log-history"><summary>查看任务记录</summary>${history}</details>`;
 }
 
 async function loadReviews({ silent = false } = {}) {
@@ -3228,9 +3266,52 @@ async function runReviewGeneration(onlyMissing, folders) {
     ? [...new Set(folders)]
     : state.activeReview ? [state.activeReview.folder] : [];
   if (!targets.length) return toast('请先选择任务', true);
+  const now = new Date().toISOString();
+  const applyLocalProgress = (folder, update = {}) => {
+    const review = state.reviews.find(item => item.folder === folder) || (state.activeReview?.folder === folder ? state.activeReview : null);
+    if (!review) return;
+    const existing = review.generationProgress || {};
+    const total = Math.max(1, Number(update.total) || Number(existing.total) || review.jobs?.length || review.images?.length || 1);
+    review.generationProgress = {
+      ...existing,
+      folder,
+      total,
+      current: Math.max(0, Number(update.current ?? existing.current) || 0),
+      percent: Math.max(0, Math.min(100, Number(update.percent ?? existing.percent) || 0)),
+      pending: Math.max(0, Number(update.pending ?? total) || 0),
+      phase: update.phase || existing.phase || 'preparing',
+      message: normalizeProgressMessage(update.message || existing.message || (onlyMissing ? '正在补生成缺失图片' : '正在重新生成整套图')),
+      startedAt: update.startedAt || existing.startedAt || now,
+      updatedAt: update.updatedAt || now,
+      activeRelativePath: update.activeRelativePath || existing.activeRelativePath || ''
+    };
+    if (state.activeReview?.folder === folder) state.activeReview = review;
+  };
   try {
+    targets.forEach(folder => applyLocalProgress(folder, {
+      phase: 'preparing',
+      current: 0,
+      percent: 0,
+      pending: Math.max(1, state.reviews.find(item => item.folder === folder)?.jobs?.length || 1),
+      message: onlyMissing ? '正在补生成缺失图片，任务已提交' : '正在重新生成整套图，任务已提交'
+    }));
+    renderReviewList();
+    renderReviewStagePreservingScroll();
+    renderReviewGenerationControls();
     toast(onlyMissing ? '正在生成缺失套图' : '正在重新生成整套图');
     const results = await window.caishen.generateTemplates({ folders: targets, onlyMissing }, (_progress, job) => {
+      const progress = _progress || {};
+      const folder = progress.folder || targets[0];
+      if (folder) {
+        applyLocalProgress(folder, {
+          ...progress,
+          phase: progress.phase || (job?.status === 'queued' ? 'preparing' : 'generating'),
+          message: progress.message || (onlyMissing ? '正在补生成缺失图片' : '正在重新生成整套图'),
+          updatedAt: progress.updatedAt || new Date().toISOString()
+        });
+        renderReviewList();
+        renderReviewStagePreservingScroll();
+      }
       if (job?.id && ['queued', 'running'].includes(job.status)) {
         state.activeReviewGenerationJobId = job.id;
         renderReviewGenerationControls();
@@ -3419,7 +3500,7 @@ async function resetAllPrompts() {
 function renderSettingsTabs(name = state.settingsTab) {
   if (state.currentUser?.role === 'admin') name = 'team';
   else if (name === 'api' && !isSuperAdmin()) name = 'general';
-  else if (name === 'billing' && !isSuperAdmin()) name = 'general';
+  else if (name === 'billing' && !isTeamAdmin()) name = 'general';
   else if (name === 'team' && !isTeamAdmin()) name = 'general';
   state.settingsTab = name;
   $$('[data-settings-tab]').forEach(button => {
@@ -3439,25 +3520,37 @@ function renderBillingAdmin() {
   const data = state.billingAdmin;
   if (!data) return;
   const rules = data.rules || {};
+  const users = data.users || [];
+  if (state.billingAdminFilter && !users.some(user => user.id === state.billingAdminFilter)) state.billingAdminFilter = '';
+  const filteredUsers = state.billingAdminFilter ? users.filter(user => user.id === state.billingAdminFilter) : users;
+  const visibleWorkspaceIds = new Set(filteredUsers.map(user => user.workspaceId));
+  const filteredTransactions = state.billingAdminFilter
+    ? (data.transactions || []).filter(entry => visibleWorkspaceIds.has(entry.workspaceId))
+    : (data.transactions || []);
   $('.billing-settings-grid').hidden = false;
-  $('#clearBillingLedgerButton').hidden = false;
+  $('.billing-rule-card').hidden = !isSuperAdmin();
+  $('#clearBillingLedgerButton').hidden = !isSuperAdmin();
   $('#billingEnabled').checked = rules.enabled === true;
   $('#billingImageFeeMin').value = moneyMinorToInput(rules.imageFeeMinMinor || 0);
   $('#billingImageFeeMax').value = moneyMinorToInput(rules.imageFeeMaxMinor || rules.imageFeeMinor || 0);
   $('#billingLlmFeeMin').value = moneyMinorToInput(rules.llmFeeMinMinor || 0);
   $('#billingLlmFeeMax').value = moneyMinorToInput(rules.llmFeeMaxMinor || rules.llmFeeMinor || 0);
   $('#billingDefaultBalance').value = moneyMinorToInput(rules.defaultBalanceMinor || 0);
-  $('#billingStatusBadge').textContent = rules.enabled ? '计费中' : '未启用';
+  $('#billingStatusBadge').textContent = isSuperAdmin() ? (rules.enabled ? '计费中' : '未启用') : '余额查看';
   $('#billingStatusBadge').classList.toggle('ready', Boolean(rules.enabled));
-  $('#billingAccountCount').textContent = `${data.users?.length || 0} 个账号`;
-  $('#billingAccountList').innerHTML = (data.users || []).map(user => `
+  $('#billingUserFilter').innerHTML = `<option value="">全部人员</option>${users.map(user => `<option value="${escapeHtml(user.id)}"${user.id === state.billingAdminFilter ? ' selected' : ''}>${escapeHtml(user.displayName || user.username)} · ${roleLabel(user.role)}</option>`).join('')}`;
+  $('#billingAccountCount').textContent = state.billingAdminFilter ? `${filteredUsers.length}/${users.length} 个账号` : `${users.length} 个账号`;
+  $('#billingAccountList').innerHTML = filteredUsers.map(user => {
+    const canAdjust = isSuperAdmin() || (state.currentUser?.role === 'admin' && user.role === 'member' && (!user.parentUserId || user.parentUserId === state.currentUser.id));
+    return `
     <div class="billing-account-row" data-billing-user="${escapeHtml(user.id)}">
       <div class="billing-account-copy"><b>${escapeHtml(user.displayName || user.username)}${user.id === state.currentUser?.id ? '（当前）' : ''}</b><span>${escapeHtml(user.username)} · ${roleLabel(user.role)}${user.active ? '' : ' · 已停用'}</span></div>
       <div class="billing-account-balance">${formatMoney(user.billing?.balanceMinor)}</div>
-      <div class="billing-adjust-controls"><input type="number" step="0.000001" min="-${moneyMinorToInput(user.billing?.balanceMinor)}" placeholder="例如 1 或 0.002362" aria-label="调整金额"><button class="secondary" type="button" data-adjust-billing="${escapeHtml(user.id)}">确认调整</button></div>
-    </div>`).join('') || '<div class="empty-inline">还没有团队账号</div>';
-  const userMap = new Map((data.users || []).map(user => [user.workspaceId, user]));
-  $('#billingLedgerList').innerHTML = renderBillingLedger(data.transactions || [], userMap);
+      ${canAdjust ? `<div class="billing-adjust-controls"><input type="number" step="0.000001" min="-${moneyMinorToInput(user.billing?.balanceMinor)}" placeholder="例如 1 或 0.002362" aria-label="调整金额"><button class="secondary" type="button" data-adjust-billing="${escapeHtml(user.id)}">确认调整</button></div>` : '<div class="billing-adjust-note">仅查看</div>'}
+    </div>`;
+  }).join('') || '<div class="empty-inline">没有符合筛选的账号</div>';
+  const userMap = new Map(users.map(user => [user.workspaceId, user]));
+  $('#billingLedgerList').innerHTML = renderBillingLedger(filteredTransactions, userMap);
 }
 
 async function loadBillingAdmin() {
@@ -3922,9 +4015,6 @@ function bindEvents() {
   $('#cancelChangePasswordButton').onclick = closeChangePasswordModal;
   $('#changePasswordForm').onsubmit = submitChangePassword;
   $('#sidebarToggleButton').onclick = () => applySidebarCollapsed(!$('#appShell').classList.contains('sidebar-collapsed'));
-  $('.brand img').onclick = () => {
-    applySidebarCollapsed(!$('#appShell').classList.contains('sidebar-collapsed'));
-  };
   $('.topbar').onclick = event => {
     if ($('#appShell').classList.contains('sidebar-collapsed')) return;
     if (event.target.closest('button, .nav, .sidebar-finance, .brand')) return;
@@ -4190,6 +4280,10 @@ function bindEvents() {
   $('#saveBillingRulesButton').onclick = saveBillingRules;
   $('#refreshBillingButton').onclick = loadBillingAdmin;
   $('#clearBillingLedgerButton').onclick = clearBillingLedger;
+  $('#billingUserFilter').onchange = event => {
+    state.billingAdminFilter = String(event.target.value || '');
+    renderBillingAdmin();
+  };
   $('#billingAccountList').onclick = event => {
     const button = event.target.closest('[data-adjust-billing]');
     if (button) adjustBillingBalance(button);

@@ -63,6 +63,12 @@ function visibleUsersForActor(users, actor) {
   return [];
 }
 
+function billingVisibleUsersForActor(users, actor) {
+  if (actor.role === 'superadmin') return users;
+  if (actor.role === 'admin') return users.filter(user => user.role !== 'superadmin');
+  return [];
+}
+
 function canManageUser(actor, target) {
   if (!target) return false;
   if (actor.role === 'superadmin') return target.role !== 'superadmin' || target.id !== actor.id;
@@ -1065,29 +1071,29 @@ async function startServer() {
     if (!isTeamAdmin(req.user)) return res.status(403).json({ error: '只有管理员可以查看团队余额' });
     try {
       const allUsers = await auth.listUsers();
-      const users = visibleUsersForActor(allUsers, req.user);
+      const users = billingVisibleUsersForActor(allUsers, req.user);
+      const visibleWorkspaceIds = new Set(users.map(user => user.workspaceId));
       const [rules, accounts, transactions] = await Promise.all([
         req.user.role === 'superadmin' ? runtime.billing.getRules() : Promise.resolve(undefined),
         runtime.billing.listAccounts(users.map(user => user.workspaceId)),
-        req.user.role === 'superadmin' ? runtime.billing.listTransactions('', 150) : Promise.resolve([])
+        runtime.billing.listTransactions('', 150)
       ]);
+      const visibleTransactions = transactions.filter(entry => visibleWorkspaceIds.has(entry.workspaceId));
       const byWorkspace = new Map(accounts.map(account => [account.workspaceId, account]));
       return res.json({
         data: {
           role: req.user.role,
           ...(req.user.role === 'superadmin' ? { rules } : {}),
           users: users.map(user => ({ ...user, billing: byWorkspace.get(user.workspaceId) })),
-          ...(req.user.role === 'superadmin' ? {
-            transactionUsers: allUsers.map(user => ({
+          transactionUsers: users.map(user => ({
               id: user.id,
               username: user.username,
               displayName: user.displayName,
               role: user.role,
               active: user.active,
               workspaceId: user.workspaceId
-            }))
-          } : {}),
-          transactions
+          })),
+          transactions: visibleTransactions
         }
       });
     } catch (error) {

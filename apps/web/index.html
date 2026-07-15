@@ -30,14 +30,14 @@
         <button class="sidebar-toggle" id="sidebarToggleButton" type="button" aria-label="隐藏边栏" title="隐藏边栏">‹</button>
       </div>
       <nav class="nav" aria-label="主导航">
-        <button class="nav-item" data-index="01" data-page="assets">素材资产</button>
-        <button class="nav-item active" data-index="02" data-page="tasks">素材生图</button>
-        <button class="nav-item" data-index="03" data-page="review">人工筛图</button>
-        <button class="nav-item" data-index="04" data-page="titles">生成标题</button>
-        <button class="nav-item" data-index="05" data-page="free">自由生图</button>
+        <button class="nav-item" data-index="01" data-icon="资" data-page="assets" title="素材资产">素材资产</button>
+        <button class="nav-item active" data-index="02" data-icon="图" data-page="tasks" title="素材生图">素材生图</button>
+        <button class="nav-item" data-index="03" data-icon="筛" data-page="review" title="人工筛图">人工筛图</button>
+        <button class="nav-item" data-index="04" data-icon="题" data-page="titles" title="生成标题">生成标题</button>
+        <button class="nav-item" data-index="05" data-icon="生" data-page="free" title="自由生图">自由生图</button>
         <div class="nav-divider" aria-hidden="true"><span>管理设置</span></div>
-        <button class="nav-item" id="promptSettingsNav" data-index="06" data-page="prompts">提示词设置</button>
-        <button class="nav-item" data-index="07" data-page="settings">系统设置</button>
+        <button class="nav-item" id="promptSettingsNav" data-index="06" data-icon="词" data-page="prompts" title="提示词设置">提示词设置</button>
+        <button class="nav-item" data-index="07" data-icon="设" data-page="settings" title="系统设置">系统设置</button>
       </nav>
       <div class="sidebar-finance">
         <button class="sidebar-balance" id="openBillingDetailButton" type="button"><span>账户余额</span><b id="currentBalance">读取中…</b><small id="currentBillingHint">点击查看费用明细</small></button>
@@ -260,7 +260,8 @@
                 <button class="primary" id="saveBillingRulesButton" type="button">保存计费规则</button>
               </section>
               <section class="settings-card billing-account-card">
-                <div class="settings-card-head"><div><h3>团队余额</h3><p>输入正数充值，输入负数扣减。</p></div><span id="billingAccountCount">0 个账号</span></div>
+                <div class="settings-card-head"><div><h3>团队余额</h3><p>按人员筛选查看余额；超级管理员可充值或扣减，管理员只能给成员划拨。</p></div><span id="billingAccountCount">0 个账号</span></div>
+                <label class="billing-user-filter">查看人员<select id="billingUserFilter"><option value="">全部人员</option></select></label>
                 <div class="billing-account-list" id="billingAccountList"><div class="empty-inline">正在读取账户余额…</div></div>
               </section>
             </div>

@@ -91,7 +91,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 }
 
 .app-shell.sidebar-collapsed {
-  grid-template-columns: 0 minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
 }
 
 .topbar {
@@ -154,51 +154,49 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 }
 
 .app-shell.sidebar-collapsed .topbar {
-  width: 0;
+  width: auto;
   min-width: 0;
-  padding: 0;
-  overflow: visible;
-  background: transparent;
-  box-shadow: none;
+  padding: 14px 8px 12px;
+  overflow: hidden;
+  background: var(--navy);
+  box-shadow: 10px 0 30px #101b2b18;
 }
 
 .app-shell.sidebar-collapsed .brand {
-  position: fixed;
-  top: 18px;
-  left: 18px;
-  z-index: 60;
-  width: 46px;
-  height: 46px;
-  padding: 0;
-  border: 0;
+  position: static;
+  z-index: auto;
+  width: auto;
+  height: auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid #f4f1e91f;
 }
 
 .app-shell.sidebar-collapsed .brand img {
-  width: 46px;
-  height: 46px;
-  cursor: pointer;
+  width: 38px;
+  height: 38px;
+  cursor: default;
 }
 
 .app-shell.sidebar-collapsed .brand > div,
 .app-shell.sidebar-collapsed .nav-divider span,
 .app-shell.sidebar-collapsed .sidebar-balance,
 .app-shell.sidebar-collapsed .sidebar-account div,
-.app-shell.sidebar-collapsed .sidebar-account .text-button,
-.app-shell.sidebar-collapsed .nav {
+.app-shell.sidebar-collapsed .sidebar-account .text-button {
   display: none;
 }
 
 .app-shell.sidebar-collapsed .sidebar-toggle {
-  position: fixed;
-  top: 66px;
-  left: 22px;
-  z-index: 61;
+  position: static;
+  z-index: auto;
   width: 34px;
-  height: 24px;
+  height: 26px;
   margin: 0;
   padding: 0;
-  font-size: 13px;
-  transform: rotate(180deg);
+  font-size: 15px;
+  transform: none;
 }
 
 .brand span {
@@ -217,7 +215,8 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 }
 
 .app-shell.sidebar-collapsed .nav {
-  margin-top: 44px;
+  margin-top: 12px;
+  gap: 8px;
 }
 
 .sidebar-account { margin-top: auto; padding: 15px 10px 2px; border-top: 1px solid #f4f1e91f; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -237,6 +236,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 
 .app-shell.sidebar-collapsed .sidebar-finance {
   margin-top: auto;
+  display: none;
 }
 
 .app-shell.sidebar-collapsed .sidebar-account {
@@ -299,6 +299,9 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .billing-account-copy b { font-size: 12px; }
 .billing-account-copy span { margin-top: 3px; color: var(--subtle); font-size: 9px; }
 .billing-account-balance { color: var(--teal); font-size: 15px; font-weight: 800; text-align: right; }
+.billing-user-filter { margin: -3px 0 12px; display: grid; gap: 6px; color: var(--subtle); font-size: 10px; }
+.billing-user-filter select { min-height: 38px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); padding: 0 10px; font-weight: 700; }
+.billing-adjust-note { grid-column: 1 / -1; color: var(--subtle); font-size: 10px; text-align: right; }
 .billing-adjust-controls { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
 .billing-adjust-controls input { min-height: 36px; }
 .billing-adjust-controls button { min-height: 36px; padding: 0 12px; font-size: 10px; }
@@ -362,7 +365,8 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .app-shell.sidebar-collapsed .nav-item {
   justify-content: center;
   gap: 0;
-  min-height: 46px;
+  width: 44px;
+  min-height: 44px;
   padding: 0;
   font-size: 0;
 }
@@ -377,7 +381,9 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 
 .app-shell.sidebar-collapsed .nav-item:before {
   width: auto;
-  font-size: 11px;
+  font-size: 15px;
+  letter-spacing: 0;
+  color: #f4f1e9c8;
 }
 
 .nav-item:first-child:before {
@@ -435,7 +441,19 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 }
 
 .app-shell.sidebar-collapsed .nav-item.active:after {
-  right: 8px;
+  right: 5px;
+}
+
+.app-shell.sidebar-collapsed .nav .nav-item::before {
+  content: attr(data-icon);
+}
+
+.app-shell.sidebar-collapsed .nav-divider {
+  margin: 8px 7px 2px;
+}
+
+.app-shell.sidebar-collapsed .nav-divider::after {
+  background: rgba(244, 241, 233, .16);
 }
 
 main {
@@ -4970,7 +4988,7 @@ label input, label textarea {
   }
 
   .app-shell.sidebar-collapsed {
-    grid-template-columns: 0 minmax(0, 1fr);
+    grid-template-columns: 64px minmax(0, 1fr);
   }
 
   .topbar {
