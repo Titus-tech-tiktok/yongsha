@@ -1,5 +1,11 @@
 # PROJECT_STATUS
 
+## 2026-07-15 Update - Full-set start feedback
+
+- Clicking a single master card's `开始生成整套` now starts the full-set generation and automatically switches to the `人工筛图` page so operators can see progress immediately.
+- Starting multiple full-set tasks stays on the current material-generation page and shows a non-blocking toast prompt: operators can go to `人工筛图` to view progress, with no click-confirm popup.
+- Verification completed: `node --check apps/web/src/renderer.js`, `npm run build -w @caishen/web`.
+
 ## 2026-07-15 Update - Master reference path recovery
 
 - Fixed master generation when the card still shows a cached base-image thumbnail but its saved absolute image path is stale after asset deletion, reimport, or folder switching.

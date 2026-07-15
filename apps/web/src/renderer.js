@@ -1920,7 +1920,7 @@ async function startTemplateSetFromMasterCandidate(candidateId) {
   const selected = selectQueueTasksForMasterCandidates(candidateId);
   renderQueue();
   if (!selected) return toast('这张母版对应的整套任务已生成完成，去人工筛图查看结果', true);
-  await generateQueue();
+  await generateQueue({ redirectOnStart: true });
 }
 
 async function startTemplateSetsFromAllMasters() {
@@ -1935,7 +1935,7 @@ async function startTemplateSetsFromAllMasters() {
   const selectedTasks = selectQueueTasksForMasterCandidates(ready.map(candidate => candidate.id));
   renderQueue();
   if (!selectedTasks) return toast('全部已生成母版对应的整套任务都已完成', true);
-  await generateQueue();
+  await generateQueue({ notifyOnStart: true });
 }
 
 async function generateAllTemplateMasterCandidates() {
@@ -2205,7 +2205,7 @@ async function generateTemplateMasterCandidate(candidateId) {
   }
 }
 
-async function generateQueue() {
+async function generateQueue(options = {}) {
   const selected = state.queue.filter(task => task.selected);
   let source = selected.length ? selected : state.queue;
   if (source.length && source.every(task => task.status === '已完成')) {
@@ -2248,6 +2248,12 @@ async function generateQueue() {
     task.progress = { phase: 'queued', current: 0, total: 0, percent: 0, message: '等待服务器处理' };
   });
   renderQueue();
+  if (options.redirectOnStart) {
+    toast('已开始生成整套，正在跳转到人工筛图页面查看进度');
+    setPage('review');
+  } else if (options.notifyOnStart) {
+    toast('已开始生成整套任务，可以到人工筛图页面查看进度');
+  }
   const grouped = new Map();
   for (const task of runnable) {
     const groupKey = queueGroupKey(task);
