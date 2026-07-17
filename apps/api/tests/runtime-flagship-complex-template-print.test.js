@@ -103,24 +103,27 @@ async function createFixture(t, workspaceId) {
     }]
   });
 
-  return { runtime, captured, templateRoot, printPath, masterImagePath };
+  return { runtime, captured, templateRoot, printPath, masterImagePath, baseUrl: `http://127.0.0.1:${server.address().port}/v1` };
 }
 
 test('flagship template-print adds complex preservation instructions', { concurrency: false }, async (t) => {
-  const { runtime, captured, templateRoot, printPath, masterImagePath } = await createFixture(t, 'flagship');
+  const { runtime, captured, templateRoot, printPath } = await createFixture(t, 'flagship');
   await runtime.saveSelectedModelPackage('flagship');
 
   await runtime.generateTask({
     taskNumber: 1,
     generationMode: 'template_print',
     printPath,
-    masterImagePath,
     templateFolderPath: templateRoot,
     templateRelativePaths: ['01-complex.png']
   });
 
   assert.match(captured.imageBodies[0], /FLAGSHIP_COMPLEX_TEMPLATE_PRINT_MODE/);
   assert.match(captured.imageBodies[0], /preserve every Chinese title/);
+  assert.equal((captured.imageBodies[0].match(/name="image"/g) || []).length, 2);
+  assert.match(captured.imageBodies[0], /filename="01-complex/);
+  assert.match(captured.imageBodies[0], /filename="pattern/);
+  assert.doesNotMatch(captured.imageBodies[0], /filename="master/);
 });
 
 test('standard template-print keeps package prompt override and does not receive flagship complex mode', { concurrency: false }, async (t) => {
@@ -138,4 +141,35 @@ test('standard template-print keeps package prompt override and does not receive
 
   assert.match(captured.imageBodies[0], /STANDARD ONLY PROMPT/);
   assert.doesNotMatch(captured.imageBodies[0], /FLAGSHIP_COMPLEX_TEMPLATE_PRINT_MODE/);
+});
+
+test('flagship template-print can include master reference when enabled', { concurrency: false }, async (t) => {
+  const { runtime, captured, templateRoot, printPath, masterImagePath, baseUrl } = await createFixture(t, 'flagship-master-reference');
+  await runtime.saveApiSettings({
+    baseUrl,
+    imageApiKey: 'image-key',
+    analysisApiKey: 'image-key',
+    imageModel: 'gpt-image-2',
+    analysisModel: 'gpt-5-3',
+    modelPackages: [
+      { id: 'flagship', name: 'Flagship', enabled: true, default: true, promptQuality: 'flagship', modelId: 'gpt-image-2', enableMasterReference: true },
+      { id: 'standard', name: 'Standard', enabled: true, default: false, promptQuality: 'standard', imagePrompt: 'STANDARD ONLY PROMPT', modelId: 'gpt-image-2' }
+    ]
+  });
+  await runtime.saveSelectedModelPackage('flagship');
+
+  await runtime.generateTask({
+    taskNumber: 1,
+    generationMode: 'template_print',
+    printPath,
+    masterImagePath,
+    templateFolderPath: templateRoot,
+    templateRelativePaths: ['01-complex.png']
+  });
+
+  assert.match(captured.imageBodies[0], /FLAGSHIP_COMPLEX_TEMPLATE_PRINT_MODE/);
+  assert.equal((captured.imageBodies[0].match(/name="image"/g) || []).length, 3);
+  assert.match(captured.imageBodies[0], /filename="01-complex/);
+  assert.match(captured.imageBodies[0], /filename="master/);
+  assert.match(captured.imageBodies[0], /filename="pattern/);
 });

@@ -471,6 +471,7 @@ function normalizeModelPackagesLegacy(value, currentSettings = {}) {
       imagePrompt: '',
       imagePriceMinor: 300000,
       analysisPriceMinor: 0,
+      enableMasterReference: false,
       queuePriority: 10
     }];
   }
@@ -508,6 +509,9 @@ function normalizeModelPackagesLegacy(value, currentSettings = {}) {
       imagePrompt: normalizeModelPackagePrompt(item?.imagePrompt ?? item?.hiddenPrompt, current.imagePrompt, defaultPackagePrompt('image', promptQuality), 10000),
       imagePriceMinor: normalizeModelPackageMinor(item?.imagePriceMinor, current.imagePriceMinor || 0),
       analysisPriceMinor: normalizeModelPackageMinor(item?.analysisPriceMinor, current.analysisPriceMinor || 0),
+      enableMasterReference: item?.enableMasterReference !== undefined
+        ? item.enableMasterReference === true
+        : current.enableMasterReference === true,
       queuePriority: normalizeModelPackageInteger(item?.queuePriority, current.queuePriority || 5, 0, 100)
     };
   });
@@ -541,6 +545,7 @@ const FIXED_MODEL_PACKAGE_PRESETS = Object.freeze([
     imagePriceMaxMinor: 300000,
     analysisPriceMinMinor: 0,
     analysisPriceMaxMinor: 0,
+    enableMasterReference: false,
     queuePriority: 10
   },
   {
@@ -629,6 +634,13 @@ function normalizeModelPackages(value, currentSettings = {}) {
       analysisPriceMinMinor: analysisRange.min,
       analysisPriceMaxMinor: analysisRange.max,
       analysisPriceMinor: analysisRange.max,
+      enableMasterReference: preset.id === 'flagship'
+        ? item?.enableMasterReference !== undefined
+          ? item.enableMasterReference === true
+          : current.enableMasterReference !== undefined
+            ? current.enableMasterReference === true
+            : preset.enableMasterReference === true
+        : true,
       queuePriority: normalizeModelPackageInteger(item?.queuePriority, current.queuePriority || preset.queuePriority, 0, 100)
     };
   });
@@ -837,6 +849,11 @@ function packageIsFlagship(pack) {
   return String(pack?.promptQuality || '').trim() === 'flagship' || String(pack?.id || '').trim() === 'flagship';
 }
 
+function packageUsesMasterReference(pack) {
+  if (!packageIsFlagship(pack)) return true;
+  return pack?.enableMasterReference === true;
+}
+
 function isComplexTemplatePrintAnalysis(analysis, job = {}) {
   const text = `${String(analysis || '')}\n${String(job?.relativePath || '')}`.toLowerCase();
   const signals = [
@@ -870,7 +887,7 @@ function isComplexTemplatePrintAnalysis(analysis, job = {}) {
 function flagshipComplexTemplatePrintPrompt() {
   return [
     'FLAGSHIP_COMPLEX_TEMPLATE_PRINT_MODE',
-    'Use the first input image as the final layout standard. The second input image is only the already generated master product reference. The third input image is the original print pattern reference.',
+    'Use the first input image as the final layout standard. If only two input images are attached, the second input image is the original print pattern reference. If three input images are attached, the second input image is the master product reference and the third input image is the original print pattern reference.',
     'For complex ecommerce templates, preserve every Chinese title, page number, white selling-point label, label position, font style, typography hierarchy and layout from the first input image. Do not rewrite, omit, add, translate or deform text.',
     'Preserve people, open cabinet doors, internal storage, shelves, bottles, cookware, coffee machine, tabletop objects, lamps, curtains, floor, wall, shadows and all props from the first input image.',
     'Apply the print only to visible cabinet or drawer front surfaces. Never cover cabinet interior, shelves, bottles, cookware, tabletop, wall, floor, legs, handles, black frames, black side panels, door seams, labels or text.',
@@ -2810,6 +2827,8 @@ async function generateTemplateJob(job, source, config, options = {}) {
   }
 
   const activePack = await activeModelPackage();
+  const useMasterReference = source.generationMode === 'template_print' ? packageUsesMasterReference(activePack) : true;
+  if (source.generationMode === 'template_print' && !useMasterReference) source = { ...source, masterImagePath: source.printPath };
   let prompt;
   let imagePaths;
   if (source.generationMode === 'template_print') {
@@ -2827,7 +2846,9 @@ async function generateTemplateJob(job, source, config, options = {}) {
     if (options.referenceResultPath && fs.existsSync(options.referenceResultPath)) {
       prompt += '\n\n第四张输入图是运营选定的合格参考结果图。只参考它如何保留黑色边框、黑色侧板、台面、柜脚、门缝以及印花在柜门面板内的落位方式；不要复制它的构图、视角、家具尺寸、场景元素或具体像素。当前第一张套图模板仍然是最终构图标准。';
     }
-    imagePaths = [job.templatePath, source.masterImagePath, source.printPath];
+    imagePaths = useMasterReference
+      ? [job.templatePath, source.masterImagePath, source.printPath]
+      : [job.templatePath, source.printPath];
     if (options.referenceResultPath && fs.existsSync(options.referenceResultPath)) imagePaths.push(options.referenceResultPath);
   } else {
     const masterImage = (await fsp.readdir(job.outputRoot).catch(() => [])).map(name => path.join(job.outputRoot, name)).find(file => isImagePath(file) && path.basename(file, path.extname(file)) === '母版图');
@@ -3183,6 +3204,8 @@ async function regenerateMasterForReviewFolder(folderValue) {
 }
 
 async function generateDirectTemplateTask(task, options = {}) {
+  const activePack = await activeModelPackage();
+  if (packageIsFlagship(activePack) && !packageUsesMasterReference(activePack)) task = { ...task, masterImagePath: task?.printPath };
   if (!task?.printPath || !fs.existsSync(task.printPath)) throw new Error('印花图不存在');
   if (!task?.templateFolderPath || !fs.existsSync(task.templateFolderPath)) throw new Error('套图文件夹不存在');
   if (!task?.masterImagePath || !fs.existsSync(task.masterImagePath)) throw new Error('请先生成当前任务的母版图');

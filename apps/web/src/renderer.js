@@ -3994,7 +3994,7 @@ function defaultModelPackages() {
   const analysisModel = state.apiSettings?.analysisModel || 'gpt-5-3';
   const analysisWireApi = state.apiSettings?.analysisWireApi || 'chat_completions';
   return [
-    { id: 'flagship', name: '旗舰版', description: '主推套餐，保持当前100%效率和质量', enabled: true, default: true, recommended: true, apiBaseUrl: baseUrl, modelId: imageModel, analysisApiBaseUrl: baseUrl, analysisModel, analysisWireApi, maxConcurrency: 30, startIntervalMs: 200, promptQuality: 'flagship', promptMode: 'full', userPromptPolicy: 'full', hiddenPrompt: '', analysisPrompt: '', imagePrompt: '', imagePriceMinMinor: 300000, imagePriceMaxMinor: 300000, analysisPriceMinMinor: 0, analysisPriceMaxMinor: 0, queuePriority: 10 },
+    { id: 'flagship', name: '旗舰版', description: '主推套餐，保持当前100%效率和质量', enabled: true, default: true, recommended: true, apiBaseUrl: baseUrl, modelId: imageModel, analysisApiBaseUrl: baseUrl, analysisModel, analysisWireApi, maxConcurrency: 30, startIntervalMs: 200, promptQuality: 'flagship', promptMode: 'full', userPromptPolicy: 'full', hiddenPrompt: '', analysisPrompt: '', imagePrompt: '', imagePriceMinMinor: 300000, imagePriceMaxMinor: 300000, analysisPriceMinMinor: 0, analysisPriceMaxMinor: 0, enableMasterReference: false, queuePriority: 10 },
     { id: 'fast', name: '快速版', description: '5分钱/张，低价留客，效果质量与标准版一致', enabled: true, default: false, recommended: false, apiBaseUrl: baseUrl, modelId: imageModel, analysisApiBaseUrl: baseUrl, analysisModel, analysisWireApi, maxConcurrency: 2, startIntervalMs: 1200, promptQuality: 'basic', promptMode: 'internal', userPromptPolicy: 'ignore', hiddenPrompt: '', analysisPrompt: '低价基础分析：只做必要判断，不做深度商业优化。', imagePrompt: '低价基础出图：效果目标约为旗舰版 30%，只完成核心生成，不做高级商业质感、复杂光影、材质精修和额外卖点补全。', imagePriceMinMinor: 50000, imagePriceMaxMinor: 50000, analysisPriceMinMinor: 50000, analysisPriceMaxMinor: 50000, queuePriority: 2 },
     { id: 'standard', name: '标准版', description: '7分钱/张，效果质量约为旗舰版30%', enabled: true, default: false, recommended: false, apiBaseUrl: baseUrl, modelId: imageModel, analysisApiBaseUrl: baseUrl, analysisModel, analysisWireApi, maxConcurrency: 3, startIntervalMs: 1000, promptQuality: 'standard', promptMode: 'hybrid', userPromptPolicy: 'partial', hiddenPrompt: '', analysisPrompt: '标准版分析：只保留必要理解和判断，不做旗舰版深度优化。', imagePrompt: '标准版出图：效果目标约为旗舰版 30%，做基础画面整理和必要生成，不做高级商业海报质感、复杂光影、材质精修、精细构图增强和额外卖点补全。', imagePriceMinMinor: 70000, imagePriceMaxMinor: 70000, analysisPriceMinMinor: 70000, analysisPriceMaxMinor: 70000, queuePriority: 5 }
   ];
@@ -4076,7 +4076,7 @@ function renderModelPackages() {
       </div>
       <label class="model-package-prompt">分析内部提示词<textarea data-package-field="analysisPrompt" rows="4" spellcheck="false">${escapeHtml(item.analysisPrompt || '')}</textarea></label>
       <label class="model-package-prompt">生图内部提示词<textarea data-package-field="imagePrompt" rows="4" spellcheck="false">${escapeHtml(item.imagePrompt || item.hiddenPrompt || '')}</textarea></label>
-      <div class="model-package-switches"><label><input data-package-field="enabled" type="checkbox"${item.enabled !== false ? ' checked' : ''}> 启用</label><label><input data-package-field="default" type="checkbox"${item.default ? ' checked' : ''}> 默认</label><label><input data-package-field="recommended" type="checkbox"${item.recommended ? ' checked' : ''}> 推荐</label></div>
+      <div class="model-package-switches"><label><input data-package-field="enabled" type="checkbox"${item.enabled !== false ? ' checked' : ''}> 启用</label><label><input data-package-field="default" type="checkbox"${item.default ? ' checked' : ''}> 默认</label><label><input data-package-field="recommended" type="checkbox"${item.recommended ? ' checked' : ''}> 推荐</label>${item.id === 'flagship' ? `<label><input data-package-field="enableMasterReference" type="checkbox"${item.enableMasterReference ? ' checked' : ''}> 启用母版参考</label>` : ''}</div>
     </article>`).join('');
   packages.forEach((item, index) => {
     const row = list.querySelector(`[data-model-package-index="${index}"]`);
@@ -4113,6 +4113,7 @@ function collectModelPackagesFromForm() {
       hiddenPrompt: '',
       analysisPrompt: read('analysisPrompt')?.value || '',
       imagePrompt: read('imagePrompt')?.value || '',
+      enableMasterReference: read('enableMasterReference')?.checked === true,
       enabled: read('enabled')?.checked !== false,
       default: read('default')?.checked === true,
       recommended: read('recommended')?.checked === true
