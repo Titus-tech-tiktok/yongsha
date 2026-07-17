@@ -390,6 +390,12 @@ function normalizeModelPackageText(value, fallback = '', maxLength = 500) {
   return String(value || fallback || '').normalize('NFKC').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, maxLength);
 }
 
+function normalizeModelPackagePrompt(value, currentValue, fallback = '', maxLength = 10000) {
+  if (value !== undefined) return String(value || '').normalize('NFKC').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, maxLength);
+  if (currentValue !== undefined) return String(currentValue || '').normalize('NFKC').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, maxLength);
+  return String(fallback || '').normalize('NFKC').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, maxLength);
+}
+
 function normalizeModelPackageInteger(value, fallback, min, max) {
   const number = Number(value ?? fallback);
   const safe = Number.isFinite(number) ? number : fallback;
@@ -498,8 +504,8 @@ function normalizeModelPackagesLegacy(value, currentSettings = {}) {
       promptMode: normalizeModelPackageChoice(item?.promptMode, ['internal', 'hybrid', 'full'], current.promptMode || 'hybrid'),
       userPromptPolicy: normalizeModelPackageChoice(item?.userPromptPolicy, ['ignore', 'partial', 'full'], current.userPromptPolicy || 'partial'),
       hiddenPrompt: normalizeModelPackageText(item?.hiddenPrompt, current.hiddenPrompt || '', 10000),
-      analysisPrompt: normalizeModelPackageText(item?.analysisPrompt, current.analysisPrompt || defaultPackagePrompt('analysis', promptQuality), 10000),
-      imagePrompt: normalizeModelPackageText(item?.imagePrompt ?? item?.hiddenPrompt, current.imagePrompt || defaultPackagePrompt('image', promptQuality), 10000),
+      analysisPrompt: normalizeModelPackagePrompt(item?.analysisPrompt, current.analysisPrompt, defaultPackagePrompt('analysis', promptQuality), 10000),
+      imagePrompt: normalizeModelPackagePrompt(item?.imagePrompt ?? item?.hiddenPrompt, current.imagePrompt, defaultPackagePrompt('image', promptQuality), 10000),
       imagePriceMinor: normalizeModelPackageMinor(item?.imagePriceMinor, current.imagePriceMinor || 0),
       analysisPriceMinor: normalizeModelPackageMinor(item?.analysisPriceMinor, current.analysisPriceMinor || 0),
       queuePriority: normalizeModelPackageInteger(item?.queuePriority, current.queuePriority || 5, 0, 100)
@@ -615,8 +621,8 @@ function normalizeModelPackages(value, currentSettings = {}) {
       promptMode: normalizeModelPackageChoice(item?.promptMode, ['internal', 'hybrid', 'full'], current.promptMode || preset.promptMode),
       userPromptPolicy: normalizeModelPackageChoice(item?.userPromptPolicy, ['ignore', 'partial', 'full'], current.userPromptPolicy || preset.userPromptPolicy),
       hiddenPrompt: normalizeModelPackageText(item?.hiddenPrompt, current.hiddenPrompt || '', 10000),
-      analysisPrompt: normalizeModelPackageText(item?.analysisPrompt, current.analysisPrompt || defaultPackagePrompt('analysis', promptQuality), 10000),
-      imagePrompt: normalizeModelPackageText(item?.imagePrompt ?? item?.hiddenPrompt, current.imagePrompt || defaultPackagePrompt('image', promptQuality), 10000),
+      analysisPrompt: normalizeModelPackagePrompt(item?.analysisPrompt, current.analysisPrompt, defaultPackagePrompt('analysis', promptQuality), 10000),
+      imagePrompt: normalizeModelPackagePrompt(item?.imagePrompt ?? item?.hiddenPrompt, current.imagePrompt, defaultPackagePrompt('image', promptQuality), 10000),
       imagePriceMinMinor: imageRange.min,
       imagePriceMaxMinor: imageRange.max,
       imagePriceMinor: imageRange.max,
@@ -819,8 +825,8 @@ function packagePromptFor(api, kind) {
   const pack = api?.activeModelPackage;
   if (!pack) return '';
   if (packageIsFlagship(pack)) return '';
-  if (kind === 'analysis') return pack.analysisPrompt || defaultPackagePrompt('analysis', pack.promptQuality);
-  return pack.imagePrompt || pack.hiddenPrompt || defaultPackagePrompt('image', pack.promptQuality);
+  if (kind === 'analysis') return String(pack.analysisPrompt ?? defaultPackagePrompt('analysis', pack.promptQuality) ?? '');
+  return String(pack.imagePrompt ?? pack.hiddenPrompt ?? defaultPackagePrompt('image', pack.promptQuality) ?? '');
 }
 
 function packageIsFlagship(pack) {
@@ -830,7 +836,7 @@ function packageIsFlagship(pack) {
 function applyPackagePrompt(prompt, api, kind) {
   const pack = api?.activeModelPackage;
   const packagePrompt = packagePromptFor(api, kind);
-  if (pack && !packageIsFlagship(pack)) return packagePrompt || String(prompt || '');
+  if (pack && !packageIsFlagship(pack)) return packagePrompt;
   return appendPackagePrompt(prompt, packagePrompt);
 }
 
@@ -1638,7 +1644,8 @@ async function analysisApiJson(api, chatPayload, timeoutMs, metadata = null) {
   const wireApi = normalizeAnalysisWireApi(api.analysisWireApi, 'chat_completions');
   const pathName = wireApi === 'responses' ? '/responses' : '/chat/completions';
   const packagePrompt = packagePromptFor(api, 'analysis');
-  const sourcePayload = packagePrompt
+  const shouldApplyPackagePrompt = api?.activeModelPackage && !packageIsFlagship(api.activeModelPackage);
+  const sourcePayload = shouldApplyPackagePrompt
     ? {
       ...chatPayload,
       messages: (chatPayload.messages || []).map((message, index) => {

@@ -137,7 +137,7 @@ async function createRuntimeFixture(t, workspaceId) {
   return { runtime, captured, sourcePath };
 }
 
-test('standard package replaces global image and analysis prompts', async (t) => {
+test('standard package replaces global image and analysis prompts', { concurrency: false }, async (t) => {
   const { runtime, captured, sourcePath } = await createRuntimeFixture(t, 'standard-package-prompts');
   await runtime.saveSelectedModelPackage('standard');
 
@@ -150,7 +150,7 @@ test('standard package replaces global image and analysis prompts', async (t) =>
   assert.doesNotMatch(captured.analysisBodies[0], /ORIGINAL GLOBAL ANALYSIS PROMPT/);
 });
 
-test('flagship package keeps original prompts', async (t) => {
+test('flagship package keeps original prompts', { concurrency: false }, async (t) => {
   const { runtime, captured, sourcePath } = await createRuntimeFixture(t, 'flagship-package-prompts');
   await runtime.saveSelectedModelPackage('flagship');
 
@@ -161,4 +161,31 @@ test('flagship package keeps original prompts', async (t) => {
   assert.doesNotMatch(captured.imageBodies[0], /FLAGSHIP PACKAGE PROMPT SHOULD NOT BE USED/);
   assert.match(captured.analysisBodies[0], /ORIGINAL GLOBAL ANALYSIS PROMPT/);
   assert.doesNotMatch(captured.analysisBodies[0], /FLAGSHIP ANALYSIS PROMPT SHOULD NOT BE USED/);
+});
+
+test('empty non-flagship analysis prompt stays empty and does not fall back', { concurrency: false }, async (t) => {
+  const { runtime, captured, sourcePath } = await createRuntimeFixture(t, 'empty-standard-package-prompts');
+  await runtime.saveApiSettings({
+    baseUrl: 'http://127.0.0.1:1/v1',
+    imageApiKey: 'global-key',
+    analysisApiKey: 'global-key',
+    imageModel: 'gpt-image-2',
+    analysisModel: 'gpt-5-3',
+    modelPackages: [
+      {
+        id: 'standard',
+        name: 'Standard',
+        enabled: true,
+        promptQuality: 'standard',
+        imagePrompt: '',
+        analysisPrompt: ''
+      }
+    ]
+  });
+  await runtime.saveSelectedModelPackage('standard');
+
+  await runtime.analyzeProductProfile(sourcePath);
+
+  assert.doesNotMatch(captured.analysisBodies[0], /STANDARD PACKAGE ANALYSIS PROMPT ONLY/);
+  assert.doesNotMatch(captured.analysisBodies[0], /ORIGINAL GLOBAL ANALYSIS PROMPT/);
 });
