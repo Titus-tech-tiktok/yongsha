@@ -26,16 +26,13 @@ const LONG_JOB_METHODS = new Set([
   'generateTemplates', 'regenerateMaster', 'regenerateTemplate', 'analyzeTemplateItems', 'analyzeTemplateItemWithReference'
 ]);
 const SUPERADMIN_RPC_METHODS = new Set([
-  'getApiSettings', 'saveApiSettings', 'testApiSettings', 'testAnalysisApi'
-]);
-const TEAM_ADMIN_RPC_METHODS = new Set([
-  'getPromptSettings', 'savePromptSetting', 'resetPromptSetting'
+  'getApiSettings', 'saveApiSettings', 'testApiSettings', 'testAnalysisApi', 'savePromptSetting', 'resetPromptSetting'
 ]);
 
 function canAccessRpc(user, method) {
   const name = String(method || '');
   if (SUPERADMIN_RPC_METHODS.has(name)) return user?.role === 'superadmin';
-  if (TEAM_ADMIN_RPC_METHODS.has(name)) return isTeamAdmin(user);
+  if (name === 'getPromptSettings') return isTeamAdmin(user);
   return true;
 }
 
@@ -907,7 +904,11 @@ const rpc = {
   testAnalysisApi: ([payload]) => runtime.testAnalysisApi(payload || {}),
   saveConfig: async ([config]) => publicConfig(await runtime.saveConfig(safeConfig(config || {}))),
   resetConfig: async () => publicConfig(await runtime.resetConfig()),
-  getPromptSettings: () => runtime.loadPromptSettings(),
+  getPromptSettings: async (args, context) => {
+    if (context?.user?.role === 'superadmin') return runtime.loadPromptSettings();
+    if (context?.user?.role === 'admin' && await runtime.canAdminViewPromptSettings()) return runtime.loadPromptSettings();
+    throw new Error('没有查看网站提示词的权限');
+  },
   savePromptSetting: ([id, value]) => runtime.savePromptSetting(id, value),
   resetPromptSetting: ([id]) => runtime.resetPromptSetting(id),
   listImages: ([root, query]) => runtime.scanImages(workspacePath(root, { allowEmpty: true }), String(query || '')),
@@ -1213,7 +1214,7 @@ async function startServer() {
     if (!canAccessRpc(req.user, method)) return res.status(403).json({ error: '只有管理员可以访问此设置' });
     if (LONG_JOB_METHODS.has(method)) return res.status(409).json({ error: '该操作必须通过后台任务接口执行' });
     try {
-      return res.json({ data: await handler(Array.isArray(req.body?.args) ? req.body.args : []) });
+      return res.json({ data: await handler(Array.isArray(req.body?.args) ? req.body.args : [], { user: req.user }) });
     } catch (error) {
       console.error(`[rpc:${method}]`, error);
       return res.status(400).json({ error: error?.message || String(error) });

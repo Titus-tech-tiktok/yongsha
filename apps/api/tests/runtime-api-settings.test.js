@@ -49,6 +49,7 @@ test('API settings keep Change2Pro image and analysis credentials isolated', asy
       analysisModel: 'gpt-analysis-custom',
       responseFormat: 'url',
       requestTimeoutSeconds: 180,
+      allowAdminPromptView: true,
       imageInitialConcurrency: 9,
       imageMaxConcurrency: 21,
       imageStartIntervalMs: 250
@@ -61,6 +62,7 @@ test('API settings keep Change2Pro image and analysis credentials isolated', asy
     assert.equal(saved.imageInitialConcurrency, 9);
     assert.equal(saved.imageMaxConcurrency, 21);
     assert.equal(saved.imageStartIntervalMs, 250);
+    assert.equal(saved.allowAdminPromptView, true);
     assert.equal(Object.hasOwn(saved, 'imageApiKey'), false);
     assert.equal(Object.hasOwn(saved, 'analysisApiKey'), false);
     assert.deepEqual({
@@ -84,6 +86,7 @@ test('API settings keep Change2Pro image and analysis credentials isolated', asy
     const privateFile = path.join(runtime.DATA_ROOT, 'system', 'api-settings.json');
     const privateValue = JSON.parse(await fs.readFile(privateFile, 'utf8'));
     assert.equal(privateValue.version, 2);
+    assert.equal(privateValue.allowAdminPromptView, true);
     assert.equal(privateValue.imageKey, 'image-private-key');
     assert.equal(privateValue.analysisKey, 'analysis-private-key');
     assert.equal(Object.hasOwn(privateValue, 'key'), false);
@@ -175,6 +178,7 @@ test('API settings store model packages while public selection hides private fie
       analysisApiKey: 'global-analysis-private-key',
       imageModel: 'gpt-image-2',
       analysisModel: 'gpt-5-3',
+      allowAdminPromptView: true,
       modelPackages: [
         {
           id: 'fast',
@@ -238,6 +242,7 @@ test('API settings store model packages while public selection hides private fie
 
     const publicSettings = await runtime.loadModelPackageSettings({ role: 'member' });
     assert.equal(publicSettings.selectedModelPackageId, 'flagship');
+    assert.equal(publicSettings.allowAdminPromptView, true);
     assert.deepEqual(publicSettings.modelPackages.map(item => item.id), ['flagship', 'fast', 'standard']);
     assert.equal(publicSettings.modelPackages[1].name, 'Fast');
     assert.equal(Object.hasOwn(publicSettings.modelPackages[0], 'apiBaseUrl'), false);

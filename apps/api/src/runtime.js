@@ -676,6 +676,7 @@ async function readPrivateApiSettings() {
     analysisWireApi: normalizeAnalysisWireApi(saved.analysisWireApi, ENV_API.analysisWireApi),
     responseFormat: normalizeResponseFormat(saved.responseFormat, ENV_API.responseFormat),
     requestTimeoutSeconds: normalizeRequestTimeoutSeconds(saved.requestTimeoutSeconds, ENV_API.requestTimeoutSeconds),
+    allowAdminPromptView: saved.allowAdminPromptView === true,
     ...concurrency,
     modelPackages: normalizeModelPackages(saved.modelPackages, modelPackageBase)
   };
@@ -695,6 +696,7 @@ function publicApiSettings(value = currentApiSettings()) {
     analysisWireApi: normalizeAnalysisWireApi(value.analysisWireApi, ENV_API.analysisWireApi),
     responseFormat: normalizeResponseFormat(value.responseFormat, ENV_API.responseFormat),
     requestTimeoutSeconds: normalizeRequestTimeoutSeconds(value.requestTimeoutSeconds, ENV_API.requestTimeoutSeconds),
+    allowAdminPromptView: value.allowAdminPromptView === true,
     ...normalizeImageConcurrencySettings(value),
     imageKeyConfigured: Boolean(value.imageKey),
     imageKeyMasked: maskedApiKey(value.imageKey),
@@ -726,6 +728,7 @@ async function saveApiSettings(payload = {}) {
       analysisWireApi: normalizeAnalysisWireApi(payload.analysisWireApi, current.analysisWireApi),
       responseFormat: normalizeResponseFormat(payload.responseFormat, current.responseFormat),
       requestTimeoutSeconds: normalizeRequestTimeoutSeconds(payload.requestTimeoutSeconds, current.requestTimeoutSeconds),
+      allowAdminPromptView: payload.allowAdminPromptView === true,
       ...concurrency,
       modelPackages: normalizeModelPackages(payload.modelPackages, current)
     };
@@ -762,6 +765,7 @@ async function loadModelPackageSettings(actor = {}) {
   const isSuperAdminActor = actor?.role === 'superadmin';
   return {
     selectedModelPackageId,
+    allowAdminPromptView: settings.allowAdminPromptView === true,
     modelPackages: packages
       .filter(item => isSuperAdminActor || item.enabled)
       .map(isSuperAdminActor ? publicModelPackageForSuperAdmin : publicModelPackageForUser)
@@ -942,6 +946,10 @@ async function readSavedPromptSettings() {
 
 async function loadPromptSettings() {
   return publicPromptSettings(await readSavedPromptSettings());
+}
+
+async function canAdminViewPromptSettings() {
+  return (await readPrivateApiSettings()).allowAdminPromptView === true;
 }
 
 async function getPromptValue(id) {
@@ -3632,6 +3640,7 @@ const runtimeExports = {
   saveSelectedModelPackage,
   publicApiConcurrencySettings,
   savePromptSetting,
+  canAdminViewPromptSettings,
   saveTemplateConfiguration,
   saveTemplateProductProfile,
   saveTitleSetup,

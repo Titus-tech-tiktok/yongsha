@@ -159,6 +159,7 @@ const state = {
   apiSettings: null,
   modelPackageSettings: null,
   selectedModelPackageId: '',
+  allowAdminPromptView: false,
   apiConcurrencySettings: null,
   imageApiModels: [],
   analysisApiModels: [],
@@ -251,7 +252,7 @@ function applyCurrentUser(user) {
   state.assetPreviewSizes = loadStoredAssetPreviewSizes();
   $('#currentUserName').textContent = user.displayName || user.username;
   $('#currentUserName').title = `${user.username} · ${roleLabel(user.role)}`;
-  $('#promptSettingsNav').hidden = !canManagePrompts();
+  $('#promptSettingsNav').hidden = !canViewPrompts();
   $('[data-settings-tab="general"]').hidden = user.role === 'admin';
   $('#apiSettingsTab').hidden = !isTeamAdmin();
   const apiTabStatus = $('#apiTabStatus');
@@ -392,6 +393,10 @@ function isTeamAdmin() {
 
 function canManagePrompts() {
   return isSuperAdmin();
+}
+
+function canViewPrompts() {
+  return canManagePrompts() || (state.currentUser?.role === 'admin' && state.allowAdminPromptView);
 }
 
 function feeRangeLabel(minorMin = 0, minorMax = 0) {
@@ -583,7 +588,7 @@ function shortPath(value) {
 }
 
 function setPage(name) {
-  if (name === 'prompts' && !canManagePrompts()) name = 'settings';
+  if (name === 'prompts' && !canViewPrompts()) name = 'settings';
   if (name === 'settings') {
     if (state.currentUser?.role === 'admin' && state.settingsTab === 'general') state.settingsTab = 'api';
     else if (state.settingsTab === 'api' && !isTeamAdmin()) state.settingsTab = 'general';
@@ -608,7 +613,7 @@ function setPage(name) {
     if (currentPage !== name) return;
     if (name === 'review') loadReviews({ silent: state.reviews.length > 0 });
     if (name === 'titles') loadTitlePage();
-    if (name === 'prompts' && canManagePrompts() && !state.promptSettings) loadPromptSettings();
+    if (name === 'prompts' && canViewPrompts() && !state.promptSettings) loadPromptSettings();
     if (name === 'assets') loadAssetLibraryPreview(state.assetPreviewKey, { preserveSelection: true });
     if (name === 'settings' && isTeamAdmin() && !state.modelPackageSettings) loadModelPackageSettings();
     if (name === 'settings' && isSuperAdmin() && !state.apiSettings) loadApiSettings();
@@ -3611,8 +3616,11 @@ function renderPromptSettingList() {
 
 function renderPromptEditor() {
   const prompt = activePrompt();
-  $('#promptEditor').disabled = !prompt;
-  $('#resetCurrentPromptButton').disabled = !prompt || !prompt.customized;
+  const canEdit = canManagePrompts();
+  $('#promptEditor').disabled = !prompt || !canEdit;
+  $('#resetCurrentPromptButton').hidden = !canEdit;
+  $('#resetAllPromptsButton').hidden = !canEdit;
+  $('#resetCurrentPromptButton').disabled = !prompt || !prompt.customized || !canEdit;
   $('#promptEditorTitle').textContent = prompt?.title || '选择一条提示词';
   $('#promptEditorGroup').textContent = prompt?.group || 'PROMPT';
   $('#promptEditorDescription').textContent = prompt?.description || '左侧列出网站当前实际使用的固定提示词。';
@@ -3622,7 +3630,11 @@ function renderPromptEditor() {
   $('#promptPlaceholderRow').hidden = placeholders.length === 0;
   $('#promptPlaceholderList').innerHTML = placeholders.map(value => `<code class="prompt-placeholder">${escapeHtml(value)}</code>`).join('');
   $('#promptSaveStatus').className = '';
-  $('#promptSaveStatus').textContent = prompt ? (prompt.customized ? '已使用自定义内容' : '当前使用系统默认') : '尚未选择';
+  $('#promptSaveStatus').textContent = prompt
+    ? canEdit
+      ? (prompt.customized ? '已使用自定义内容' : '当前使用系统默认')
+      : '只读查看'
+    : '尚未选择';
 }
 
 function applyFreePromptDefault() {
@@ -3633,7 +3645,7 @@ function applyFreePromptDefault() {
 }
 
 async function loadPromptSettings() {
-  if (!canManagePrompts()) return;
+  if (!canViewPrompts()) return;
   try {
     state.promptSettings = await window.caishen.getPromptSettings();
     if (!state.activePromptId || !state.promptSettings.prompts.some(item => item.id === state.activePromptId)) {
@@ -3656,6 +3668,10 @@ function selectPromptSetting(id) {
 }
 
 function schedulePromptSave(prompt, value) {
+  if (!canManagePrompts()) {
+    renderPromptEditor();
+    return;
+  }
   const previousValue = prompt.value;
   prompt.value = value;
   prompt.customized = true;
@@ -3690,6 +3706,7 @@ function schedulePromptSave(prompt, value) {
 }
 
 async function resetCurrentPrompt() {
+  if (!canManagePrompts()) return toast('只有超级管理员可以修改提示词', true);
   const prompt = activePrompt();
   if (!prompt || !window.confirm(`确定将“${prompt.title}”恢复为系统默认吗？`)) return;
   clearTimeout(promptSaveTimers.get(prompt.id));
@@ -3703,6 +3720,7 @@ async function resetCurrentPrompt() {
 }
 
 async function resetAllPrompts() {
+  if (!canManagePrompts()) return toast('只有超级管理员可以修改提示词', true);
   if (!window.confirm('确定将全部提示词恢复为系统默认吗？当前自定义内容会被清除。')) return;
   for (const timer of promptSaveTimers.values()) clearTimeout(timer);
   promptSaveTimers.clear();
@@ -4107,6 +4125,8 @@ async function loadModelPackageSettings() {
   try {
     state.modelPackageSettings = await window.caishen.getModelPackages();
     state.selectedModelPackageId = state.modelPackageSettings?.selectedModelPackageId || '';
+    state.allowAdminPromptView = state.modelPackageSettings?.allowAdminPromptView === true;
+    $('#promptSettingsNav').hidden = !canViewPrompts();
     if (isSuperAdmin()) renderModelPackages();
     else renderApiSettings();
   } catch (error) {
@@ -4201,6 +4221,7 @@ function renderApiSettings() {
   $('#imageInitialConcurrency').value = String(settings.imageInitialConcurrency || 8);
   $('#imageMaxConcurrency').value = String(settings.imageMaxConcurrency || 30);
   $('#imageStartIntervalMs').value = String(settings.imageStartIntervalMs ?? 500);
+  $('#allowAdminPromptView').checked = settings.allowAdminPromptView === true;
   $('#imageSize').value = state.config?.imageSize || '1024x1024';
   $('#imageQuality').value = state.config?.imageQuality || 'auto';
 
@@ -4295,8 +4316,11 @@ async function loadApiSettings() {
       window.caishen.getModelPackages().catch(() => null)
     ]);
     state.apiSettings = apiSettings;
+    state.allowAdminPromptView = apiSettings.allowAdminPromptView === true;
     state.modelPackageSettings = modelPackageSettings || state.modelPackageSettings;
+    if (modelPackageSettings) state.allowAdminPromptView = modelPackageSettings.allowAdminPromptView === true;
     state.selectedModelPackageId = state.modelPackageSettings?.selectedModelPackageId || '';
+    $('#promptSettingsNav').hidden = !canViewPrompts();
     renderApiSettings();
   } catch (error) {
     toast(`读取 API 设置失败：${errorText(error)}`, true);
@@ -4316,6 +4340,7 @@ function apiSettingsPayload() {
     imageInitialConcurrency: Number($('#imageInitialConcurrency').value),
     imageMaxConcurrency: Number($('#imageMaxConcurrency').value),
     imageStartIntervalMs: Number($('#imageStartIntervalMs').value),
+    allowAdminPromptView: $('#allowAdminPromptView')?.checked === true,
     modelPackages: collectModelPackagesFromForm()
   };
 }
@@ -4420,8 +4445,11 @@ async function saveSettings() {
     if (state.settingsTab === 'api') {
       if (isSuperAdmin()) {
         state.apiSettings = await window.caishen.saveApiSettings(apiSettingsPayload());
+        state.allowAdminPromptView = state.apiSettings.allowAdminPromptView === true;
         state.modelPackageSettings = await window.caishen.getModelPackages().catch(() => state.modelPackageSettings);
+        if (state.modelPackageSettings) state.allowAdminPromptView = state.modelPackageSettings.allowAdminPromptView === true;
         state.selectedModelPackageId = state.modelPackageSettings?.selectedModelPackageId || '';
+        $('#promptSettingsNav').hidden = !canViewPrompts();
         renderApiSettings();
         toast('API 和模型套餐已保存');
       }
@@ -4445,6 +4473,8 @@ async function saveSettings() {
     );
     if (shouldSaveApi) {
       state.apiSettings = await window.caishen.saveApiSettings(apiPayload);
+      state.allowAdminPromptView = state.apiSettings.allowAdminPromptView === true;
+      $('#promptSettingsNav').hidden = !canViewPrompts();
       state.apiConcurrencySettings = {
         imageInitialConcurrency: state.apiSettings.imageInitialConcurrency,
         imageMaxConcurrency: state.apiSettings.imageMaxConcurrency,
@@ -4805,6 +4835,7 @@ function bindEvents() {
     if (button) selectPromptSetting(button.dataset.promptId);
   };
   $('#promptEditor').oninput = event => {
+    if (!canManagePrompts()) return;
     const prompt = activePrompt();
     if (prompt) schedulePromptSave(prompt, event.target.value);
   };
@@ -4970,7 +5001,7 @@ async function start() {
   renderSettingsTabs();
   await loadTemplateFolders();
   const adminLoads = [
-    ...(canManagePrompts() ? [loadPromptSettings()] : []),
+    ...(canViewPrompts() ? [loadPromptSettings()] : []),
     ...(isTeamAdmin() ? [loadModelPackageSettings()] : []),
     ...(isSuperAdmin() ? [loadApiSettings()] : [])
   ];

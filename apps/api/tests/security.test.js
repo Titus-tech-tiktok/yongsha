@@ -38,11 +38,14 @@ test('role access separates prompt management from API management', () => {
   const member = { role: 'member' };
   const admin = { role: 'admin' };
   const superadmin = { role: 'superadmin' };
-  for (const method of ['getPromptSettings', 'savePromptSetting', 'resetPromptSetting']) {
+  for (const method of ['savePromptSetting', 'resetPromptSetting']) {
     assert.equal(canAccessRpc(member, method), false);
-    assert.equal(canAccessRpc(admin, method), true);
+    assert.equal(canAccessRpc(admin, method), false);
     assert.equal(canAccessRpc(superadmin, method), true);
   }
+  assert.equal(canAccessRpc(member, 'getPromptSettings'), false);
+  assert.equal(canAccessRpc(admin, 'getPromptSettings'), true);
+  assert.equal(canAccessRpc(superadmin, 'getPromptSettings'), true);
   for (const method of ['getApiSettings', 'saveApiSettings', 'testApiSettings', 'testAnalysisApi']) {
     assert.equal(canAccessRpc(member, method), false);
     assert.equal(canAccessRpc(admin, method), false);
