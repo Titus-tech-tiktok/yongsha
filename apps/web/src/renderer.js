@@ -137,6 +137,7 @@ const state = {
   templatePreparing: false,
   reviews: [],
   activeReview: null,
+  reviewTaskActivated: false,
   activeReviewGenerationJobId: '',
   stopGenerationRequested: false,
   reviewLogFilter: 'all',
@@ -406,9 +407,14 @@ function feeRangeLabel(minorMin = 0, minorMax = 0) {
 }
 
 function moneyInputToMinor(value, label) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < 0 || number > 1000000) throw new Error(`${label}金额无效`);
-  return Math.round(number * BILLING_AMOUNT_SCALE);
+  const text = String(value || '').trim();
+  if (!/^\d+(?:\.\d{0,6})?$/.test(text)) throw new Error(`${label}金额最多支持 6 位小数`);
+  const [whole, fraction = ''] = text.split('.');
+  const major = Number(whole);
+  if (!Number.isSafeInteger(major) || major > 1000000) throw new Error(`${label}金额无效`);
+  const minor = major * BILLING_AMOUNT_SCALE + Number(fraction.padEnd(6, '0'));
+  if (!Number.isSafeInteger(minor)) throw new Error(`${label}金额无效`);
+  return minor;
 }
 
 function moneyMinorToInput(minor = 0) {
@@ -601,6 +607,9 @@ function setPage(name) {
   if (name !== 'review') {
     clearTimeout(reviewRefreshTimer);
     reviewRefreshTimer = null;
+  } else {
+    state.activeReview = null;
+    state.reviewTaskActivated = false;
   }
   $$('.nav-item').forEach(button => {
     const active = button.dataset.page === name;
@@ -2617,7 +2626,7 @@ async function stopCurrentReviewGeneration() {
 
 async function downloadSelectedReviewFolders() {
   const selected = [...state.selectedReviewFolders];
-  const folders = selected.length ? selected : (state.activeReview ? [state.activeReview.folder] : []);
+  const folders = selected.length ? selected : (state.reviewTaskActivated && state.activeReview ? [state.activeReview.folder] : []);
   if (!folders.length) return toast('请先选择要下载的任务', true);
   try {
     toast(folders.length > 1 ? `开始下载 ${folders.length} 个任务 ZIP` : '开始下载当前任务 ZIP');
@@ -2837,12 +2846,15 @@ async function loadReviews({ silent = false } = {}) {
   if (!silent) $('#reviewList').innerHTML = '<div class="empty-inline">正在读取结果…</div>';
   try {
     state.reviews = await window.caishen.listReviews();
-    if (state.activeReview) {
+    if (state.reviewTaskActivated && state.activeReview) {
       state.activeReview = state.reviews.find(item => item.folder === state.activeReview.folder) || null;
     }
     state.selectedReviewFolders = new Set([...state.selectedReviewFolders].filter(folder => state.reviews.some(item => item.folder === folder)));
     const visible = visibleReviewEntries();
-    if (!visible.some(({ item }) => item.folder === state.activeReview?.folder)) state.activeReview = null;
+    if (!state.reviewTaskActivated || !visible.some(({ item }) => item.folder === state.activeReview?.folder)) {
+      state.activeReview = null;
+      state.reviewTaskActivated = false;
+    }
     renderReviewList();
     if (silent) renderReviewStagePreservingScroll();
     else renderReviewStage();
@@ -2895,7 +2907,10 @@ function pendingReviewQueueEntries() {
 
 function renderReviewList() {
   const visible = visibleReviewEntries();
-  if (state.activeReview && !visible.some(({ item }) => item.folder === state.activeReview.folder)) state.activeReview = null;
+  if (!state.reviewTaskActivated || (state.activeReview && !visible.some(({ item }) => item.folder === state.activeReview.folder))) {
+    state.activeReview = null;
+    state.reviewTaskActivated = false;
+  }
   const pendingQueue = pendingReviewQueueEntries();
   const reviewMarkup = visible.length ? visible.map(({ item, index }) => {
     const summary = reviewGenerationSummary(item);
@@ -2923,8 +2938,8 @@ function renderReviewList() {
 function renderReviewStage() {
   const stage = $('#reviewStage');
   const item = state.activeReview;
-  if (!item) renderEmptyReviewTrackingLog();
-  if (!item) {
+  if (!state.reviewTaskActivated || !item) renderEmptyReviewTrackingLog();
+  if (!state.reviewTaskActivated || !item) {
     stage.innerHTML = '<div class="empty-state"><b>选择一个任务</b><span>这里会显示任务内的母版和套图结果。</span></div>';
     return;
   }
@@ -3496,7 +3511,7 @@ async function runReviewGeneration(onlyMissing, folders) {
   state.stopGenerationRequested = false;
   const targets = Array.isArray(folders)
     ? [...new Set(folders)]
-    : state.activeReview ? [state.activeReview.folder] : [];
+    : state.reviewTaskActivated && state.activeReview ? [state.activeReview.folder] : [];
   if (!targets.length) return toast('请先选择任务', true);
   const now = new Date().toISOString();
   const applyLocalProgress = (folder, update = {}) => {
@@ -4927,6 +4942,7 @@ function bindEvents() {
     const row = event.target.closest('[data-review-index]');
     if (!row) return;
     state.activeReview = state.reviews[Number(row.dataset.reviewIndex)];
+    state.reviewTaskActivated = true;
     state.reviewLogFilter = 'all';
     renderReviewList(); renderReviewStage();
   };

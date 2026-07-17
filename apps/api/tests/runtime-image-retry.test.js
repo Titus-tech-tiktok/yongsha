@@ -99,16 +99,18 @@ test('template-print regeneration entrypoints use the image API', async (t) => {
   await fs.rm(outputFile, { force: true });
   await runtime.generateTemplateSetForFolder(generated.folder, true);
   await fs.access(outputFile);
+  const afterMissingBilling = await runtime.billing.getSummary('image-retry');
+  assert.equal(afterMissingBilling.account.balanceMinor, 400000);
   assert.equal(requests, 3, '补生成缺失图片仍应调用图片 API');
 
   await runtime.generateTemplateSetForFolder(generated.folder, false);
   const afterSetRegenerationBilling = await runtime.billing.getSummary('image-retry');
-  assert.equal(afterSetRegenerationBilling.account.balanceMinor, 700000);
+  assert.equal(afterSetRegenerationBilling.account.balanceMinor, 400000);
   assert.equal(requests, 4, '重新生成整套图仍应调用图片 API');
 
   await runtime.regenerateSingleTemplate({ folder: generated.folder, relativePath: '1.png', extraInstruction: 'keep the print centered' });
   const afterSingleRegenerationBilling = await runtime.billing.getSummary('image-retry');
-  assert.equal(afterSingleRegenerationBilling.account.balanceMinor, 700000);
+  assert.equal(afterSingleRegenerationBilling.account.balanceMinor, 400000);
   assert.equal(requests, 5, '单张重新生成仍应调用图片 API');
 
 });

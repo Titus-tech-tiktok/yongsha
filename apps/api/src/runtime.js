@@ -2874,7 +2874,7 @@ async function generateTemplateJob(job, source, config, options = {}) {
     billingReference: job.relativePath,
     billingOnceKey: isRegeneration
       ? billingOnceKey('image:template-job-regenerate', job.outputRoot, job.relativePath, Date.now(), crypto.randomUUID())
-      : billingOnceKey('image:template-job', job.outputRoot, job.relativePath),
+      : billingOnceKey('image:template-job', job.outputRoot, job.relativePath, Date.now(), crypto.randomUUID()),
     skipBilling: isRegeneration && packageIsFlagship(activePack),
     signal: options.signal,
     onRequestState: options.onRequestState

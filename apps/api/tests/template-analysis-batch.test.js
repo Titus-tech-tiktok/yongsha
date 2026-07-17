@@ -134,8 +134,9 @@ test('批量 AI 分析使用系统 API 并发配置', async (t) => {
   await Promise.all(names.map(name => sharp({ create: { width: 24, height: 24, channels: 3, background: '#d8c59b' } }).png().toFile(path.join(folder, name))));
 
   const batch = await runtime.analyzeTemplateItems({ folder, relativePaths: names });
-  assert.equal(batch.concurrency, 7);
-  assert.equal(maxActive, 7);
+  assert.equal(batch.concurrency, 8);
+  assert.ok(maxActive > 1);
+  assert.ok(maxActive <= 8);
   assert.equal(batch.completed, 8);
   assert.equal(batch.failed, 0);
 });

@@ -17,3 +17,16 @@ test('template print frontend uses current action protocol labels and filters', 
   assert.doesNotMatch(templateActions, /\['copy_template'/);
   assert.doesNotMatch(templateActions, /\['skip_copy'/);
 });
+
+test('review activity panel only renders after an explicit task card click', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '../../web/src/renderer.js'), 'utf8');
+  const stateBlock = renderer.match(/const state = \{[\s\S]*?\n\};/)?.[0] || '';
+  const loadReviewsBlock = renderer.match(/async function loadReviews[\s\S]*?\n\}/)?.[0] || '';
+  const renderReviewStageBlock = renderer.match(/function renderReviewStage\(\) \{[\s\S]*?const summary = reviewGenerationSummary/)?.[0] || '';
+  const clickBlock = renderer.match(/\$\('#reviewList'\)\.onclick = event => \{[\s\S]*?renderReviewList\(\); renderReviewStage\(\);/)?.[0] || '';
+
+  assert.match(stateBlock, /reviewTaskActivated:\s*false/);
+  assert.match(loadReviewsBlock, /if \(state\.reviewTaskActivated && state\.activeReview\) \{\s*state\.activeReview = state\.reviews\.find/);
+  assert.match(renderReviewStageBlock, /!state\.reviewTaskActivated/);
+  assert.match(clickBlock, /state\.reviewTaskActivated = true/);
+});

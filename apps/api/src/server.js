@@ -40,11 +40,21 @@ const isSuperAdmin = user => user?.role === 'superadmin';
 const isTeamAdmin = user => user?.role === 'superadmin' || user?.role === 'admin';
 const BILLING_AMOUNT_SCALE = 1_000_000;
 
+function parseBillingUsdMinor(value) {
+  const text = String(value ?? '').trim();
+  if (!/^\d+(?:\.\d{0,6})?$/.test(text)) return NaN;
+  const [whole, fraction = ''] = text.split('.');
+  const major = Number(whole);
+  if (!Number.isSafeInteger(major)) return NaN;
+  const minor = major * BILLING_AMOUNT_SCALE + Number(fraction.padEnd(6, '0'));
+  return Number.isSafeInteger(minor) ? minor : NaN;
+}
+
 function billingAmountMinorFromRequest(body) {
   const amountMinor = Number(body?.amountMinor);
   if (Number.isSafeInteger(amountMinor)) return amountMinor;
-  const amountUsd = Number(body?.amountUsd ?? body?.amount);
-  if (Number.isFinite(amountUsd)) return Math.round(amountUsd * BILLING_AMOUNT_SCALE);
+  const amountUsd = parseBillingUsdMinor(body?.amountUsd ?? body?.amount);
+  if (Number.isSafeInteger(amountUsd)) return amountUsd;
   return amountMinor;
 }
 

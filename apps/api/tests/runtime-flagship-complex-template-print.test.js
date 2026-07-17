@@ -88,7 +88,7 @@ async function createFixture(t, workspaceId) {
     modelPackages: [
       { id: 'flagship', name: 'Flagship', enabled: true, default: true, promptQuality: 'flagship', modelId: 'gpt-image-2', maxConcurrency: 14, startIntervalMs: 200, imagePriceMinMinor: 300000, imagePriceMaxMinor: 300000 },
       { id: 'fast', name: 'Fast', enabled: true, default: false, promptQuality: 'basic', imagePrompt: 'FAST ONLY PROMPT', modelId: 'gpt-image-2', maxConcurrency: 6, startIntervalMs: 1000, imagePriceMinMinor: 50000, imagePriceMaxMinor: 50000 },
-      { id: 'standard', name: 'Standard', enabled: true, default: false, promptQuality: 'standard', imagePrompt: 'STANDARD ONLY PROMPT', modelId: 'gpt-image-2' }
+      { id: 'standard', name: 'Standard', enabled: true, default: false, promptQuality: 'standard', imagePrompt: 'STANDARD ONLY PROMPT', modelId: 'gpt-image-2', imagePriceMinMinor: 70000, imagePriceMaxMinor: 70000 }
     ]
   });
 
@@ -173,6 +173,96 @@ test('fast template-print bills package image price and uses package concurrency
   assert.equal(result.summary.billingCostMinor, 50000);
   const events = await fs.readFile(path.join(result.folder, '.caishen-meta', 'image-api-events.jsonl'), 'utf8');
   assert.match(events, /"maxConcurrency":6/);
+});
+
+test('fast review regeneration paths charge package image price', { concurrency: false }, async (t) => {
+  const { runtime, templateRoot, printPath, masterImagePath } = await createFixture(t, 'fast-review-billing');
+  await runtime.saveSelectedModelPackage('flagship');
+
+  const initial = await runtime.generateTask({
+    taskNumber: 1,
+    generationMode: 'template_print',
+    printPath,
+    masterImagePath,
+    templateFolderPath: templateRoot,
+    templateRelativePaths: ['01-complex.png']
+  });
+  const outputFile = path.join(initial.folder, '01-complex.png');
+  await fs.rm(outputFile, { force: true });
+
+  await runtime.saveSelectedModelPackage('fast');
+  const before = await runtime.billing.getSummary('fast-review-billing');
+  const regeneratedSet = await runtime.generateTemplateSetForFolder(initial.folder, true);
+  const afterMissing = await runtime.billing.getSummary('fast-review-billing');
+  assert.equal(regeneratedSet.summary.billingCostMinor, 50000);
+  assert.equal(before.account.balanceMinor - afterMissing.account.balanceMinor, 50000);
+
+  await runtime.regenerateSingleTemplate({
+    folder: initial.folder,
+    relativePath: '01-complex.png',
+    extraInstruction: 'keep cabinet labels unchanged'
+  });
+  const afterSingle = await runtime.billing.getSummary('fast-review-billing');
+  assert.equal(afterMissing.account.balanceMinor - afterSingle.account.balanceMinor, 50000);
+});
+
+test('standard review regeneration paths charge package image price', { concurrency: false }, async (t) => {
+  const { runtime, templateRoot, printPath, masterImagePath } = await createFixture(t, 'standard-review-billing');
+  await runtime.saveSelectedModelPackage('flagship');
+
+  const initial = await runtime.generateTask({
+    taskNumber: 1,
+    generationMode: 'template_print',
+    printPath,
+    masterImagePath,
+    templateFolderPath: templateRoot,
+    templateRelativePaths: ['01-complex.png']
+  });
+  const outputFile = path.join(initial.folder, '01-complex.png');
+  await fs.rm(outputFile, { force: true });
+
+  await runtime.saveSelectedModelPackage('standard');
+  const before = await runtime.billing.getSummary('standard-review-billing');
+  const regeneratedSet = await runtime.generateTemplateSetForFolder(initial.folder, true);
+  const afterMissing = await runtime.billing.getSummary('standard-review-billing');
+  assert.equal(regeneratedSet.summary.billingCostMinor, 70000);
+  assert.equal(before.account.balanceMinor - afterMissing.account.balanceMinor, 70000);
+
+  await runtime.regenerateSingleTemplate({
+    folder: initial.folder,
+    relativePath: '01-complex.png',
+    extraInstruction: 'keep cabinet labels unchanged'
+  });
+  const afterSingle = await runtime.billing.getSummary('standard-review-billing');
+  assert.equal(afterMissing.account.balanceMinor - afterSingle.account.balanceMinor, 70000);
+});
+
+test('flagship review regeneration remains free after initial package charge', { concurrency: false }, async (t) => {
+  const { runtime, templateRoot, printPath, masterImagePath } = await createFixture(t, 'flagship-review-billing');
+  await runtime.saveSelectedModelPackage('flagship');
+
+  const initial = await runtime.generateTask({
+    taskNumber: 1,
+    generationMode: 'template_print',
+    printPath,
+    masterImagePath,
+    templateFolderPath: templateRoot,
+    templateRelativePaths: ['01-complex.png']
+  });
+  assert.equal(initial.summary.billingCostMinor, 300000);
+  const afterInitial = await runtime.billing.getSummary('flagship-review-billing');
+
+  await runtime.generateTemplateSetForFolder(initial.folder, false);
+  const afterSetRegeneration = await runtime.billing.getSummary('flagship-review-billing');
+  assert.equal(afterInitial.account.balanceMinor - afterSetRegeneration.account.balanceMinor, 0);
+
+  await runtime.regenerateSingleTemplate({
+    folder: initial.folder,
+    relativePath: '01-complex.png',
+    extraInstruction: 'keep cabinet labels unchanged'
+  });
+  const afterSingle = await runtime.billing.getSummary('flagship-review-billing');
+  assert.equal(afterSetRegeneration.account.balanceMinor - afterSingle.account.balanceMinor, 0);
 });
 
 test('flagship template-print can include master reference when enabled', { concurrency: false }, async (t) => {
