@@ -386,7 +386,7 @@ function isTeamAdmin() {
 }
 
 function canManagePrompts() {
-  return isTeamAdmin();
+  return isSuperAdmin();
 }
 
 function feeRangeLabel(minorMin = 0, minorMax = 0) {
