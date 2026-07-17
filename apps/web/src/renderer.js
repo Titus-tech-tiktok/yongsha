@@ -4055,13 +4055,9 @@ function renderModelPackages() {
         <label>分析最低 / 次<div class="money-input"><span>$</span><input data-package-field="analysisPriceMinMinor" type="number" min="0" step="0.000001" value="${moneyMinorToInput(item.analysisPriceMinMinor ?? item.analysisPriceMinor ?? 0)}"></div></label>
         <label>分析最高 / 次<div class="money-input"><span>$</span><input data-package-field="analysisPriceMaxMinor" type="number" min="0" step="0.000001" value="${moneyMinorToInput(item.analysisPriceMaxMinor ?? item.analysisPriceMinor ?? 0)}"></div></label>
         <label>内部效果档位<select data-package-field="promptQuality"><option value="basic">低价版效果</option><option value="standard">标准版效果</option><option value="flagship">旗舰版效果</option><option value="custom">自定义效果</option></select></label>
-        <label>提示词来源<select data-package-field="promptMode"><option value="internal">只用内部提示词</option><option value="hybrid">内部提示词 + 部分用户要求</option><option value="full">内部提示词 + 完整用户要求</option></select></label>
-        <label>用户要求处理<select data-package-field="userPromptPolicy"><option value="ignore">不采用用户额外要求</option><option value="partial">只采用一部分</option><option value="full">完整采用</option></select></label>
-        <label>任务优先级<input data-package-field="queuePriority" type="number" min="0" max="100" step="1" value="${Number(item.queuePriority) || 0}"></label>
       </div>
-      <label class="model-package-prompt">分析增强提示词<textarea data-package-field="analysisPrompt" rows="4" spellcheck="false">${escapeHtml(item.analysisPrompt || '')}</textarea></label>
-      <label class="model-package-prompt">生图增强提示词<textarea data-package-field="imagePrompt" rows="4" spellcheck="false">${escapeHtml(item.imagePrompt || item.hiddenPrompt || '')}</textarea></label>
-      <label class="model-package-prompt">兼容旧字段：内部提示词<textarea data-package-field="hiddenPrompt" rows="2" spellcheck="false">${escapeHtml(item.hiddenPrompt || '')}</textarea></label>
+      <label class="model-package-prompt">分析内部提示词<textarea data-package-field="analysisPrompt" rows="4" spellcheck="false">${escapeHtml(item.analysisPrompt || '')}</textarea></label>
+      <label class="model-package-prompt">生图内部提示词<textarea data-package-field="imagePrompt" rows="4" spellcheck="false">${escapeHtml(item.imagePrompt || item.hiddenPrompt || '')}</textarea></label>
       <div class="model-package-switches"><label><input data-package-field="enabled" type="checkbox"${item.enabled !== false ? ' checked' : ''}> 启用</label><label><input data-package-field="default" type="checkbox"${item.default ? ' checked' : ''}> 默认</label><label><input data-package-field="recommended" type="checkbox"${item.recommended ? ' checked' : ''}> 推荐</label></div>
     </article>`).join('');
   packages.forEach((item, index) => {
@@ -4069,8 +4065,6 @@ function renderModelPackages() {
     if (!row) return;
     row.querySelector('[data-package-field="analysisWireApi"]').value = item.analysisWireApi || state.apiSettings?.analysisWireApi || 'chat_completions';
     row.querySelector('[data-package-field="promptQuality"]').value = item.promptQuality || 'standard';
-    row.querySelector('[data-package-field="promptMode"]').value = item.promptMode || 'hybrid';
-    row.querySelector('[data-package-field="userPromptPolicy"]').value = item.userPromptPolicy || 'partial';
   });
 }
 
@@ -4095,12 +4089,12 @@ function collectModelPackagesFromForm() {
       analysisPriceMinMinor: moneyInputToMinor(read('analysisPriceMinMinor')?.value || '0', '模型分析最低价格'),
       analysisPriceMaxMinor: moneyInputToMinor(read('analysisPriceMaxMinor')?.value || '0', '模型分析最高价格'),
       promptQuality: read('promptQuality')?.value || 'standard',
-      promptMode: read('promptMode')?.value || 'hybrid',
-      userPromptPolicy: read('userPromptPolicy')?.value || 'partial',
-      queuePriority: Number(read('queuePriority')?.value) || 0,
-      hiddenPrompt: read('hiddenPrompt')?.value || '',
+      promptMode: read('promptQuality')?.value === 'flagship' ? 'full' : 'internal',
+      userPromptPolicy: read('promptQuality')?.value === 'flagship' ? 'full' : 'ignore',
+      queuePriority: read('promptQuality')?.value === 'flagship' ? 10 : read('promptQuality')?.value === 'standard' ? 5 : 2,
+      hiddenPrompt: '',
       analysisPrompt: read('analysisPrompt')?.value || '',
-      imagePrompt: read('imagePrompt')?.value || read('hiddenPrompt')?.value || '',
+      imagePrompt: read('imagePrompt')?.value || '',
       enabled: read('enabled')?.checked !== false,
       default: read('default')?.checked === true,
       recommended: read('recommended')?.checked === true
