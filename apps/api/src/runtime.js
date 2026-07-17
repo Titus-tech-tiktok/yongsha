@@ -837,6 +837,49 @@ function packageIsFlagship(pack) {
   return String(pack?.promptQuality || '').trim() === 'flagship' || String(pack?.id || '').trim() === 'flagship';
 }
 
+function isComplexTemplatePrintAnalysis(analysis, job = {}) {
+  const text = `${String(analysis || '')}\n${String(job?.relativePath || '')}`.toLowerCase();
+  const signals = [
+    'complex',
+    'chinese title',
+    'text label',
+    'white label',
+    'selling point',
+    'open cabinet',
+    'open door',
+    'internal storage',
+    'multi panel',
+    'multi-panel',
+    'props',
+    '文字',
+    '标题',
+    '标签',
+    '卖点',
+    '开门',
+    '柜门',
+    '内部',
+    '储物',
+    '层板',
+    '多扇',
+    '多面板',
+    '道具'
+  ];
+  return signals.some(signal => text.includes(signal));
+}
+
+function flagshipComplexTemplatePrintPrompt() {
+  return [
+    'FLAGSHIP_COMPLEX_TEMPLATE_PRINT_MODE',
+    'Use the first input image as the final layout standard. The second input image is only the already generated master product reference. The third input image is the original print pattern reference.',
+    'For complex ecommerce templates, preserve every Chinese title, page number, white selling-point label, label position, font style, typography hierarchy and layout from the first input image. Do not rewrite, omit, add, translate or deform text.',
+    'Preserve people, open cabinet doors, internal storage, shelves, bottles, cookware, coffee machine, tabletop objects, lamps, curtains, floor, wall, shadows and all props from the first input image.',
+    'Apply the print only to visible cabinet or drawer front surfaces. Never cover cabinet interior, shelves, bottles, cookware, tabletop, wall, floor, legs, handles, black frames, black side panels, door seams, labels or text.',
+    'The print must follow every door panel perspective, opening angle, seam split, occlusion and handle position. It must not look like one flat sticker pasted across the whole cabinet.',
+    'Keep black cabinet frame, black tabletop, black side panels, black bottom edge, legs, handles and all seams crisp and visible above the print.',
+    'Output one realistic finished ecommerce product image only.'
+  ].join('\n');
+}
+
 function applyPackagePrompt(prompt, api, kind) {
   const pack = api?.activeModelPackage;
   const packagePrompt = packagePromptFor(api, kind);
@@ -2766,6 +2809,7 @@ async function generateTemplateJob(job, source, config, options = {}) {
     return { action, outputPath: job.outputPath };
   }
 
+  const activePack = await activeModelPackage();
   let prompt;
   let imagePaths;
   if (source.generationMode === 'template_print') {
@@ -2777,6 +2821,9 @@ async function generateTemplateJob(job, source, config, options = {}) {
     });
     prompt += '\n\n本次输入图顺序：第一张是当前套图模板图，第二张是已生成的母版产品图，第三张是原始印花图。母版产品图是产品外观、柜门图案、颜色和印花效果的标准；当前套图模板图只提供本页构图、场景、文字、尺寸标注和透视关系；原始印花图只用于核对图案，不允许重新设计、拼贴或替换成相似风格。最终结果必须把母版产品迁移到当前模板场景中，并保持当前模板的文字和页面布局。';
     prompt += '\n\n硬性质量要求：印花只能落在柜门或抽屉的正面可替换面板内部，必须完整保留家具黑色外框、黑色门缝/分隔线、黑色侧板、黑色台面、黑色底边、柜脚、把手、阴影和所有场景物品。不得让印花跨过或覆盖任何黑色边框黑边，不得把黑框染成印花，不得延伸到地面、墙面、台面、咖啡机、杯子、人物或其他道具。';
+    if (packageIsFlagship(activePack) && isComplexTemplatePrintAnalysis(analysis, job)) {
+      prompt += `\n\n${flagshipComplexTemplatePrintPrompt()}`;
+    }
     if (options.referenceResultPath && fs.existsSync(options.referenceResultPath)) {
       prompt += '\n\n第四张输入图是运营选定的合格参考结果图。只参考它如何保留黑色边框、黑色侧板、台面、柜脚、门缝以及印花在柜门面板内的落位方式；不要复制它的构图、视角、家具尺寸、场景元素或具体像素。当前第一张套图模板仍然是最终构图标准。';
     }
@@ -2799,7 +2846,6 @@ async function generateTemplateJob(job, source, config, options = {}) {
   if (options.extraInstruction && source.generationMode === 'template_print') prompt += `\n\n本次运营补充要求：${String(options.extraInstruction).trim()}`;
   if (options.includePreviousResult && fs.existsSync(job.outputPath)) imagePaths.push(job.outputPath);
   const isRegeneration = Boolean(options.isRegeneration || options.extraInstruction);
-  const activePack = await activeModelPackage();
   const bytes = await generateImage(prompt, imagePaths, {
     size: await templateOutputSize(job),
     quality: config.imageQuality || 'high',
