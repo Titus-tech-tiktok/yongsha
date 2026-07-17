@@ -67,6 +67,22 @@ test('成功调用按区间随机扣费并预占同一金额', async t => {
   assert.equal(summary.transactions[0].amountMinor, -reservation.amountMinor);
 });
 
+test('package billing range overrides global billing range', async t => {
+  const { root, billing } = await fixture();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await billing.saveRules({ enabled: true, imageFeeMinMinor: 1, imageFeeMaxMinor: 2, llmFeeMinMinor: 1, llmFeeMaxMinor: 2, defaultBalanceMinor: 1000 });
+  const reservation = await billing.reserve('user-package-range', 'image', {
+    amountMinMinor: 300,
+    amountMaxMinor: 350,
+    description: '套餐生图区间'
+  });
+  assert.equal(reservation.billable, true);
+  assert.ok(reservation.amountMinor >= 300 && reservation.amountMinor <= 350);
+  await billing.commit(reservation);
+  const summary = await billing.getSummary('user-package-range');
+  assert.equal(summary.account.balanceMinor, 1000 - reservation.amountMinor);
+});
+
 test('失败调用释放预占且不产生扣费流水', async t => {
   const { root, billing } = await fixture();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -105,7 +121,7 @@ test('管理员划拨只能正向从自己余额转给成员', async t => {
   assert.equal((await billing.getSummary('admin-workspace')).account.balanceMinor, 750);
   assert.equal((await billing.getSummary('member-workspace')).account.balanceMinor, 250);
   await assert.rejects(() => billing.transferBalance('admin-workspace', 'member-workspace', -1), /必须是有效/);
-  await assert.rejects(() => billing.transferBalance('admin-workspace', 'member-workspace', 751), /可用余额不足/);
+  await assert.rejects(() => billing.transferBalance('admin-workspace', 'member-workspace', 751), /算力余额不足/);
 });
 
 test('默认余额只在首次建立账户时发放一次', async t => {

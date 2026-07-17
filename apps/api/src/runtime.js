@@ -117,8 +117,16 @@ function currentWorkspaceId() {
   return normalizeWorkspaceId(workspaceContext.getStore()?.workspaceId || DEFAULT_WORKSPACE_ID);
 }
 
+function currentModelPackageWorkspaceId() {
+  return normalizeWorkspaceId(workspaceContext.getStore()?.modelPackageWorkspaceId || currentWorkspaceId());
+}
+
 function currentWorkspaceRoot() {
   return path.join(DATA_ROOT, 'workspaces', currentWorkspaceId());
+}
+
+function workspaceRoot(workspaceId) {
+  return path.join(DATA_ROOT, 'workspaces', normalizeWorkspaceId(workspaceId));
 }
 
 function billingOnceKey(...parts) {
@@ -130,12 +138,20 @@ function currentUserDataRoot() {
   return path.join(currentWorkspaceRoot(), 'state');
 }
 
+function workspaceUserDataRoot(workspaceId) {
+  return path.join(workspaceRoot(workspaceId), 'state');
+}
+
 function currentDefaultOutputRoot() {
   return path.join(currentWorkspaceRoot(), 'outputs');
 }
 
-function runWithWorkspace(workspaceId, worker) {
-  return workspaceContext.run({ workspaceId: normalizeWorkspaceId(workspaceId) }, worker);
+function runWithWorkspace(workspaceId, worker, context = {}) {
+  return workspaceContext.run({
+    ...context,
+    workspaceId: normalizeWorkspaceId(workspaceId),
+    modelPackageWorkspaceId: normalizeWorkspaceId(context.modelPackageWorkspaceId || workspaceId)
+  }, worker);
 }
 const app = {
   getPath(name) {
@@ -256,6 +272,10 @@ function apiSettingsFile() {
   return path.join(SYSTEM_STATE_ROOT, 'api-settings.json');
 }
 
+function modelPackageSelectionFile() {
+  return path.join(workspaceUserDataRoot(currentModelPackageWorkspaceId()), 'model-package-selection.json');
+}
+
 function legacyAdminSettingFile(name) {
   return path.join(DATA_ROOT, 'workspaces', 'local', 'state', name);
 }
@@ -296,7 +316,7 @@ function normalizeResponseFormat(value, fallback = 'url') {
 
 function normalizeRequestTimeoutSeconds(value, fallback = 300) {
   const number = Number(value ?? fallback);
-  if (!Number.isFinite(number) || number < 15 || number > 600) throw new Error('请求超时必须在 15 到 600 秒之间');
+  if (!Number.isFinite(number) || number < 1 || number > 600) throw new Error('请求超时必须在 1 到 600 秒之间');
   return Math.round(number);
 }
 
@@ -361,22 +381,297 @@ function maskedApiKey(value) {
   return `${key.slice(0, 4)}••••••${key.slice(-4)}`;
 }
 
+function normalizeModelPackageId(value, fallback) {
+  const text = String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return (text || fallback).slice(0, 80);
+}
+
+function normalizeModelPackageText(value, fallback = '', maxLength = 500) {
+  return String(value || fallback || '').normalize('NFKC').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, maxLength);
+}
+
+function normalizeModelPackageInteger(value, fallback, min, max) {
+  const number = Number(value ?? fallback);
+  const safe = Number.isFinite(number) ? number : fallback;
+  return Math.min(max, Math.max(min, Math.trunc(safe)));
+}
+
+function normalizeModelPackageMinor(value, fallback = 0) {
+  const number = Number(value ?? fallback);
+  if (!Number.isFinite(number)) return 0;
+  return Math.min(1_000_000_000_000, Math.max(0, Math.round(number)));
+}
+
+function normalizeModelPackageChoice(value, choices, fallback) {
+  const text = String(value || fallback || '').trim();
+  return choices.includes(text) ? text : fallback;
+}
+
+const DEFAULT_PACKAGE_PROMPTS = Object.freeze({
+  basicAnalysis: [
+    '套餐策略：低价基础能力。只做必要判断，不做复杂商业增强。',
+    '分析时只保留能决定是否生成、是否复制、是否人工确认的关键信息。',
+    '遇到可执行任务时保持保守，不扩展高级场景、不补充复杂卖点。'
+  ].join('\n'),
+  basicImage: [
+    '套餐策略：低价基础出图，效果目标约为旗舰版的 30%。',
+    '只完成核心换图/迁移任务，不做高级商业质感、复杂光影、材质强化、精修氛围和额外细节补全。',
+    '画面保持可用、干净、结构正确；不要追求旗舰版级别的高级棚拍、电商大片、精细反光和复杂后期。',
+    '优先快速稳定完成，不进行额外创意发挥。'
+  ].join('\n'),
+  standardAnalysis: [
+    '套餐策略：标准低价能力。只做基础理解，不做旗舰版深度优化。',
+    '分析时输出必要 JSON 字段，少做延展判断和商业包装。'
+  ].join('\n'),
+  standardImage: [
+    '套餐策略：标准版，效果目标约为旗舰版的 30%。',
+    '只做基础画面整理和必要生成，不做高级商业海报质感、复杂光影、材质精修、精细构图增强和额外卖点补全。',
+    '保持主体结构、印花关系和页面可用性，整体按普通电商可用图处理。'
+  ].join('\n'),
+  flagshipAnalysis: '',
+  flagshipImage: ''
+});
+
+function defaultPackagePrompt(kind, quality) {
+  const tier = ['basic', 'standard', 'flagship'].includes(String(quality)) ? String(quality) : 'standard';
+  if (kind === 'analysis') return DEFAULT_PACKAGE_PROMPTS[`${tier}Analysis`] || '';
+  return DEFAULT_PACKAGE_PROMPTS[`${tier}Image`] || '';
+}
+
+function normalizeModelPackagesLegacy(value, currentSettings = {}) {
+  const source = Array.isArray(value) ? value : Array.isArray(currentSettings.modelPackages) ? currentSettings.modelPackages : [];
+  if (!source.length && currentSettings.baseUrl && currentSettings.imageModel) {
+    return [{
+      id: 'flagship',
+      name: '默认模型',
+      description: '沿用系统原本的生图模型',
+      enabled: true,
+      default: true,
+      recommended: true,
+      apiBaseUrl: normalizeApiBaseUrl(currentSettings.baseUrl),
+      apiKey: String(currentSettings.imageKey || '').trim(),
+      modelId: normalizeModelName(currentSettings.imageModel, ENV_API.imageModel),
+      analysisApiBaseUrl: normalizeApiBaseUrl(currentSettings.baseUrl),
+      analysisApiKey: String(currentSettings.analysisKey || currentSettings.imageKey || '').trim(),
+      analysisModel: normalizeModelName(currentSettings.analysisModel, ENV_API.analysisModel),
+      analysisWireApi: normalizeAnalysisWireApi(currentSettings.analysisWireApi, ENV_API.analysisWireApi),
+      maxConcurrency: normalizeModelPackageInteger(currentSettings.imageMaxConcurrency, DEFAULT_IMAGE_API_CONCURRENCY, 1, 50),
+      startIntervalMs: normalizeModelPackageInteger(currentSettings.imageStartIntervalMs, DEFAULT_IMAGE_API_START_INTERVAL_MS, 0, 60000),
+      promptQuality: 'flagship',
+      promptMode: 'full',
+      userPromptPolicy: 'full',
+      hiddenPrompt: '',
+      analysisPrompt: '',
+      imagePrompt: '',
+      imagePriceMinor: 300000,
+      analysisPriceMinor: 0,
+      queuePriority: 10
+    }];
+  }
+  const currentById = new Map((Array.isArray(currentSettings.modelPackages) ? currentSettings.modelPackages : []).map(item => [String(item.id), item]));
+  const packages = source.slice(0, 20).map((item, index) => {
+    const fallbackId = `model-${index + 1}`;
+    const id = normalizeModelPackageId(item?.id, fallbackId);
+    const current = currentById.get(id) || {};
+    const apiBaseUrl = normalizeApiBaseUrl(item?.apiBaseUrl || current.apiBaseUrl || currentSettings.baseUrl || '');
+    const apiKey = String(item?.apiKey || item?.packageApiKey || '').trim() || current.apiKey || '';
+    const promptQuality = normalizeModelPackageChoice(item?.promptQuality, ['basic', 'standard', 'flagship', 'custom'], current.promptQuality || 'standard');
+    const analysisApiBaseUrl = normalizeApiBaseUrl(item?.analysisApiBaseUrl || current.analysisApiBaseUrl || currentSettings.baseUrl || apiBaseUrl || '');
+    const analysisApiKey = String(item?.analysisApiKey || item?.packageAnalysisApiKey || '').trim() || current.analysisApiKey || '';
+    return {
+      id,
+      name: normalizeModelPackageText(item?.name, `模型套餐 ${index + 1}`, 48),
+      description: normalizeModelPackageText(item?.description, '', 160),
+      enabled: item?.enabled !== false,
+      default: item?.default === true,
+      recommended: item?.recommended === true,
+      apiBaseUrl,
+      apiKey,
+      modelId: normalizeModelName(item?.modelId || item?.imageModel || current.modelId || currentSettings.imageModel, currentSettings.imageModel || ENV_API.imageModel),
+      analysisApiBaseUrl,
+      analysisApiKey,
+      analysisModel: normalizeModelName(item?.analysisModel || current.analysisModel || currentSettings.analysisModel, currentSettings.analysisModel || ENV_API.analysisModel),
+      analysisWireApi: normalizeAnalysisWireApi(item?.analysisWireApi || current.analysisWireApi || currentSettings.analysisWireApi, currentSettings.analysisWireApi || ENV_API.analysisWireApi),
+      maxConcurrency: normalizeModelPackageInteger(item?.maxConcurrency, current.maxConcurrency || 1, 1, 50),
+      startIntervalMs: normalizeModelPackageInteger(item?.startIntervalMs, current.startIntervalMs || 500, 0, 60000),
+      promptQuality,
+      promptMode: normalizeModelPackageChoice(item?.promptMode, ['internal', 'hybrid', 'full'], current.promptMode || 'hybrid'),
+      userPromptPolicy: normalizeModelPackageChoice(item?.userPromptPolicy, ['ignore', 'partial', 'full'], current.userPromptPolicy || 'partial'),
+      hiddenPrompt: normalizeModelPackageText(item?.hiddenPrompt, current.hiddenPrompt || '', 10000),
+      analysisPrompt: normalizeModelPackageText(item?.analysisPrompt, current.analysisPrompt || defaultPackagePrompt('analysis', promptQuality), 10000),
+      imagePrompt: normalizeModelPackageText(item?.imagePrompt ?? item?.hiddenPrompt, current.imagePrompt || defaultPackagePrompt('image', promptQuality), 10000),
+      imagePriceMinor: normalizeModelPackageMinor(item?.imagePriceMinor, current.imagePriceMinor || 0),
+      analysisPriceMinor: normalizeModelPackageMinor(item?.analysisPriceMinor, current.analysisPriceMinor || 0),
+      queuePriority: normalizeModelPackageInteger(item?.queuePriority, current.queuePriority || 5, 0, 100)
+    };
+  });
+  const seen = new Set();
+  const unique = packages.filter(item => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+  const fallbackDefaultIndex = unique.findIndex(item => item.enabled);
+  const explicitDefaultIndex = unique.findIndex(item => item.enabled && item.default);
+  const defaultIndex = explicitDefaultIndex >= 0 ? explicitDefaultIndex : fallbackDefaultIndex;
+  unique.forEach((item, index) => { item.default = index === defaultIndex; });
+  return unique;
+}
+
+const FIXED_MODEL_PACKAGE_PRESETS = Object.freeze([
+  {
+    id: 'flagship',
+    name: '旗舰版',
+    description: '主推套餐，使用全局旗舰配置',
+    enabled: true,
+    default: true,
+    recommended: true,
+    maxConcurrency: 30,
+    startIntervalMs: 200,
+    promptQuality: 'flagship',
+    promptMode: 'full',
+    userPromptPolicy: 'full',
+    imagePriceMinMinor: 300000,
+    imagePriceMaxMinor: 300000,
+    analysisPriceMinMinor: 0,
+    analysisPriceMaxMinor: 0,
+    queuePriority: 10
+  },
+  {
+    id: 'fast',
+    name: '快速版',
+    description: '低价留客，效果质量与标准版一致',
+    enabled: true,
+    default: false,
+    recommended: false,
+    maxConcurrency: 2,
+    startIntervalMs: 1200,
+    promptQuality: 'basic',
+    promptMode: 'internal',
+    userPromptPolicy: 'ignore',
+    imagePriceMinMinor: 50000,
+    imagePriceMaxMinor: 50000,
+    analysisPriceMinMinor: 50000,
+    analysisPriceMaxMinor: 50000,
+    queuePriority: 2
+  },
+  {
+    id: 'standard',
+    name: '标准版',
+    description: '效果质量约为旗舰版30%',
+    enabled: true,
+    default: false,
+    recommended: false,
+    maxConcurrency: 3,
+    startIntervalMs: 1000,
+    promptQuality: 'standard',
+    promptMode: 'hybrid',
+    userPromptPolicy: 'partial',
+    imagePriceMinMinor: 70000,
+    imagePriceMaxMinor: 70000,
+    analysisPriceMinMinor: 70000,
+    analysisPriceMaxMinor: 70000,
+    queuePriority: 5
+  }
+]);
+
+function packageMinorRange(item, current, preset, prefix) {
+  const fixedKey = `${prefix}PriceMinor`;
+  const minKey = `${prefix}PriceMinMinor`;
+  const maxKey = `${prefix}PriceMaxMinor`;
+  const min = normalizeModelPackageMinor(item?.[minKey] ?? item?.[fixedKey] ?? current?.[minKey] ?? current?.[fixedKey] ?? preset[minKey] ?? 0);
+  const max = normalizeModelPackageMinor(item?.[maxKey] ?? item?.[fixedKey] ?? current?.[maxKey] ?? current?.[fixedKey] ?? preset[maxKey] ?? min);
+  return { min, max: Math.max(min, max) };
+}
+
+function normalizeModelPackages(value, currentSettings = {}) {
+  const payloadById = new Map((Array.isArray(value) ? value : []).map(item => [normalizeModelPackageId(item?.id, ''), item]).filter(([id]) => id));
+  const currentById = new Map((Array.isArray(currentSettings.modelPackages) ? currentSettings.modelPackages : []).map(item => [normalizeModelPackageId(item?.id, ''), item]).filter(([id]) => id));
+  return FIXED_MODEL_PACKAGE_PRESETS.map(preset => {
+    const item = payloadById.get(preset.id) || {};
+    const current = currentById.get(preset.id) || {};
+    const promptQuality = normalizeModelPackageChoice(item?.promptQuality, ['basic', 'standard', 'flagship', 'custom'], current.promptQuality || preset.promptQuality);
+    const apiBaseUrl = normalizeApiBaseUrl(item?.apiBaseUrl || current.apiBaseUrl || currentSettings.baseUrl || '');
+    const analysisApiBaseUrl = normalizeApiBaseUrl(item?.analysisApiBaseUrl || current.analysisApiBaseUrl || currentSettings.baseUrl || apiBaseUrl || '');
+    const imageRange = packageMinorRange(item, current, preset, 'image');
+    const analysisRange = packageMinorRange(item, current, preset, 'analysis');
+    return {
+      id: preset.id,
+      name: normalizeModelPackageText(item?.name, current.name || preset.name, 48),
+      description: normalizeModelPackageText(item?.description, current.description || preset.description, 160),
+      enabled: item?.enabled !== undefined ? item.enabled !== false : current.enabled !== undefined ? current.enabled !== false : preset.enabled,
+      default: preset.default,
+      recommended: item?.recommended !== undefined ? item.recommended === true : current.recommended !== undefined ? current.recommended === true : preset.recommended,
+      apiBaseUrl,
+      apiKey: String(item?.apiKey || item?.packageApiKey || '').trim() || current.apiKey || '',
+      modelId: normalizeModelName(item?.modelId || item?.imageModel || current.modelId || currentSettings.imageModel, currentSettings.imageModel || ENV_API.imageModel),
+      analysisApiBaseUrl,
+      analysisApiKey: String(item?.analysisApiKey || item?.packageAnalysisApiKey || '').trim() || current.analysisApiKey || '',
+      analysisModel: normalizeModelName(item?.analysisModel || current.analysisModel || currentSettings.analysisModel, currentSettings.analysisModel || ENV_API.analysisModel),
+      analysisWireApi: normalizeAnalysisWireApi(item?.analysisWireApi || current.analysisWireApi || currentSettings.analysisWireApi, currentSettings.analysisWireApi || ENV_API.analysisWireApi),
+      maxConcurrency: normalizeModelPackageInteger(item?.maxConcurrency, current.maxConcurrency || preset.maxConcurrency, 1, 50),
+      startIntervalMs: normalizeModelPackageInteger(item?.startIntervalMs, current.startIntervalMs || preset.startIntervalMs, 0, 60000),
+      promptQuality,
+      promptMode: normalizeModelPackageChoice(item?.promptMode, ['internal', 'hybrid', 'full'], current.promptMode || preset.promptMode),
+      userPromptPolicy: normalizeModelPackageChoice(item?.userPromptPolicy, ['ignore', 'partial', 'full'], current.userPromptPolicy || preset.userPromptPolicy),
+      hiddenPrompt: normalizeModelPackageText(item?.hiddenPrompt, current.hiddenPrompt || '', 10000),
+      analysisPrompt: normalizeModelPackageText(item?.analysisPrompt, current.analysisPrompt || defaultPackagePrompt('analysis', promptQuality), 10000),
+      imagePrompt: normalizeModelPackageText(item?.imagePrompt ?? item?.hiddenPrompt, current.imagePrompt || defaultPackagePrompt('image', promptQuality), 10000),
+      imagePriceMinMinor: imageRange.min,
+      imagePriceMaxMinor: imageRange.max,
+      imagePriceMinor: imageRange.max,
+      analysisPriceMinMinor: analysisRange.min,
+      analysisPriceMaxMinor: analysisRange.max,
+      analysisPriceMinor: analysisRange.max,
+      queuePriority: normalizeModelPackageInteger(item?.queuePriority, current.queuePriority || preset.queuePriority, 0, 100)
+    };
+  });
+}
+
+function publicModelPackageForSuperAdmin(item) {
+  const { apiKey, analysisApiKey, ...rest } = item;
+  return {
+    ...rest,
+    apiKeyConfigured: Boolean(apiKey),
+    apiKeyMasked: maskedApiKey(apiKey),
+    analysisApiKeyConfigured: Boolean(analysisApiKey),
+    analysisApiKeyMasked: maskedApiKey(analysisApiKey)
+  };
+}
+
+function publicModelPackageForUser(item) {
+  return {
+    id: item.id,
+    name: item.name,
+    description: item.description,
+    enabled: item.enabled,
+    default: item.default,
+    recommended: item.recommended
+  };
+}
+
 async function readPrivateApiSettings() {
   const saved = await readGlobalSettingWithLegacy(apiSettingsFile(), 'api-settings.json');
   const legacyImageKey = String(saved.key || ENV_API.imageKey || ENV_API.key || '').trim();
   const concurrency = normalizeImageConcurrencySettings(saved);
+  const modelPackageBase = {
+    baseUrl: normalizeApiBaseUrl(saved.baseUrl || ENV_API.baseUrl || ''),
+    imageModel: normalizeModelName(saved.imageModel, ENV_API.imageModel),
+    modelPackages: Array.isArray(saved.modelPackages) ? saved.modelPackages : []
+  };
   const next = {
     version: 2,
     serviceUrl: String(saved.serviceUrl || ENV_API.serviceUrl || '').trim(),
-    baseUrl: normalizeApiBaseUrl(saved.baseUrl || ENV_API.baseUrl || ''),
+    baseUrl: modelPackageBase.baseUrl,
     imageKey: String(saved.imageKey || legacyImageKey).trim(),
     analysisKey: String(saved.analysisKey || ENV_API.analysisKey || '').trim(),
-    imageModel: normalizeModelName(saved.imageModel, ENV_API.imageModel),
+    imageModel: modelPackageBase.imageModel,
     analysisModel: normalizeModelName(saved.analysisModel, ENV_API.analysisModel),
     analysisWireApi: normalizeAnalysisWireApi(saved.analysisWireApi, ENV_API.analysisWireApi),
     responseFormat: normalizeResponseFormat(saved.responseFormat, ENV_API.responseFormat),
     requestTimeoutSeconds: normalizeRequestTimeoutSeconds(saved.requestTimeoutSeconds, ENV_API.requestTimeoutSeconds),
-    ...concurrency
+    ...concurrency,
+    modelPackages: normalizeModelPackages(saved.modelPackages, modelPackageBase)
   };
   runtimeApiSettings = next;
   applyImageSchedulerSettings(next);
@@ -401,7 +696,8 @@ function publicApiSettings(value = currentApiSettings()) {
     analysisKeyMasked: maskedApiKey(value.analysisKey),
     imageConfigured,
     analysisConfigured,
-    configured: imageConfigured && analysisConfigured
+    configured: imageConfigured && analysisConfigured,
+    modelPackages: normalizeModelPackages(value.modelPackages, value).map(publicModelPackageForSuperAdmin)
   };
 }
 
@@ -424,7 +720,8 @@ async function saveApiSettings(payload = {}) {
       analysisWireApi: normalizeAnalysisWireApi(payload.analysisWireApi, current.analysisWireApi),
       responseFormat: normalizeResponseFormat(payload.responseFormat, current.responseFormat),
       requestTimeoutSeconds: normalizeRequestTimeoutSeconds(payload.requestTimeoutSeconds, current.requestTimeoutSeconds),
-      ...concurrency
+      ...concurrency,
+      modelPackages: normalizeModelPackages(payload.modelPackages, current)
     };
     if (!next.baseUrl) throw new Error('请填写 API 地址');
     if (!next.imageKey && !next.analysisKey) throw new Error('请至少填写一个 API 密钥');
@@ -436,6 +733,124 @@ async function saveApiSettings(payload = {}) {
   });
   apiSettingsWriteChain = operation.catch(() => {});
   return operation;
+}
+
+function defaultModelPackageId(packages) {
+  return packages.find(item => item.enabled && item.default)?.id || packages.find(item => item.enabled)?.id || '';
+}
+
+async function readSelectedModelPackageId(packages) {
+  const fallback = defaultModelPackageId(packages);
+  try {
+    const saved = JSON.parse(await fsp.readFile(modelPackageSelectionFile(), 'utf8'));
+    const selected = String(saved?.selectedModelPackageId || '').trim();
+    if (packages.some(item => item.enabled && item.id === selected)) return selected;
+  } catch {}
+  return fallback;
+}
+
+async function loadModelPackageSettings(actor = {}) {
+  const settings = await readPrivateApiSettings();
+  const packages = normalizeModelPackages(settings.modelPackages, settings);
+  const selectedModelPackageId = await readSelectedModelPackageId(packages);
+  const isSuperAdminActor = actor?.role === 'superadmin';
+  return {
+    selectedModelPackageId,
+    modelPackages: packages
+      .filter(item => isSuperAdminActor || item.enabled)
+      .map(isSuperAdminActor ? publicModelPackageForSuperAdmin : publicModelPackageForUser)
+  };
+}
+
+async function saveSelectedModelPackage(selectedModelPackageId) {
+  const settings = await readPrivateApiSettings();
+  const packages = normalizeModelPackages(settings.modelPackages, settings);
+  const selected = String(selectedModelPackageId || '').trim();
+  if (!packages.some(item => item.enabled && item.id === selected)) throw new Error('模型套餐不存在或未启用');
+  const next = { selectedModelPackageId: selected, updatedAt: new Date().toISOString() };
+  await fsp.mkdir(path.dirname(modelPackageSelectionFile()), { recursive: true });
+  await fsp.writeFile(modelPackageSelectionFile(), JSON.stringify(next, null, 2), { encoding: 'utf8', mode: 0o600 });
+  return loadModelPackageSettings({ role: 'member' });
+}
+
+async function activeModelPackage() {
+  const settings = await readPrivateApiSettings();
+  const packages = normalizeModelPackages(settings.modelPackages, settings).filter(item => item.enabled);
+  const selectedId = await readSelectedModelPackageId(packages);
+  return packages.find(item => item.id === selectedId) || packages.find(item => item.default) || packages[0] || null;
+}
+
+async function activeApiConfig(channel = 'image') {
+  const settings = await readPrivateApiSettings();
+  const pack = await activeModelPackage();
+  if (!pack) return requireApiConfig(channel);
+  if (channel === 'analysis') {
+    const api = {
+      ...settings,
+      baseUrl: pack.analysisApiBaseUrl || settings.baseUrl,
+      analysisKey: pack.analysisApiKey || settings.analysisKey || settings.imageKey,
+      analysisModel: pack.analysisModel || settings.analysisModel,
+      analysisWireApi: pack.analysisWireApi || settings.analysisWireApi,
+      activeModelPackage: pack
+    };
+    if (!api.baseUrl) throw new Error('请先配置文字分析 API 地址');
+    if (!api.analysisKey) throw new Error('请先配置文字分析 API 密钥');
+    return api;
+  }
+  const api = {
+    ...settings,
+    baseUrl: pack.apiBaseUrl || settings.baseUrl,
+    imageKey: pack.apiKey || settings.imageKey,
+    imageModel: pack.modelId || settings.imageModel,
+    activeModelPackage: pack
+  };
+  if (!api.baseUrl) throw new Error('请先配置生图 API 地址');
+  if (!api.imageKey) throw new Error('请先配置生图 API 密钥');
+  return api;
+}
+
+function appendPackagePrompt(prompt, packagePrompt) {
+  const extra = String(packagePrompt || '').trim();
+  if (!extra) return String(prompt || '');
+  return `${String(prompt || '').trim()}\n\n${extra}`.trim();
+}
+
+function packagePromptFor(api, kind) {
+  const pack = api?.activeModelPackage;
+  if (!pack) return '';
+  if (packageIsFlagship(pack)) return '';
+  if (kind === 'analysis') return pack.analysisPrompt || defaultPackagePrompt('analysis', pack.promptQuality);
+  return pack.imagePrompt || pack.hiddenPrompt || defaultPackagePrompt('image', pack.promptQuality);
+}
+
+function packageIsFlagship(pack) {
+  return String(pack?.promptQuality || '').trim() === 'flagship' || String(pack?.id || '').trim() === 'flagship';
+}
+
+function applyPackagePrompt(prompt, api, kind) {
+  const pack = api?.activeModelPackage;
+  const packagePrompt = packagePromptFor(api, kind);
+  if (pack && !packageIsFlagship(pack)) return packagePrompt || String(prompt || '');
+  return appendPackagePrompt(prompt, packagePrompt);
+}
+
+function packageBillingRange(pack, kind) {
+  if (!pack) return {};
+  const prefix = kind === 'analysis' || kind === 'llm' ? 'analysis' : 'image';
+  const fixed = normalizeModelPackageMinor(pack[`${prefix}PriceMinor`], 0);
+  const min = normalizeModelPackageMinor(pack[`${prefix}PriceMinMinor`], fixed);
+  const max = normalizeModelPackageMinor(pack[`${prefix}PriceMaxMinor`], fixed);
+  return { amountMinMinor: min, amountMaxMinor: Math.max(min, max) };
+}
+
+async function activeApiConcurrencyLimit(total = Infinity) {
+  const pack = await activeModelPackage();
+  const settingsMax = normalizeImageConcurrencySettings(currentApiSettings()).imageMaxConcurrency || DEFAULT_IMAGE_API_CONCURRENCY;
+  const packageMax = pack && !packageIsFlagship(pack) ? Number(pack.maxConcurrency) : 0;
+  const max = Math.max(1, Math.min(50, packageMax || settingsMax));
+  const count = Number(total);
+  if (!Number.isFinite(count)) return max;
+  return Math.min(max, Math.max(1, Math.trunc(count)));
 }
 
 async function testApiSettings(payload = {}) {
@@ -1222,7 +1637,28 @@ function analysisContentToString(content) {
 async function analysisApiJson(api, chatPayload, timeoutMs, metadata = null) {
   const wireApi = normalizeAnalysisWireApi(api.analysisWireApi, 'chat_completions');
   const pathName = wireApi === 'responses' ? '/responses' : '/chat/completions';
-  const payload = wireApi === 'responses' ? chatPayloadToResponses(chatPayload) : chatPayload;
+  const packagePrompt = packagePromptFor(api, 'analysis');
+  const sourcePayload = packagePrompt
+    ? {
+      ...chatPayload,
+      messages: (chatPayload.messages || []).map((message, index) => {
+        if (index !== 0) return message;
+        if (Array.isArray(message.content)) {
+          return {
+            ...message,
+            content: message.content.map((item, itemIndex) => itemIndex === 0 && item?.type === 'text'
+              ? { ...item, text: applyPackagePrompt(item.text, api, 'analysis') }
+              : item)
+          };
+        }
+        return { ...message, content: applyPackagePrompt(message.content, api, 'analysis') };
+      })
+    }
+    : chatPayload;
+  const payload = wireApi === 'responses' ? chatPayloadToResponses(sourcePayload) : sourcePayload;
+  const billingMetadata = metadata && api.activeModelPackage
+    ? { ...packageBillingRange(api.activeModelPackage, 'analysis'), ...metadata }
+    : metadata;
   const options = {
     method: 'POST',
     headers: {
@@ -1232,8 +1668,8 @@ async function analysisApiJson(api, chatPayload, timeoutMs, metadata = null) {
     },
     body: JSON.stringify(payload)
   };
-  const body = metadata
-    ? await billableLlmJson(apiEndpoint(api.baseUrl, pathName), options, timeoutMs, metadata)
+  const body = billingMetadata
+    ? await billableLlmJson(apiEndpoint(api.baseUrl, pathName), options, timeoutMs, billingMetadata)
     : await apiJson(apiEndpoint(api.baseUrl, pathName), options, timeoutMs);
   return normalizeAnalysisResponse(body, wireApi);
 }
@@ -1359,7 +1795,15 @@ async function downloadGeneratedImage(url, signal) {
 }
 
 async function generateImage(prompt, imagePaths, options = {}) {
-  const api = requireApiConfig('image');
+  const api = await activeApiConfig('image');
+  const pack = api.activeModelPackage;
+  if (pack && !packageIsFlagship(pack)) {
+    imageApiScheduler.configure({
+      initialConcurrency: Math.min(Number(pack.maxConcurrency) || 1, Number(pack.maxConcurrency) || 1),
+      maxConcurrency: Number(pack.maxConcurrency) || 1,
+      minStartIntervalMs: Number(pack.startIntervalMs) || 0
+    });
+  }
   const preparedImages = await Promise.all(imagePaths.map(file => {
     if (!isImagePath(file)) throw new Error(`Unsupported image format: ${path.basename(file)}`);
     return imageReferenceCache.prepare(file);
@@ -1369,6 +1813,7 @@ async function generateImage(prompt, imagePaths, options = {}) {
     preparedBytes: preparedImages.reduce((total, item) => total + item.preparedBytes, 0)
   };
   const reservation = options.skipBilling ? null : await billing.reserve(currentWorkspaceId(), 'image', {
+    ...packageBillingRange(pack, 'image'),
     description: options.billingDescription || 'Image generation',
     reference: options.billingReference || '',
     onceKey: options.billingOnceKey || ''
@@ -1379,7 +1824,7 @@ async function generateImage(prompt, imagePaths, options = {}) {
       if (signal?.aborted) throw new Error('Task stopped');
       const fields = [
         { name: 'model', value: api.imageModel },
-        { name: 'prompt', value: String(prompt || '') },
+        { name: 'prompt', value: applyPackagePrompt(prompt, api, 'image') },
         { name: 'n', value: '1' },
         { name: 'size', value: options.size || '1024x1024' },
         { name: 'quality', value: options.quality || 'high' },
@@ -1801,7 +2246,7 @@ async function prepareTemplateFolder(folderValue) {
   for (const job of jobs) {
     if (!(await templateAnalysisForJob(job)).cached) missing.push(job);
   }
-  const results = missing.length ? await runWithConcurrency(missing, apiConcurrencyLimit(missing.length), analyzeTemplateJob) : [];
+  const results = missing.length ? await runWithConcurrency(missing, await activeApiConcurrencyLimit(missing.length), analyzeTemplateJob) : [];
   const failed = results.filter(result => !result.ok);
   const { items } = await collectTemplateItems(folder);
   return summarizeTemplatePreparation(folder, items, {
@@ -1816,6 +2261,7 @@ async function saveTemplateConfiguration(payload) {
   const folder = String(payload?.folder || '');
   const jobs = await buildTemplateJobs(folder);
   const byRelative = new Map(jobs.map(job => [job.relativePath.replaceAll('\\', '/').toLocaleLowerCase('zh-CN'), job]));
+  const pack = await activeModelPackage();
   for (const item of payload?.items || []) {
     const key = String(item.relativePath || '').replaceAll('\\', '/').toLocaleLowerCase('zh-CN');
     const job = byRelative.get(key);
@@ -1827,6 +2273,13 @@ async function saveTemplateConfiguration(payload) {
       forbiddenArea: item.forbiddenArea
     });
     const cache = templateCachePaths(folder, job.relativePath);
+    const reservation = packageIsFlagship(pack) ? null : await billing.reserve(currentWorkspaceId(), 'llm', {
+      ...packageBillingRange(pack, 'analysis'),
+      description: 'AI 分析结果人工重设',
+      reference: job.relativePath,
+      onceKey: billingOnceKey('llm:manual-template-analysis', folder, job.relativePath, Date.now(), crypto.randomUUID())
+    });
+    try {
     await writeTemplateAnalysisCache({
       cacheFile: cache.analysisFile,
       templateRoot: folder,
@@ -1836,12 +2289,17 @@ async function saveTemplateConfiguration(payload) {
       manualOverride: true
     });
     await writeTemplateAnalysisStatus(job, { status: 'success', source: 'manual', attempts: 0, error: '' });
+      if (reservation) await billing.commit(reservation);
+    } catch (error) {
+      if (reservation) await billing.release(reservation).catch(() => {});
+      throw error;
+    }
   }
   return listTemplates(folder);
 }
 
 async function analyzeTemplateJob(job, options = {}) {
-  const api = requireApiConfig('analysis');
+  const api = await activeApiConfig('analysis');
   const prompt = await getPromptValue('templateAnalysis');
   const messageContent = [{ type: 'text', text: prompt }];
   if (options.referenceJob) {
@@ -1994,7 +2452,7 @@ async function analyzeTemplateItems(payload = {}, options = {}) {
   if (!requested.size) throw new Error('请先选择需要 AI 分析的图片');
   const jobs = (await buildTemplateJobs(folder)).filter(job => requested.has(job.relativePath.replaceAll('\\', '/').toLocaleLowerCase('zh-CN')));
   if (!jobs.length) throw new Error('没有找到需要分析的套图图片');
-  const concurrency = apiConcurrencyLimit(jobs.length);
+  const concurrency = await activeApiConcurrencyLimit(jobs.length);
   let completed = 0;
   let failed = 0;
   const report = typeof options.reportProgress === 'function' ? options.reportProgress : async () => {};
@@ -2030,7 +2488,7 @@ async function analyzeTemplateItems(payload = {}, options = {}) {
 async function analyzeTemplateFolder(folder) {
   if (warmingTemplateFolders.has(folder)) throw new Error('当前套图正在后台分析，请稍后重新打开配置窗口。');
   const jobs = await buildTemplateJobs(folder);
-  const results = await runWithConcurrency(jobs, apiConcurrencyLimit(jobs.length), analyzeTemplateJob);
+  const results = await runWithConcurrency(jobs, await activeApiConcurrencyLimit(jobs.length), analyzeTemplateJob);
   const failed = results.filter(result => !result.ok);
   if (failed.length === jobs.length && jobs.length) throw failed[0].error;
   return listTemplates(folder);
@@ -2052,13 +2510,13 @@ function startTemplateAnalysisWarmup(folder, knownJobs = null) {
     for (const job of jobs) {
       if (!(await templateAnalysisForJob(job)).cached) missing.push(job);
     }
-    if (missing.length) await runWithConcurrency(missing, apiConcurrencyLimit(missing.length), analyzeTemplateJob);
+    if (missing.length) await runWithConcurrency(missing, await activeApiConcurrencyLimit(missing.length), analyzeTemplateJob);
   })().catch(() => {}).finally(() => warmingTemplateFolders.delete(folder));
 }
 
 async function analyzeProductProfile(productPath) {
   if (!productPath || !fs.existsSync(productPath)) return normalizeProductProfile({});
-  const api = requireApiConfig('analysis');
+  const api = await activeApiConfig('analysis');
   const response = await analysisApiJson(api, buildProductProfileAnalysisRequest({
     model: api.analysisModel,
     imageDataUrl: await imageAsDataUrl(productPath),
@@ -2201,7 +2659,7 @@ async function writeTemplateAudit(job, value) {
 }
 
 async function auditGeneratedTemplate(masterImage, job, templateAnalysis) {
-  const api = requireApiConfig('analysis');
+  const api = await activeApiConfig('analysis');
   const [firstPromptTemplate, recheckPromptTemplate] = await Promise.all([
     getPromptValue('templateAudit'),
     getPromptValue('templateAuditRecheck')
@@ -2325,12 +2783,17 @@ async function generateTemplateJob(job, source, config, options = {}) {
   }
   if (options.extraInstruction && source.generationMode === 'template_print') prompt += `\n\n本次运营补充要求：${String(options.extraInstruction).trim()}`;
   if (options.includePreviousResult && fs.existsSync(job.outputPath)) imagePaths.push(job.outputPath);
+  const isRegeneration = Boolean(options.isRegeneration || options.extraInstruction);
+  const activePack = await activeModelPackage();
   const bytes = await generateImage(prompt, imagePaths, {
     size: await templateOutputSize(job),
     quality: config.imageQuality || 'high',
     billingDescription: options.extraInstruction ? '套图图片重新生成' : '套图换印花生图',
     billingReference: job.relativePath,
-    billingOnceKey: billingOnceKey('image:template-job', job.outputRoot, job.relativePath),
+    billingOnceKey: isRegeneration
+      ? billingOnceKey('image:template-job-regenerate', job.outputRoot, job.relativePath, Date.now(), crypto.randomUUID())
+      : billingOnceKey('image:template-job', job.outputRoot, job.relativePath),
+    skipBilling: isRegeneration && packageIsFlagship(activePack),
     signal: options.signal,
     onRequestState: options.onRequestState
   });
@@ -2412,6 +2875,7 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
   await addOperationLog(folder, `${startLabel}：${jobs.length} 张`);
   const live = { total: jobs.length, current: 0, apiGenerated: 0, copied: 0, excluded: Math.max(0, Number(options.excludedCount) || 0), skipped: 0, failed: 0, waitingUpstream: 0, billingCostMinor: 0 };
   const liveFailures = [];
+  const isRegeneration = !onlyMissing && !options.initial;
   await publishProgress({ ...live, pending: jobs.length, phase: 'preparing', message: `准备处理 ${jobs.length} 张图片` });
   const waitingUpstream = new Set();
   let imageEventWrite = Promise.resolve();
@@ -2450,10 +2914,12 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
         : `正在处理 ${live.current}/${live.total}`
     }).catch(() => {});
   };
-  const results = await runWithConcurrency(jobs, apiConcurrencyLimit(jobs.length), async job => {
+  const results = await runWithConcurrency(jobs, await activeApiConcurrencyLimit(jobs.length), async job => {
     try {
       if (options.signal?.aborted) throw new Error('任务已停止');
       const result = await generateTemplateJob(job, source, config, {
+        extraInstruction: options.extraInstruction,
+        isRegeneration,
         signal: options.signal,
         onRequestState: event => recordImageRequestState(job, event)
       });
@@ -2498,7 +2964,7 @@ async function generateTemplateSetForFolder(folder, onlyMissing = true, relative
     if (masterImage && auditJobs.length) {
       await addOperationLog(folder, `开始 AI 质检：${auditJobs.length} 张`);
       await publishProgress({ ...live, phase: 'auditing', percent: 100, message: `图片处理完成，正在 AI 质检 ${auditJobs.length} 张` });
-      const audits = await runWithConcurrency(auditJobs, apiConcurrencyLimit(auditJobs.length), item => auditGeneratedTemplate(masterImage, item.job, item.analysis));
+      const audits = await runWithConcurrency(auditJobs, await activeApiConcurrencyLimit(auditJobs.length), item => auditGeneratedTemplate(masterImage, item.job, item.analysis));
       rejected = audits.filter(result => !result.ok || result.value?.passed === false).length;
     }
   }
@@ -2580,6 +3046,7 @@ async function regenerateSingleTemplate(payload, options = {}) {
   });
   const generated = await generateTemplateJob(job, source, config, {
     extraInstruction,
+    isRegeneration: true,
     includePreviousResult: Boolean(payload?.includePreviousResult),
     referenceResultPath,
     signal: options.signal,
@@ -2691,13 +3158,14 @@ async function generateTemplateTaskMaster(task = {}, options = {}) {
   if (typeof options.reportProgress === 'function') {
     await options.reportProgress({ phase: 'generating', current: 0, total: 1, percent: 10, message: '正在生成母版图…' });
   }
+  const pack = await activeModelPackage();
   const prompt = String(await getPromptValue('templateMasterGeneration') || '').trim();
   const bytes = await generateImage(prompt || '根据第一张产品参考图和第二张印花图生成标准电商母版图。', [referencePath, task.printPath], {
     size: config.imageSize || '1024x1024',
     quality: config.imageQuality || 'high',
     billingDescription: '套图母版生成',
     billingReference: task.id || path.basename(referencePath),
-    skipBilling: true,
+    skipBilling: packageIsFlagship(pack),
     signal: options.signal,
     onRequestState: options.onRequestState
   });
@@ -2710,7 +3178,7 @@ async function generateTemplateTaskMaster(task = {}, options = {}) {
     url: imageUrl(outputPath),
     referencePath,
     referenceName: path.basename(referencePath),
-    billingCostMinor: 0
+    billingCostMinor: Math.max(0, Number(bytes.billingAmountMinor) || 0)
   };
   if (typeof options.reportProgress === 'function') {
     await options.reportProgress({ phase: 'completed', current: 1, total: 1, percent: 100, message: '母版图生成完成', billingCostMinor: 0 });
@@ -3135,6 +3603,7 @@ const runtimeExports = {
   isOutputPath,
   isWorkspacePath,
   listReadyTitleTasks,
+  loadModelPackageSettings,
   listTemplateFolders,
   listTemplates,
   loadApiSettings,
@@ -3153,6 +3622,7 @@ const runtimeExports = {
   reviewFolders,
   saveConfig,
   saveApiSettings,
+  saveSelectedModelPackage,
   publicApiConcurrencySettings,
   savePromptSetting,
   saveTemplateConfiguration,

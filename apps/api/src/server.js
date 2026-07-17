@@ -451,6 +451,14 @@ async function writeJob(job) {
   throw lastError;
 }
 
+async function modelPackageWorkspaceForUser(user) {
+  if (!user || user.role !== 'member') return user?.workspaceId || runtime.WORKSPACE_ID;
+  if (!user.parentUserId) return user.workspaceId;
+  const users = await auth.listUsers();
+  const parent = users.find(item => item.id === user.parentUserId && item.role === 'admin');
+  return parent?.workspaceId || user.workspaceId;
+}
+
 function publicJob(job) {
   if (!job) return null;
   return {
@@ -500,11 +508,11 @@ async function runNextJobs() {
         activeJobs -= 1;
         runNextJobs();
       }
-    });
+    }, { modelPackageWorkspaceId: job.modelPackageWorkspaceId || job.workspaceId });
   }
 }
 
-async function enqueueJob(method, args, clientKey = '') {
+async function enqueueJob(method, args, clientKey = '', modelPackageWorkspaceId = runtime.WORKSPACE_ID) {
   const workspaceId = runtime.WORKSPACE_ID;
   const normalizedClientKey = String(clientKey || '').slice(0, 160);
   const scopedClientKey = normalizedClientKey ? `${workspaceId}:${normalizedClientKey}` : '';
@@ -516,6 +524,7 @@ async function enqueueJob(method, args, clientKey = '') {
   const job = {
     id: crypto.randomUUID(),
     workspaceId,
+    modelPackageWorkspaceId,
     clientKey: normalizedClientKey,
     method,
     args,
@@ -1027,7 +1036,8 @@ async function startServer() {
     const user = await auth.userFromRequest(req);
     if (!user) return res.status(401).json({ error: '请先登录' });
     req.user = user;
-    return runtime.runWithWorkspace(user.workspaceId, () => next());
+    req.modelPackageWorkspaceId = await modelPackageWorkspaceForUser(user);
+    return runtime.runWithWorkspace(user.workspaceId, () => next(), { modelPackageWorkspaceId: req.modelPackageWorkspaceId });
   });
 
   app.post('/api/auth/password', async (req, res) => {
@@ -1073,6 +1083,17 @@ async function startServer() {
     }
   });
 
+  app.delete('/api/auth/users/:id', async (req, res) => {
+    if (!isTeamAdmin(req.user)) return res.status(403).json({ error: '只有管理员可以管理团队账号' });
+    try {
+      const target = await auth.getUserById(req.params.id);
+      if (!canManageUser(req.user, target)) return res.status(403).json({ error: `不能删除该${roleName(target?.role)}账号` });
+      return res.json({ data: await auth.deleteUser(req.params.id, req.user) });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
+
   app.get('/api/billing/me', async (req, res) => {
     try {
       const days = Math.max(1, Math.min(3660, Math.trunc(Number(req.query.days) || 30)));
@@ -1089,7 +1110,7 @@ async function startServer() {
   });
 
   app.get('/api/billing/admin', async (req, res) => {
-    if (!isTeamAdmin(req.user)) return res.status(403).json({ error: '只有管理员可以查看团队余额' });
+    if (!isTeamAdmin(req.user)) return res.status(403).json({ error: '只有管理员可以查看团队算力余额' });
     try {
       const allUsers = await auth.listUsers();
       const users = billingVisibleUsersForActor(allUsers, req.user);
@@ -1153,8 +1174,8 @@ async function startServer() {
           operatorUserId: req.user.id
         });
       } else {
-        if (!canManageUser(req.user, user)) return res.status(403).json({ error: '只能给自己的成员账号划拨余额' });
-        if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) return res.status(400).json({ error: '管理员只能输入正数划拨余额' });
+        if (!canManageUser(req.user, user)) return res.status(403).json({ error: '只能给自己的成员账号划拨算力余额' });
+        if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) return res.status(400).json({ error: '管理员只能输入正数划拨算力余额' });
         result = await runtime.billing.transferBalance(req.user.workspaceId, user.workspaceId, amountMinor, {
           debitDescription: '成员账户划拨',
           creditDescription: '账户充值到账',
@@ -1162,6 +1183,24 @@ async function startServer() {
         });
       }
       return res.json({ data: result });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
+
+  app.get('/api/model-packages', async (req, res) => {
+    if (!isTeamAdmin(req.user)) return res.status(403).json({ error: '只有管理员可以选择模型' });
+    try {
+      return res.json({ data: await runtime.loadModelPackageSettings(req.user) });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
+
+  app.put('/api/model-packages/selection', async (req, res) => {
+    if (!isTeamAdmin(req.user)) return res.status(403).json({ error: '只有管理员可以切换模型' });
+    try {
+      return res.json({ data: await runtime.saveSelectedModelPackage(req.body?.selectedModelPackageId) });
     } catch (error) {
       return res.status(400).json({ error: error?.message || String(error) });
     }
@@ -1186,7 +1225,7 @@ async function startServer() {
     if (!LONG_JOB_METHODS.has(method) || !rpc[method]) return res.status(404).json({ error: `未知后台任务：${method}` });
     if (!consumeJobRate(req.ip)) return res.status(429).json({ error: '后台任务提交过于频繁，请稍后再试' });
     try {
-      const job = await enqueueJob(method, Array.isArray(req.body?.args) ? req.body.args : [], req.body?.clientKey);
+      const job = await enqueueJob(method, Array.isArray(req.body?.args) ? req.body.args : [], req.body?.clientKey, req.modelPackageWorkspaceId);
       return res.status(job.status === 'completed' ? 200 : 202).json({ data: publicJob(job) });
     } catch (error) {
       return res.status(400).json({ error: error?.message || String(error) });

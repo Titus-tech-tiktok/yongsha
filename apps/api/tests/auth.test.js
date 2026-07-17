@@ -30,6 +30,10 @@ test('团队账号支持首次管理员、成员登录、会话和停用', async
   await auth.setUserActive(member.id, false, admin.id);
   assert.equal(await auth.userFromRequest(request), null);
   await assert.rejects(auth.setUserActive(admin.id, false, admin.id), /不能停用/);
+  await assert.rejects(auth.deleteUser(admin.id, admin), /不能删除当前登录账号/);
+  const deleted = await auth.deleteUser(member.id, admin);
+  assert.equal(deleted.id, member.id);
+  assert.equal(await auth.getUserById(member.id), null);
 
   await fs.rm(root, { recursive: true, force: true });
 });

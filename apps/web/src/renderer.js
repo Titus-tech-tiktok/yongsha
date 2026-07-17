@@ -157,6 +157,8 @@ const state = {
   activePromptId: '',
   freePromptDefaultApplied: false,
   apiSettings: null,
+  modelPackageSettings: null,
+  selectedModelPackageId: '',
   apiConcurrencySettings: null,
   imageApiModels: [],
   analysisApiModels: [],
@@ -251,7 +253,10 @@ function applyCurrentUser(user) {
   $('#currentUserName').title = `${user.username} · ${roleLabel(user.role)}`;
   $('#promptSettingsNav').hidden = !canManagePrompts();
   $('[data-settings-tab="general"]').hidden = user.role === 'admin';
-  $('#apiSettingsTab').hidden = !isSuperAdmin();
+  $('#apiSettingsTab').hidden = !isTeamAdmin();
+  const apiTabStatus = $('#apiTabStatus');
+  $('#apiSettingsTab').firstChild.textContent = isSuperAdmin() ? 'API 设置 ' : '模型选择 ';
+  if (apiTabStatus) apiTabStatus.textContent = '未配置';
   $('#billingSettingsTab').hidden = !isSuperAdmin();
   $('#teamSettingsTab').hidden = !isTeamAdmin();
   $('#newUserRoleLabel').hidden = !isSuperAdmin();
@@ -415,7 +420,7 @@ function renderBillingLedger(entries = [], userMap = new Map()) {
     const amount = Number(entry.amountMinor) || 0;
     const user = userMap.get(entry.workspaceId);
     const owner = user ? `${user.displayName || user.username} · ` : '';
-    const label = entry.description || (entry.kind === 'adjustment' && amount < 0 ? '账户余额扣减' : billingKindName(entry.kind));
+    const label = entry.description || (entry.kind === 'adjustment' && amount < 0 ? '算力余额扣减' : billingKindName(entry.kind));
     return `<div class="billing-ledger-row"><div><b>${escapeHtml(label)}</b><span>${escapeHtml(owner + billingKindName(entry.kind))}${entry.reference ? ` · ${escapeHtml(entry.reference)}` : ''}</span><small>${escapeHtml(new Date(entry.createdAt).toLocaleString('zh-CN', { hour12: false }))}</small></div><div class="billing-ledger-amount ${amount >= 0 ? 'credit' : 'debit'}">${amount >= 0 ? '+' : '-'}${formatMoney(Math.abs(amount))}</div></div>`;
   }).join('');
 }
@@ -436,8 +441,8 @@ function renderBillingSummary() {
   const summary = state.billingSummary;
   if (!summary) return;
   $('#currentBalance').textContent = formatMoney(summary.account?.balanceMinor);
-  $('#currentBillingHint').textContent = '点击查看余额明细';
-  $('#billingDetailSummary').textContent = `当前可用 ${formatMoney(summary.account?.availableMinor)}${summary.account?.reservedMinor ? `，任务预占 ${formatMoney(summary.account.reservedMinor)}` : ''}`;
+  $('#currentBillingHint').textContent = '点击查看算力余额明细';
+  $('#billingDetailSummary').textContent = `当前可用算力余额 ${formatMoney(summary.account?.availableMinor)}${summary.account?.reservedMinor ? `，任务预占 ${formatMoney(summary.account.reservedMinor)}` : ''}`;
   $('#billingDetailRates').innerHTML = renderBillingSpendTotals(summary);
   $('#billingDetailRates').hidden = false;
   $('#billingDetailList').innerHTML = renderBillingLedger(summary.transactions || []);
@@ -580,8 +585,8 @@ function shortPath(value) {
 function setPage(name) {
   if (name === 'prompts' && !canManagePrompts()) name = 'settings';
   if (name === 'settings') {
-    if (state.currentUser?.role === 'admin') state.settingsTab = 'team';
-    else if (state.settingsTab === 'api' && !isSuperAdmin()) state.settingsTab = 'general';
+    if (state.currentUser?.role === 'admin' && state.settingsTab === 'general') state.settingsTab = 'api';
+    else if (state.settingsTab === 'api' && !isTeamAdmin()) state.settingsTab = 'general';
     else if (state.settingsTab === 'billing' && !isSuperAdmin()) state.settingsTab = 'general';
     else if (state.settingsTab === 'team' && !isTeamAdmin()) state.settingsTab = 'general';
   }
@@ -605,6 +610,7 @@ function setPage(name) {
     if (name === 'titles') loadTitlePage();
     if (name === 'prompts' && canManagePrompts() && !state.promptSettings) loadPromptSettings();
     if (name === 'assets') loadAssetLibraryPreview(state.assetPreviewKey, { preserveSelection: true });
+    if (name === 'settings' && isTeamAdmin() && !state.modelPackageSettings) loadModelPackageSettings();
     if (name === 'settings' && isSuperAdmin() && !state.apiSettings) loadApiSettings();
   });
 }
@@ -665,6 +671,28 @@ function renderConfig() {
     ? '当前：质检模式，生成后执行 AI 审核。'
     : '当前：省钱模式，生成后交给人工确认。';
   renderTemplateWorkflow();
+}
+
+function normalizeLocalPath(value = '') {
+  return String(value || '').replaceAll('\\', '/').replace(/\/+$/, '').toLocaleLowerCase('zh-CN');
+}
+
+function isClientSubPath(root, candidate) {
+  const base = normalizeLocalPath(root);
+  const target = normalizeLocalPath(candidate);
+  return Boolean(base && target && (target === base || target.startsWith(`${base}/`)));
+}
+
+async function sanitizeConfigWorkspacePaths() {
+  if (!state.config?.workspaceRoot) return;
+  let changed = false;
+  for (const key of ['categoriesPath', 'printsPath', 'detailSetsPath']) {
+    if (state.config[key] && !isClientSubPath(state.config.workspaceRoot, state.config[key])) {
+      state.config[key] = '';
+      changed = true;
+    }
+  }
+  if (changed) state.config = await window.caishen.saveConfig(state.config);
 }
 
 function currentTemplateFolderView() {
@@ -3688,8 +3716,8 @@ async function resetAllPrompts() {
 }
 
 function renderSettingsTabs(name = state.settingsTab) {
-  if (state.currentUser?.role === 'admin') name = 'team';
-  else if (name === 'api' && !isSuperAdmin()) name = 'general';
+  if (state.currentUser?.role === 'admin' && name === 'general') name = 'api';
+  else if (name === 'api' && !isTeamAdmin()) name = 'general';
   else if (name === 'billing' && !isSuperAdmin()) name = 'general';
   else if (name === 'team' && !isTeamAdmin()) name = 'general';
   state.settingsTab = name;
@@ -3702,6 +3730,10 @@ function renderSettingsTabs(name = state.settingsTab) {
     panel.hidden = panel.dataset.settingsPanel !== name;
   });
   $('.settings-toolbar-actions').hidden = ['billing', 'team'].includes(name) || !isSuperAdmin();
+  if (name === 'api' && isTeamAdmin()) {
+    if (!isSuperAdmin()) renderApiSettings();
+    loadModelPackageSettings();
+  }
   if (name === 'team') loadTeamUsers();
   if (name === 'billing') loadBillingAdmin();
 }
@@ -3736,7 +3768,7 @@ function renderBillingAdmin() {
     <div class="billing-account-row" data-billing-user="${escapeHtml(user.id)}">
       <div class="billing-account-copy"><b>${escapeHtml(user.displayName || user.username)}${user.id === state.currentUser?.id ? '（当前）' : ''}</b><span>${escapeHtml(user.username)} · ${roleLabel(user.role)}${user.active ? '' : ' · 已停用'}</span></div>
       <div class="billing-account-balance">${formatMoney(user.billing?.balanceMinor)}</div>
-      ${canAdjust ? `<div class="billing-adjust-controls"><input type="number" step="0.000001" min="-${moneyMinorToInput(user.billing?.balanceMinor)}" placeholder="例如 1 或 0.002362" aria-label="调整金额"><button class="secondary" type="button" data-adjust-billing="${escapeHtml(user.id)}">确认调整</button></div>` : '<div class="billing-adjust-note">仅查看</div>'}
+      ${canAdjust ? `<div class="billing-adjust-controls"><input type="number" step="0.01" min="-${moneyMinorToInput(user.billing?.balanceMinor)}" placeholder="在此输入划拨金额" aria-label="调整金额"><button class="secondary" type="button" data-adjust-billing="${escapeHtml(user.id)}">确认调整</button></div>` : '<div class="billing-adjust-note">仅查看</div>'}
     </div>`;
   }).join('') || '<div class="empty-inline">没有符合筛选的账号</div>';
   const userMap = new Map(users.map(user => [user.workspaceId, user]));
@@ -3763,7 +3795,7 @@ async function saveBillingRules() {
       imageFeeMaxMinor: moneyInputToMinor($('#billingImageFeeMax').value, '成功生图最高扣费'),
       llmFeeMinMinor: moneyInputToMinor($('#billingLlmFeeMin').value, '语言模型最低扣费'),
       llmFeeMaxMinor: moneyInputToMinor($('#billingLlmFeeMax').value, '语言模型最高扣费'),
-      defaultBalanceMinor: moneyInputToMinor($('#billingDefaultBalance').value, '初始余额')
+      defaultBalanceMinor: moneyInputToMinor($('#billingDefaultBalance').value, '初始算力余额')
     });
     await Promise.all([loadBillingAdmin(), loadBillingSummary()]);
     toast('计费规则已保存');
@@ -3776,7 +3808,7 @@ async function saveBillingRules() {
 
 async function clearBillingLedger() {
   if (!isSuperAdmin()) return toast('只有超级管理员可以清空费用流水', true);
-  if (!window.confirm('确定清空全部费用流水吗？此操作只删除明细记录，不会修改任何账号余额。')) return;
+  if (!window.confirm('确定清空全部费用流水吗？此操作只删除明细记录，不会修改任何账号算力余额。')) return;
   const button = $('#clearBillingLedgerButton');
   button.disabled = true;
   try {
@@ -3795,7 +3827,7 @@ async function adjustBillingBalance(button) {
   const input = row?.querySelector('input');
   const amount = Number(input?.value);
   if (!Number.isFinite(amount) || amount === 0) return toast('请输入非零调整金额', true);
-  if (!isSuperAdmin() && amount <= 0) return toast('管理员只能划拨正数余额', true);
+  if (!isSuperAdmin() && amount <= 0) return toast('管理员只能划拨正数算力余额', true);
   const amountMinor = Math.round(amount * BILLING_AMOUNT_SCALE);
   button.disabled = true;
   try {
@@ -3803,10 +3835,10 @@ async function adjustBillingBalance(button) {
       userId: button.dataset.adjustBilling,
       amountMinor,
       amountUsd: amount,
-      description: amountMinor > 0 ? '账户充值到账' : '账户余额扣减'
+      description: amountMinor > 0 ? '账户充值到账' : '算力余额扣减'
     });
     await Promise.all([loadBillingAdmin(), loadBillingSummary()]);
-    toast(amountMinor > 0 ? '余额已充值' : '余额已扣减');
+    toast(amountMinor > 0 ? '算力余额已充值' : '算力余额已扣减');
   } catch (error) {
     button.disabled = false;
     toast(errorText(error), true);
@@ -3817,9 +3849,9 @@ function renderTeamUsers() {
   $('#teamUserCount').textContent = `${state.teamUsers.length} 人`;
   $('#teamUserList').innerHTML = state.teamUsers.length ? state.teamUsers.map(user => `
     <div class="team-user-row${user.active ? '' : ' inactive'}" data-team-user="${escapeHtml(user.id)}">
-      <div><b>${escapeHtml(user.displayName || user.username)}${user.id === state.currentUser?.id ? '（当前）' : ''}</b><span>${escapeHtml(user.username)} · ${roleLabel(user.role)} · ${user.active ? '可登录' : '已停用'}${user.billing ? ` · 余额 ${formatMoney(user.billing.balanceMinor)}` : ''}</span></div>
+      <div><b>${escapeHtml(user.displayName || user.username)}${user.id === state.currentUser?.id ? '（当前）' : ''}</b><span>${escapeHtml(user.username)} · ${roleLabel(user.role)} · ${user.active ? '可登录' : '已停用'}${user.billing ? ` · 算力余额 ${formatMoney(user.billing.balanceMinor)}` : ''}</span></div>
       <div class="team-user-actions">
-        ${user.id === state.currentUser?.id ? '' : `<button class="secondary" type="button" data-team-user-edit="${user.id}">编辑</button><button class="secondary${user.active ? ' danger-outline' : ''}" type="button" data-team-user-active="${user.id}" data-active="${user.active ? 'false' : 'true'}">${user.active ? '停用' : '恢复'}</button>`}
+        ${user.id === state.currentUser?.id ? '' : `<button class="secondary" type="button" data-team-user-edit="${escapeHtml(user.id)}">编辑</button><button class="secondary${user.active ? ' danger-outline' : ''}" type="button" data-team-user-active="${escapeHtml(user.id)}" data-active="${user.active ? 'false' : 'true'}">${user.active ? '停用' : '恢复'}</button><button class="secondary danger-outline" type="button" data-team-user-delete="${escapeHtml(user.id)}">删除</button>`}
       </div>
       ${state.currentUser?.role === 'admin' && user.role === 'member' ? `<div class="team-transfer-controls"><input type="number" step="0.01" min="0.01" placeholder="划拨金额" aria-label="划拨金额"><button class="secondary" type="button" data-transfer-billing="${escapeHtml(user.id)}">划拨</button></div>` : ''}
     </div>`).join('') : '<div class="empty-inline">还没有团队账号</div>';
@@ -3829,7 +3861,7 @@ function normalizeTeamTransferInputs() {
   $$('.team-transfer-controls input').forEach(input => {
     input.step = '0.000001';
     input.min = '0.000001';
-    input.placeholder = '0.002362';
+    input.placeholder = '在此输入划拨金额';
   });
 }
 
@@ -3902,6 +3934,20 @@ async function editTeamUser(id) {
   }
 }
 
+async function deleteTeamUser(id) {
+  const user = state.teamUsers.find(item => item.id === id);
+  if (!user || user.id === state.currentUser?.id) return;
+  const name = user.displayName || user.username || '该账号';
+  if (!window.confirm(`确定删除 ${name}？\n只删除登录账号，不删除素材和历史任务。`)) return;
+  try {
+    await window.caishen.deleteUser(id);
+    await loadTeamUsers();
+    toast('账号已删除');
+  } catch (error) {
+    toast(errorText(error), true);
+  }
+}
+
 async function transferTeamBalance(button) {
   const row = button.closest('[data-team-user]');
   const input = row?.querySelector('.team-transfer-controls input');
@@ -3917,15 +3963,228 @@ async function transferTeamBalance(button) {
     });
     if (input) input.value = '';
     await Promise.all([loadTeamUsers(), loadBillingSummary()]);
-    toast('余额已划拨');
+    toast('算力余额已划拨');
   } catch (error) {
     button.disabled = false;
     toast(errorText(error), true);
   }
 }
 
+function defaultModelPackages() {
+  const baseUrl = state.apiSettings?.baseUrl || '';
+  const imageModel = state.apiSettings?.imageModel || 'gpt-image-2';
+  const analysisModel = state.apiSettings?.analysisModel || 'gpt-5-3';
+  const analysisWireApi = state.apiSettings?.analysisWireApi || 'chat_completions';
+  return [
+    { id: 'flagship', name: '旗舰版', description: '主推套餐，保持当前100%效率和质量', enabled: true, default: true, recommended: true, apiBaseUrl: baseUrl, modelId: imageModel, analysisApiBaseUrl: baseUrl, analysisModel, analysisWireApi, maxConcurrency: 30, startIntervalMs: 200, promptQuality: 'flagship', promptMode: 'full', userPromptPolicy: 'full', hiddenPrompt: '', analysisPrompt: '', imagePrompt: '', imagePriceMinMinor: 300000, imagePriceMaxMinor: 300000, analysisPriceMinMinor: 0, analysisPriceMaxMinor: 0, queuePriority: 10 },
+    { id: 'fast', name: '快速版', description: '5分钱/张，低价留客，效果质量与标准版一致', enabled: true, default: false, recommended: false, apiBaseUrl: baseUrl, modelId: imageModel, analysisApiBaseUrl: baseUrl, analysisModel, analysisWireApi, maxConcurrency: 2, startIntervalMs: 1200, promptQuality: 'basic', promptMode: 'internal', userPromptPolicy: 'ignore', hiddenPrompt: '', analysisPrompt: '低价基础分析：只做必要判断，不做深度商业优化。', imagePrompt: '低价基础出图：效果目标约为旗舰版 30%，只完成核心生成，不做高级商业质感、复杂光影、材质精修和额外卖点补全。', imagePriceMinMinor: 50000, imagePriceMaxMinor: 50000, analysisPriceMinMinor: 50000, analysisPriceMaxMinor: 50000, queuePriority: 2 },
+    { id: 'standard', name: '标准版', description: '7分钱/张，效果质量约为旗舰版30%', enabled: true, default: false, recommended: false, apiBaseUrl: baseUrl, modelId: imageModel, analysisApiBaseUrl: baseUrl, analysisModel, analysisWireApi, maxConcurrency: 3, startIntervalMs: 1000, promptQuality: 'standard', promptMode: 'hybrid', userPromptPolicy: 'partial', hiddenPrompt: '', analysisPrompt: '标准版分析：只保留必要理解和判断，不做旗舰版深度优化。', imagePrompt: '标准版出图：效果目标约为旗舰版 30%，做基础画面整理和必要生成，不做高级商业海报质感、复杂光影、材质精修、精细构图增强和额外卖点补全。', imagePriceMinMinor: 70000, imagePriceMaxMinor: 70000, analysisPriceMinMinor: 70000, analysisPriceMaxMinor: 70000, queuePriority: 5 }
+  ];
+}
+
+function currentModelPackages() {
+  const packages = isSuperAdmin()
+    ? (state.apiSettings?.modelPackages || state.modelPackageSettings?.modelPackages || [])
+    : (state.modelPackageSettings?.modelPackages || []);
+  return Array.isArray(packages) ? packages : [];
+}
+
+function renderModelPackages() {
+  const list = $('#modelPackageList');
+  if (!list) return;
+  const packages = currentModelPackages();
+  const selected = state.selectedModelPackageId || state.modelPackageSettings?.selectedModelPackageId || packages.find(item => item.default)?.id || packages[0]?.id || '';
+  state.selectedModelPackageId = selected;
+  const selectedPackage = packages.find(item => item.id === selected);
+  const packageStatusText = selectedPackage ? `当前：${selectedPackage.name}` : '未选择';
+  const statusBadge = $('#apiStatusBadge');
+  const tabStatus = $('#apiTabStatus');
+  if (!isSuperAdmin()) {
+    if (statusBadge) {
+      statusBadge.textContent = packageStatusText;
+      statusBadge.classList.toggle('ready', Boolean(selectedPackage));
+    }
+    if (tabStatus) {
+      tabStatus.textContent = selectedPackage ? selectedPackage.name : '未选择';
+      tabStatus.classList.toggle('ready', Boolean(selectedPackage));
+    }
+  }
+  if ($('#addModelPackageButton')) $('#addModelPackageButton').hidden = true;
+  $('#saveModelPackagesButton').hidden = !isSuperAdmin();
+  $('#modelPackageUserActions').hidden = true;
+  const packageDescription = $('#modelPackageDescription');
+  if (packageDescription) {
+    packageDescription.hidden = !isSuperAdmin();
+    packageDescription.textContent = isSuperAdmin() ? '配置模型套餐' : '';
+  }
+  if (!packages.length) {
+    list.innerHTML = isSuperAdmin()
+      ? '<div class="empty-inline">固定套餐尚未初始化，请保存一次 API 设置。</div>'
+      : '<div class="empty-inline">超级管理员还没有启用模型套餐。</div>';
+    return;
+  }
+  if (!isSuperAdmin()) {
+    list.innerHTML = packages.map(item => `
+      <button class="model-package-choice${item.id === selected ? ' active' : ''}" type="button" data-select-model-package="${escapeHtml(item.id)}">
+        <span><b>${escapeHtml(item.name)}</b><small>${escapeHtml(item.description || '可用模型')}</small></span>
+        <em>${item.id === selected ? '当前使用' : item.recommended ? '推荐' : '可选'}</em>
+      </button>`).join('');
+    return;
+  }
+  list.innerHTML = packages.map((item, index) => `
+    <article class="model-package-editor" data-model-package-index="${index}">
+      <div class="model-package-editor-head">
+        <div><b>${escapeHtml(item.name || `模型 ${index + 1}`)}</b><span>${escapeHtml(item.id || '')}${item.recommended ? ' · 推荐' : ''}${item.default ? ' · 默认' : ''}</span></div>
+        <div class="inline-actions"><button class="secondary" type="button" data-select-model-package="${escapeHtml(item.id)}">${item.id === selected ? '当前使用' : '设为当前'}</button></div>
+      </div>
+      <div class="model-package-form-grid">
+        <label>套餐编号<input data-package-field="id" value="${escapeHtml(item.id || '')}" spellcheck="false"></label>
+        <label>管理员看到的名称<input data-package-field="name" value="${escapeHtml(item.name || '')}"></label>
+        <label>管理员看到的说明<input data-package-field="description" value="${escapeHtml(item.description || '')}"></label>
+        <label>生图模型 ID<input data-package-field="modelId" value="${escapeHtml(item.modelId || '')}" spellcheck="false"></label>
+        <label>分析模型 ID<input data-package-field="analysisModel" value="${escapeHtml(item.analysisModel || state.apiSettings?.analysisModel || '')}" spellcheck="false"></label>
+        <label>分析接口协议<select data-package-field="analysisWireApi"><option value="chat_completions">Chat Completions</option><option value="responses">Responses API</option></select></label>
+        <label>生图 API 地址<input data-package-field="apiBaseUrl" value="${escapeHtml(item.apiBaseUrl || '')}" placeholder="${escapeHtml(state.apiSettings?.baseUrl || 'https://api.change2pro.com')}" spellcheck="false"></label>
+        <label>生图 API Key<input data-package-field="apiKey" type="password" placeholder="${item.apiKeyConfigured ? `已保存：${escapeHtml(item.apiKeyMasked || '')}` : '留空使用全局 Image2 Key'}" autocomplete="new-password" spellcheck="false"></label>
+        <label>分析 API 地址<input data-package-field="analysisApiBaseUrl" value="${escapeHtml(item.analysisApiBaseUrl || '')}" placeholder="${escapeHtml(state.apiSettings?.baseUrl || '留空使用全局地址')}" spellcheck="false"></label>
+        <label>分析 API Key<input data-package-field="analysisApiKey" type="password" placeholder="${item.analysisApiKeyConfigured ? `已保存：${escapeHtml(item.analysisApiKeyMasked || '')}` : '留空使用全局分析 Key'}" autocomplete="new-password" spellcheck="false"></label>
+        <label>最大并发<input data-package-field="maxConcurrency" type="number" min="1" max="50" step="1" value="${Number(item.maxConcurrency) || 1}"></label>
+        <label>启动间隔 ms<input data-package-field="startIntervalMs" type="number" min="0" max="60000" step="100" value="${Number(item.startIntervalMs) || 0}"></label>
+        <label>生图最低 / 张<div class="money-input"><span>$</span><input data-package-field="imagePriceMinMinor" type="number" min="0" step="0.000001" value="${moneyMinorToInput(item.imagePriceMinMinor ?? item.imagePriceMinor ?? 0)}"></div></label>
+        <label>生图最高 / 张<div class="money-input"><span>$</span><input data-package-field="imagePriceMaxMinor" type="number" min="0" step="0.000001" value="${moneyMinorToInput(item.imagePriceMaxMinor ?? item.imagePriceMinor ?? 0)}"></div></label>
+        <label>分析最低 / 次<div class="money-input"><span>$</span><input data-package-field="analysisPriceMinMinor" type="number" min="0" step="0.000001" value="${moneyMinorToInput(item.analysisPriceMinMinor ?? item.analysisPriceMinor ?? 0)}"></div></label>
+        <label>分析最高 / 次<div class="money-input"><span>$</span><input data-package-field="analysisPriceMaxMinor" type="number" min="0" step="0.000001" value="${moneyMinorToInput(item.analysisPriceMaxMinor ?? item.analysisPriceMinor ?? 0)}"></div></label>
+        <label>内部效果档位<select data-package-field="promptQuality"><option value="basic">低价版效果</option><option value="standard">标准版效果</option><option value="flagship">旗舰版效果</option><option value="custom">自定义效果</option></select></label>
+        <label>提示词来源<select data-package-field="promptMode"><option value="internal">只用内部提示词</option><option value="hybrid">内部提示词 + 部分用户要求</option><option value="full">内部提示词 + 完整用户要求</option></select></label>
+        <label>用户要求处理<select data-package-field="userPromptPolicy"><option value="ignore">不采用用户额外要求</option><option value="partial">只采用一部分</option><option value="full">完整采用</option></select></label>
+        <label>任务优先级<input data-package-field="queuePriority" type="number" min="0" max="100" step="1" value="${Number(item.queuePriority) || 0}"></label>
+      </div>
+      <label class="model-package-prompt">分析增强提示词<textarea data-package-field="analysisPrompt" rows="4" spellcheck="false">${escapeHtml(item.analysisPrompt || '')}</textarea></label>
+      <label class="model-package-prompt">生图增强提示词<textarea data-package-field="imagePrompt" rows="4" spellcheck="false">${escapeHtml(item.imagePrompt || item.hiddenPrompt || '')}</textarea></label>
+      <label class="model-package-prompt">兼容旧字段：内部提示词<textarea data-package-field="hiddenPrompt" rows="2" spellcheck="false">${escapeHtml(item.hiddenPrompt || '')}</textarea></label>
+      <div class="model-package-switches"><label><input data-package-field="enabled" type="checkbox"${item.enabled !== false ? ' checked' : ''}> 启用</label><label><input data-package-field="default" type="checkbox"${item.default ? ' checked' : ''}> 默认</label><label><input data-package-field="recommended" type="checkbox"${item.recommended ? ' checked' : ''}> 推荐</label></div>
+    </article>`).join('');
+  packages.forEach((item, index) => {
+    const row = list.querySelector(`[data-model-package-index="${index}"]`);
+    if (!row) return;
+    row.querySelector('[data-package-field="analysisWireApi"]').value = item.analysisWireApi || state.apiSettings?.analysisWireApi || 'chat_completions';
+    row.querySelector('[data-package-field="promptQuality"]').value = item.promptQuality || 'standard';
+    row.querySelector('[data-package-field="promptMode"]').value = item.promptMode || 'hybrid';
+    row.querySelector('[data-package-field="userPromptPolicy"]').value = item.userPromptPolicy || 'partial';
+  });
+}
+
+function collectModelPackagesFromForm() {
+  return $$('.model-package-editor').map((row, index) => {
+    const read = field => row.querySelector(`[data-package-field="${field}"]`);
+    return {
+      id: read('id')?.value.trim() || `model-${index + 1}`,
+      name: read('name')?.value.trim() || `模型 ${index + 1}`,
+      description: read('description')?.value.trim() || '',
+      modelId: read('modelId')?.value.trim() || state.apiSettings?.imageModel || 'gpt-image-2',
+      apiBaseUrl: read('apiBaseUrl')?.value.trim() || state.apiSettings?.baseUrl || '',
+      apiKey: read('apiKey')?.value.trim() || '',
+      analysisApiBaseUrl: read('analysisApiBaseUrl')?.value.trim() || state.apiSettings?.baseUrl || '',
+      analysisApiKey: read('analysisApiKey')?.value.trim() || '',
+      analysisModel: read('analysisModel')?.value.trim() || state.apiSettings?.analysisModel || 'gpt-5-3',
+      analysisWireApi: read('analysisWireApi')?.value || state.apiSettings?.analysisWireApi || 'chat_completions',
+      maxConcurrency: Number(read('maxConcurrency')?.value) || 1,
+      startIntervalMs: Number(read('startIntervalMs')?.value) || 0,
+      imagePriceMinMinor: moneyInputToMinor(read('imagePriceMinMinor')?.value || '0', '模型生图最低价格'),
+      imagePriceMaxMinor: moneyInputToMinor(read('imagePriceMaxMinor')?.value || '0', '模型生图最高价格'),
+      analysisPriceMinMinor: moneyInputToMinor(read('analysisPriceMinMinor')?.value || '0', '模型分析最低价格'),
+      analysisPriceMaxMinor: moneyInputToMinor(read('analysisPriceMaxMinor')?.value || '0', '模型分析最高价格'),
+      promptQuality: read('promptQuality')?.value || 'standard',
+      promptMode: read('promptMode')?.value || 'hybrid',
+      userPromptPolicy: read('userPromptPolicy')?.value || 'partial',
+      queuePriority: Number(read('queuePriority')?.value) || 0,
+      hiddenPrompt: read('hiddenPrompt')?.value || '',
+      analysisPrompt: read('analysisPrompt')?.value || '',
+      imagePrompt: read('imagePrompt')?.value || read('hiddenPrompt')?.value || '',
+      enabled: read('enabled')?.checked !== false,
+      default: read('default')?.checked === true,
+      recommended: read('recommended')?.checked === true
+    };
+  });
+}
+
+async function loadModelPackageSettings() {
+  if (!isTeamAdmin()) return;
+  try {
+    state.modelPackageSettings = await window.caishen.getModelPackages();
+    state.selectedModelPackageId = state.modelPackageSettings?.selectedModelPackageId || '';
+    if (isSuperAdmin()) renderModelPackages();
+    else renderApiSettings();
+  } catch (error) {
+    toast(`读取模型失败：${errorText(error)}`, true);
+  }
+}
+
+async function saveSelectedModelPackage() {
+  if (!isTeamAdmin() || !state.selectedModelPackageId) return;
+  try {
+    state.modelPackageSettings = await window.caishen.saveSelectedModelPackage(state.selectedModelPackageId);
+    renderModelPackages();
+    toast('模型已切换');
+  } catch (error) {
+    toast(errorText(error), true);
+  }
+}
+
+function addDefaultModelPackages() {
+  if (!isSuperAdmin()) return;
+  const packages = currentModelPackages();
+  state.apiSettings = { ...(state.apiSettings || {}), modelPackages: packages.length ? [...packages, defaultModelPackages()[Math.min(packages.length, 2)]] : defaultModelPackages() };
+  renderModelPackages();
+}
+
+async function saveModelPackages() {
+  if (!isSuperAdmin()) return;
+  const button = $('#saveModelPackagesButton');
+  button.disabled = true;
+  try {
+    state.apiSettings = await window.caishen.saveApiSettings(apiSettingsPayload());
+    state.modelPackageSettings = await window.caishen.getModelPackages();
+    state.selectedModelPackageId = state.modelPackageSettings?.selectedModelPackageId || '';
+    renderApiSettings();
+    toast('模型套餐已保存');
+  } catch (error) {
+    toast(errorText(error), true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderApiSettings() {
   const settings = state.apiSettings || {};
+  const superAdmin = isSuperAdmin();
+  const heading = $('.api-panel-head h2');
+  const description = $('.api-panel-head p');
+  const footnote = $('#apiSettingsFootnote span');
+  const footnoteRow = $('#apiSettingsFootnote');
+  if (!superAdmin) {
+    if (heading) heading.textContent = '模型选择';
+    if (description) {
+      description.textContent = '';
+      description.hidden = true;
+    }
+    if (footnoteRow) footnoteRow.hidden = true;
+    $('.api-layout-grid').hidden = true;
+    $('.api-advanced-settings').hidden = true;
+    $('#modelPackageCard').hidden = false;
+    renderModelPackages();
+    return;
+  }
+  if (heading) heading.textContent = 'API 设置';
+  if (description) {
+    description.hidden = false;
+    description.textContent = '配置连接、分配模型和图片输出规则。';
+  }
+  if (footnoteRow) footnoteRow.hidden = false;
+  if (footnote) footnote.textContent = 'API 地址、模型和密钥修改后，后续新任务立即使用新配置。';
+  $('.api-layout-grid').hidden = false;
+  $('.api-advanced-settings').hidden = false;
+  $('#modelPackageCard').hidden = false;
   $('#apiBaseUrl').value = settings.baseUrl || '';
   for (const channel of ['analysis', 'image']) {
     const input = $(`#${channel}ApiKey`);
@@ -3964,6 +4223,7 @@ function renderApiSettings() {
   const tabStatus = $('#apiTabStatus');
   tabStatus.textContent = statusText;
   tabStatus.classList.toggle('ready', Boolean(settings.imageConfigured || settings.analysisConfigured));
+  renderModelPackages();
   renderApiModelList();
 }
 
@@ -4036,7 +4296,13 @@ function applySelectedApiModel() {
 async function loadApiSettings() {
   if (!isSuperAdmin()) return;
   try {
-    state.apiSettings = await window.caishen.getApiSettings();
+    const [apiSettings, modelPackageSettings] = await Promise.all([
+      window.caishen.getApiSettings(),
+      window.caishen.getModelPackages().catch(() => null)
+    ]);
+    state.apiSettings = apiSettings;
+    state.modelPackageSettings = modelPackageSettings || state.modelPackageSettings;
+    state.selectedModelPackageId = state.modelPackageSettings?.selectedModelPackageId || '';
     renderApiSettings();
   } catch (error) {
     toast(`读取 API 设置失败：${errorText(error)}`, true);
@@ -4055,7 +4321,8 @@ function apiSettingsPayload() {
     requestTimeoutSeconds: Number($('#apiRequestTimeout').value),
     imageInitialConcurrency: Number($('#imageInitialConcurrency').value),
     imageMaxConcurrency: Number($('#imageMaxConcurrency').value),
-    imageStartIntervalMs: Number($('#imageStartIntervalMs').value)
+    imageStartIntervalMs: Number($('#imageStartIntervalMs').value),
+    modelPackages: collectModelPackagesFromForm()
   };
 }
 
@@ -4156,6 +4423,16 @@ async function saveSettings() {
   button.disabled = true;
   button.textContent = '保存中…';
   try {
+    if (state.settingsTab === 'api') {
+      if (isSuperAdmin()) {
+        state.apiSettings = await window.caishen.saveApiSettings(apiSettingsPayload());
+        state.modelPackageSettings = await window.caishen.getModelPackages().catch(() => state.modelPackageSettings);
+        state.selectedModelPackageId = state.modelPackageSettings?.selectedModelPackageId || '';
+        renderApiSettings();
+        toast('API 和模型套餐已保存');
+      }
+      return;
+    }
     state.config.operatorCode = $('#operatorCode').value.trim();
     state.config.outputPath = $('#settingOutputPathInput').value.trim();
     const canSaveSystemSettings = isSuperAdmin();
@@ -4168,6 +4445,7 @@ async function saveSettings() {
       apiPayload.baseUrl
       || apiPayload.imageApiKey
       || apiPayload.analysisApiKey
+      || apiPayload.modelPackages?.length
       || state.apiSettings?.imageKeyConfigured
       || state.apiSettings?.analysisKeyConfigured
     );
@@ -4223,6 +4501,8 @@ function bindEvents() {
     if (button) return toggleTeamUser(button);
     const editButton = event.target.closest('[data-team-user-edit]');
     if (editButton) return editTeamUser(editButton.dataset.teamUserEdit);
+    const deleteButton = event.target.closest('[data-team-user-delete]');
+    if (deleteButton) return deleteTeamUser(deleteButton.dataset.teamUserDelete);
     const transferButton = event.target.closest('[data-transfer-billing]');
     if (transferButton) return transferTeamBalance(transferButton);
   };
@@ -4497,6 +4777,17 @@ function bindEvents() {
   $('#testAnalysisModelsButton').onclick = testAnalysisModelsConnection;
   $('#testAnalysisApiButton').onclick = testAnalysisConnection;
   $('#apiSettingsForm').onsubmit = event => { event.preventDefault(); saveSettings(); };
+  if ($('#addModelPackageButton')) $('#addModelPackageButton').onclick = () => {};
+  $('#saveModelPackagesButton').onclick = saveModelPackages;
+  $('#modelPackageList').onclick = event => {
+    const choice = event.target.closest('[data-select-model-package]');
+    if (choice) {
+      state.selectedModelPackageId = choice.dataset.selectModelPackage;
+      renderModelPackages();
+      saveSelectedModelPackage();
+      return;
+    }
+  };
   $('#apiModelList').onclick = event => {
     const button = event.target.closest('[data-api-model]');
     if (!button) return;
@@ -4680,11 +4971,13 @@ async function start() {
   updateGenerationModeUi();
   renderQueue();
   state.config = await window.caishen.getConfig();
+  await sanitizeConfigWorkspacePaths();
   renderConfig();
   renderSettingsTabs();
   await loadTemplateFolders();
   const adminLoads = [
     ...(canManagePrompts() ? [loadPromptSettings()] : []),
+    ...(isTeamAdmin() ? [loadModelPackageSettings()] : []),
     ...(isSuperAdmin() ? [loadApiSettings()] : [])
   ];
   await Promise.all([loadTitleLibrary(), loadTemplatePreparation(), loadBillingSummary(), ...adminLoads]);

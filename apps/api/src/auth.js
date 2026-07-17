@@ -181,6 +181,18 @@ function createAuthService(dataRoot) {
     });
   }
 
+  function deleteUser(id, actor = {}) {
+    return mutateUsers(users => {
+      const index = users.findIndex(item => item.id === String(id));
+      if (index < 0) throw new Error('账号不存在');
+      const user = users[index];
+      if (user.id === actor.id) throw new Error('不能删除当前登录账号');
+      if (user.role === 'superadmin') throw new Error('不能删除超级管理员账号');
+      users.splice(index, 1);
+      return publicUser(user);
+    });
+  }
+
   function setUserActive(id, active, actorId) {
     return mutateUsers(users => {
       const user = users.find(item => item.id === String(id));
@@ -234,6 +246,7 @@ function createAuthService(dataRoot) {
     clearSessionCookie,
     createSession,
     createUser,
+    deleteUser,
     getUserById,
     hasUsers,
     listUsers,

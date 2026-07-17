@@ -226,7 +226,7 @@ function createBillingService(dataRoot) {
         llmFeeMinor: llmMax,
         llmFeeMinMinor: llmMin,
         llmFeeMaxMinor: llmMax,
-        defaultBalanceMinor: normalizeMinor(payload.defaultBalanceMinor, '新账号初始余额'),
+        defaultBalanceMinor: normalizeMinor(payload.defaultBalanceMinor, '新账号初始算力余额'),
         updatedAt: new Date().toISOString()
       };
       await writeJson(rulesFile, rules);
@@ -274,7 +274,7 @@ function createBillingService(dataRoot) {
         amountScale: BILLING_SCALE,
         amountMinor,
         balanceMinor: next,
-        description: String(metadata.description || (amountMinor > 0 ? '账户充值到账' : '账户余额扣减')).slice(0, 160),
+        description: String(metadata.description || (amountMinor > 0 ? '账户充值到账' : '算力余额扣减')).slice(0, 160),
         operatorUserId: String(metadata.operatorUserId || '').slice(0, 80),
         createdAt: account.updatedAt
       };
@@ -290,9 +290,17 @@ function createBillingService(dataRoot) {
     if (!BILLING_TYPES.has(type)) throw new Error('未知计费类型');
     return mutate(async () => {
       const rules = await readRules();
-      const min = type === 'image' ? rules.imageFeeMinMinor : rules.llmFeeMinMinor;
-      const max = type === 'image' ? rules.imageFeeMaxMinor : rules.llmFeeMaxMinor;
-      const amountMinor = min === max ? min : min + crypto.randomInt(max - min + 1);
+      const overrideAmount = Number(metadata.amountMinor ?? metadata.billingAmountMinor);
+      const overrideMin = Number(metadata.amountMinMinor ?? metadata.billingAmountMinMinor);
+      const overrideMax = Number(metadata.amountMaxMinor ?? metadata.billingAmountMaxMinor);
+      const globalMin = type === 'image' ? rules.imageFeeMinMinor : rules.llmFeeMinMinor;
+      const globalMax = type === 'image' ? rules.imageFeeMaxMinor : rules.llmFeeMaxMinor;
+      const hasOverrideRange = Number.isSafeInteger(overrideMin) && Number.isSafeInteger(overrideMax) && overrideMin >= 0 && overrideMax >= overrideMin;
+      const min = hasOverrideRange ? overrideMin : globalMin;
+      const max = hasOverrideRange ? overrideMax : globalMax;
+      const amountMinor = Number.isSafeInteger(overrideAmount) && overrideAmount >= 0
+        ? overrideAmount
+        : (min === max ? min : min + crypto.randomInt(max - min + 1));
       if (!rules.enabled || amountMinor <= 0) return { billable: false, workspaceId, type, amountMinor: 0 };
       const state = await readAccounts();
       const account = normalizeAccount(state.accounts[workspaceId], rules.defaultBalanceMinor);
@@ -305,7 +313,7 @@ function createBillingService(dataRoot) {
       if (available < amountMinor) {
         const required = (amountMinor / BILLING_SCALE).toFixed(6).replace(/0+$/, '').replace(/\.$/, '.00');
         const current = (Math.max(0, available) / BILLING_SCALE).toFixed(6).replace(/0+$/, '').replace(/\.$/, '.00');
-        throw new Error(`账户余额不足：本次${type === 'image' ? '生图' : '模型分析'}需要 $${required}，当前可用 $${current}`);
+        throw new Error(`算力余额不足：本次${type === 'image' ? '生图' : '模型分析'}需要 $${required}，当前可用 $${current}`);
       }
       const id = crypto.randomUUID();
       account.reservations[id] = {
@@ -376,14 +384,14 @@ function createBillingService(dataRoot) {
   async function transferBalance(fromWorkspaceIdValue, toWorkspaceIdValue, amountMinorValue, metadata = {}) {
     const fromWorkspaceId = normalizeWorkspaceId(fromWorkspaceIdValue);
     const toWorkspaceId = normalizeWorkspaceId(toWorkspaceIdValue);
-    if (fromWorkspaceId === toWorkspaceId) throw new Error('不能给自己划拨余额');
+    if (fromWorkspaceId === toWorkspaceId) throw new Error('不能给自己划拨算力余额');
     const amountMinor = normalizeMinor(amountMinorValue, '划拨金额');
     if (amountMinor <= 0) throw new Error('划拨金额必须大于 0');
     return mutate(async () => {
       const [rules, state] = await Promise.all([readRules(), readAccounts()]);
       const from = normalizeAccount(state.accounts[fromWorkspaceId], rules.defaultBalanceMinor);
       const to = normalizeAccount(state.accounts[toWorkspaceId], rules.defaultBalanceMinor);
-      if (from.balanceMinor - reservedMinor(from) < amountMinor) throw new Error('管理员可用余额不足，无法划拨');
+      if (from.balanceMinor - reservedMinor(from) < amountMinor) throw new Error('管理员可用算力余额不足，无法划拨');
       const now = new Date().toISOString();
       from.balanceMinor -= amountMinor;
       to.balanceMinor += amountMinor;

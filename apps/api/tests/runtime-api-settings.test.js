@@ -1,4 +1,4 @@
-const test = require('node:test');
+﻿const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
@@ -34,7 +34,7 @@ test('API settings keep Change2Pro image and analysis credentials isolated', asy
     assert.equal(initial.analysisConfigured, false);
     assert.equal(Object.hasOwn(initial, 'imageKey'), false);
     assert.equal(Object.hasOwn(initial, 'analysisKey'), false);
-    assert.match(initial.imageKeyMasked, /legacy|•/);
+    assert.match(initial.imageKeyMasked, /lega/);
 
     await assert.rejects(
       () => runtime.testApiSettings({ channel: 'analysis' }),
@@ -135,6 +135,127 @@ test('API settings keep Change2Pro image and analysis credentials isolated', asy
     assert.equal(Object.hasOwn(chatRequest, 'input'), false);
   } finally {
     global.fetch = originalFetch;
+    delete require.cache[runtimePath];
+    if (previousEnv.dataDir === undefined) delete process.env.CAISHEN_DATA_DIR;
+    else process.env.CAISHEN_DATA_DIR = previousEnv.dataDir;
+    if (previousEnv.workspaceId === undefined) delete process.env.CAISHEN_WORKSPACE_ID;
+    else process.env.CAISHEN_WORKSPACE_ID = previousEnv.workspaceId;
+    if (previousEnv.baseUrl === undefined) delete process.env.CAISHEN_API_BASE_URL;
+    else process.env.CAISHEN_API_BASE_URL = previousEnv.baseUrl;
+    if (previousEnv.apiKey === undefined) delete process.env.CAISHEN_API_KEY;
+    else process.env.CAISHEN_API_KEY = previousEnv.apiKey;
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+});
+
+test('API settings store model packages while public selection hides private fields', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'caishen-model-packages-'));
+  const previousEnv = {
+    dataDir: process.env.CAISHEN_DATA_DIR,
+    workspaceId: process.env.CAISHEN_WORKSPACE_ID,
+    baseUrl: process.env.CAISHEN_API_BASE_URL,
+    apiKey: process.env.CAISHEN_API_KEY
+  };
+
+  process.env.CAISHEN_DATA_DIR = temp;
+  process.env.CAISHEN_WORKSPACE_ID = 'model-package-user';
+  process.env.CAISHEN_API_BASE_URL = 'https://api.change2pro.com';
+  process.env.CAISHEN_API_KEY = 'global-image-secret-key';
+
+  const runtimePath = require.resolve('../src/runtime');
+  delete require.cache[runtimePath];
+  const runtime = require('../src/runtime');
+
+  try {
+    await runtime.initializeRuntime();
+
+    const saved = await runtime.saveApiSettings({
+      baseUrl: 'https://api.change2pro.com',
+      imageApiKey: 'global-image-private-key',
+      analysisApiKey: 'global-analysis-private-key',
+      imageModel: 'gpt-image-2',
+      analysisModel: 'gpt-5-3',
+      modelPackages: [
+        {
+          id: 'fast',
+          name: 'Fast',
+          description: 'Fast preview',
+          enabled: true,
+          default: false,
+          recommended: false,
+          apiBaseUrl: 'https://api.change2pro.com',
+          apiKey: 'fast-secret-key',
+          modelId: 'gpt-image-2',
+          maxConcurrency: 2,
+          startIntervalMs: 1200,
+          promptQuality: 'basic',
+          promptMode: 'internal',
+          userPromptPolicy: 'ignore',
+          hiddenPrompt: 'short internal prompt',
+          imagePriceMinor: 40000,
+          analysisPriceMinor: 0,
+          queuePriority: 2
+        },
+        {
+          id: 'flagship',
+          name: 'Flagship',
+          description: 'Best quality',
+          enabled: true,
+          default: true,
+          recommended: true,
+          apiBaseUrl: 'https://api.change2pro.com/v1',
+          apiKey: 'flagship-secret-key',
+          modelId: 'gpt-image-2',
+          maxConcurrency: 30,
+          startIntervalMs: 200,
+          promptQuality: 'flagship',
+          promptMode: 'full',
+          userPromptPolicy: 'full',
+          hiddenPrompt: 'best internal prompt',
+          imagePriceMinor: 300000,
+          analysisPriceMinor: 50000,
+          queuePriority: 10
+        }
+      ]
+    });
+
+    assert.equal(saved.modelPackages.length, 3);
+    assert.deepEqual(saved.modelPackages.map(item => item.id), ['flagship', 'fast', 'standard']);
+    assert.equal(saved.modelPackages[1].apiKeyConfigured, true);
+    assert.match(saved.modelPackages[1].apiKeyMasked, /fast/);
+    assert.equal(Object.hasOwn(saved.modelPackages[1], 'apiKey'), false);
+    assert.equal(saved.modelPackages[1].imagePriceMinMinor, 40000);
+    assert.equal(saved.modelPackages[1].imagePriceMaxMinor, 40000);
+    assert.equal(saved.modelPackages[0].default, true);
+    assert.equal(saved.modelPackages[0].imagePriceMinMinor, 300000);
+    assert.equal(saved.modelPackages[0].imagePriceMaxMinor, 300000);
+
+    const privateFile = path.join(runtime.DATA_ROOT, 'system', 'api-settings.json');
+    const privateValue = JSON.parse(await fs.readFile(privateFile, 'utf8'));
+    assert.equal(privateValue.modelPackages[1].apiKey, 'fast-secret-key');
+    assert.equal(privateValue.modelPackages[0].apiBaseUrl, 'https://api.change2pro.com/v1');
+    assert.equal(privateValue.modelPackages[0].default, true);
+
+    const publicSettings = await runtime.loadModelPackageSettings({ role: 'member' });
+    assert.equal(publicSettings.selectedModelPackageId, 'flagship');
+    assert.deepEqual(publicSettings.modelPackages.map(item => item.id), ['flagship', 'fast', 'standard']);
+    assert.equal(publicSettings.modelPackages[1].name, 'Fast');
+    assert.equal(Object.hasOwn(publicSettings.modelPackages[0], 'apiBaseUrl'), false);
+    assert.equal(Object.hasOwn(publicSettings.modelPackages[0], 'apiKey'), false);
+    assert.equal(Object.hasOwn(publicSettings.modelPackages[0], 'apiKeyMasked'), false);
+    assert.equal(Object.hasOwn(publicSettings.modelPackages[0], 'hiddenPrompt'), false);
+    assert.equal(Object.hasOwn(publicSettings.modelPackages[0], 'imagePriceMinor'), false);
+    assert.equal(Object.hasOwn(publicSettings.modelPackages[0], 'imagePriceMinMinor'), false);
+    assert.equal(Object.hasOwn(publicSettings.modelPackages[0], 'maxConcurrency'), false);
+
+    const selected = await runtime.saveSelectedModelPackage('fast');
+    assert.equal(selected.selectedModelPackageId, 'fast');
+    assert.equal((await runtime.loadModelPackageSettings({ role: 'member' })).selectedModelPackageId, 'fast');
+    await assert.rejects(
+      () => runtime.saveSelectedModelPackage('missing'),
+      /模型套餐不存在|not found/i
+    );
+  } finally {
     delete require.cache[runtimePath];
     if (previousEnv.dataDir === undefined) delete process.env.CAISHEN_DATA_DIR;
     else process.env.CAISHEN_DATA_DIR = previousEnv.dataDir;

@@ -40,7 +40,7 @@
         <button class="nav-item" data-index="07" data-icon="设" data-page="settings" title="系统设置">系统设置</button>
       </nav>
       <div class="sidebar-finance">
-        <button class="sidebar-balance" id="openBillingDetailButton" type="button"><span>账户余额</span><b id="currentBalance">读取中…</b><small id="currentBillingHint">点击查看费用明细</small></button>
+        <button class="sidebar-balance" id="openBillingDetailButton" type="button"><span>算力余额</span><b id="currentBalance">读取中…</b><small id="currentBillingHint">点击查看费用明细</small></button>
         <div class="sidebar-account"><div><span>当前账号</span><b id="currentUserName">正在读取…</b></div><div class="sidebar-account-actions"><button class="text-button" id="changePasswordButton" type="button">改密</button><button class="text-button" id="logoutButton" type="button">退出</button></div></div>
       </div>
     </header>
@@ -145,7 +145,7 @@
       <section class="page" id="page-free" aria-label="自由生图">
         <div class="free-layout">
           <div class="free-controls"><article class="drop-zone" id="freeSource"><div class="empty-state"><b>选择一张源图片</b><span>支持 JPG、PNG、WebP、BMP</span><button class="secondary" id="chooseFreeImageButton">选择图片</button></div></article>
-          <article class="prompt-sheet"><label>提示词<textarea id="freePrompt" rows="12" placeholder="例如：保持商品完全不变，替换为温暖的奶油风客厅背景，画面比例 1:1。"></textarea></label><div class="prompt-note">商品结构、印花和比例越重要，描述越明确。</div><button class="primary full" id="freeGenerateButton">开始生成</button></article></div>
+          <article class="prompt-sheet"><label>提示词<textarea id="freePrompt" rows="12" placeholder="输入生图提示词"></textarea></label><button class="primary full" id="freeGenerateButton">开始生成</button></article></div>
           <article class="result-zone result-with-action"><div id="freeResult"><div class="empty-state"><b>等待生成</b><span>完成后可下载结果图片。</span></div></div><button class="secondary result-download" id="revealFreeResultButton" disabled>下载结果图片</button></article>
         </div>
       </section>
@@ -213,6 +213,17 @@
                   <div class="api-test-stack"><div class="api-test-row"><div><b id="apiConnectionTitle">Image2 模型列表</b><span id="apiConnectionStatus">使用图片密钥读取 GET /v1/models。</span></div><button class="secondary" id="testApiButton" type="button">读取模型</button></div></div>
                 </section>
               </div>
+              <section class="settings-card model-package-card" id="modelPackageCard">
+                <div class="settings-card-head">
+                  <div><h3>模型套餐</h3><p id="modelPackageDescription">超级管理员维护真实接口配置；管理员只选择可用模型。</p></div>
+                  <div class="inline-actions"><button class="primary" id="saveModelPackagesButton" type="button">保存模型套餐</button></div>
+                </div>
+                <div class="model-package-list" id="modelPackageList"><div class="empty-inline">正在读取模型套餐...</div></div>
+                <div class="model-package-actions" id="modelPackageUserActions" hidden>
+                  <span id="selectedModelPackageHint">尚未选择模型</span>
+                  <button class="primary" id="saveSelectedModelPackageButton" type="button">保存模型选择</button>
+                </div>
+              </section>
               <datalist id="analysisModelOptions"></datalist>
               <datalist id="imageModelOptions"></datalist>
               <details class="api-advanced-settings">
@@ -228,10 +239,10 @@
                 </div>
               </details>
             </form>
-            <div class="settings-foot"><span>API 地址、模型和密钥修改后，后续新任务立即使用新配置。</span></div>
+            <div class="settings-foot" id="apiSettingsFootnote"><span>API 地址、模型和密钥修改后，后续新任务立即使用新配置。</span></div>
           </section>
           <section class="settings-panel team-settings-panel" data-settings-panel="team" hidden>
-            <div class="settings-panel-head"><div><h2>团队账号</h2><p>每个账号都有独立素材库、任务、提示词和输出配置。</p></div></div>
+            <div class="settings-panel-head"><div><h2>团队账号</h2></div></div>
             <div class="team-settings-grid">
               <section class="settings-card team-create-card">
                 <div class="settings-card-head"><div><h3>添加美工账号</h3><p>创建后把账号和初始密码单独发给成员。</p></div></div>
@@ -249,27 +260,27 @@
             <div class="billing-settings-grid">
               <section class="settings-card billing-rule-card">
                 <div class="settings-card-head"><div><h3>计费规则</h3><p>金额以美元计算，支持 6 位小数，保存后只影响后续调用。</p></div></div>
-                <label class="billing-toggle"><span><b>启用余额计费</b><small>关闭时保留余额和流水，但不检查或扣除费用。</small></span><input id="billingEnabled" type="checkbox"></label>
+                <label class="billing-toggle"><span><b>启用算力余额计费</b><small>关闭时保留算力余额和流水，但不检查或扣除费用。</small></span><input id="billingEnabled" type="checkbox"></label>
                 <div class="billing-price-grid">
                   <label>成功生图最低 / 张<div class="money-input"><span>$</span><input id="billingImageFeeMin" type="number" min="0" max="1000000" step="0.000001" value="0.000000"></div></label>
                   <label>成功生图最高 / 张<div class="money-input"><span>$</span><input id="billingImageFeeMax" type="number" min="0" max="1000000" step="0.000001" value="0.000000"></div></label>
                   <label>语言模型最低 / 次<div class="money-input"><span>$</span><input id="billingLlmFeeMin" type="number" min="0" max="1000000" step="0.000001" value="0.000000"></div></label>
                   <label>语言模型最高 / 次<div class="money-input"><span>$</span><input id="billingLlmFeeMax" type="number" min="0" max="1000000" step="0.000001" value="0.000000"></div></label>
-                  <label>新账号初始余额<div class="money-input"><span>$</span><input id="billingDefaultBalance" type="number" min="0" max="1000000" step="0.000001" value="0.000000"></div></label>
+                  <label>新账号初始算力余额<div class="money-input"><span>$</span><input id="billingDefaultBalance" type="number" min="0" max="1000000" step="0.000001" value="0.000000"></div></label>
                 </div>
                 <button class="primary" id="saveBillingRulesButton" type="button">保存计费规则</button>
               </section>
               <section class="settings-card billing-account-card">
-                <div class="settings-card-head"><div><h3>团队余额</h3><p>按人员筛选查看余额；超级管理员可充值或扣减，管理员只能给成员划拨。</p></div><span id="billingAccountCount">0 个账号</span></div>
+                <div class="settings-card-head"><div><h3>团队算力余额</h3><p>按人员筛选查看算力余额；超级管理员可充值或扣减，管理员只能给成员划拨。</p></div><span id="billingAccountCount">0 个账号</span></div>
                 <label class="billing-user-filter">查看人员<select id="billingUserFilter"><option value="">全部人员</option></select></label>
-                <div class="billing-account-list" id="billingAccountList"><div class="empty-inline">正在读取账户余额…</div></div>
+                <div class="billing-account-list" id="billingAccountList"><div class="empty-inline">正在读取算力余额…</div></div>
               </section>
             </div>
             <section class="settings-card billing-ledger-card">
               <div class="settings-card-head"><div><h3>最近费用流水</h3><p>记录成功生图、成功模型调用和管理员调账。</p></div><div class="inline-actions"><button class="text-button danger-text" id="clearBillingLedgerButton" type="button">清空流水</button><button class="text-button" id="refreshBillingButton" type="button">刷新</button></div></div>
               <div class="billing-ledger-list" id="billingLedgerList"><div class="empty-inline">暂无费用流水</div></div>
             </section>
-            <div class="settings-foot"><span>余额不足时不会调用上游模型；并发任务会先占用预计费用，完成后才正式扣款。</span></div>
+            <div class="settings-foot"><span>算力余额不足时不会调用上游模型；并发任务会先占用预计费用，完成后才正式扣款。</span></div>
           </section>
         </div>
       </section>
@@ -284,7 +295,7 @@
   </div>
   <div class="modal-backdrop" id="billingDetailModal" hidden>
     <section class="modal-card billing-detail-modal" role="dialog" aria-modal="true" aria-labelledby="billingDetailTitle">
-      <div class="modal-head"><div><span class="eyebrow">ACCOUNT BILLING</span><h2 id="billingDetailTitle">余额与费用明细</h2><p id="billingDetailSummary">正在读取当前账户费用。</p></div><button class="icon-button" id="closeBillingDetailButton" aria-label="关闭">×</button></div>
+      <div class="modal-head"><div><span class="eyebrow">ACCOUNT BILLING</span><h2 id="billingDetailTitle">算力余额与费用明细</h2><p id="billingDetailSummary">正在读取当前账户费用。</p></div><button class="icon-button" id="closeBillingDetailButton" aria-label="关闭">×</button></div>
       <div class="billing-detail-rates" id="billingDetailRates"></div>
       <div class="billing-ledger-list billing-detail-list" id="billingDetailList"><div class="empty-inline">正在读取费用明细…</div></div>
       <div class="modal-foot"><span>只有成功的模型调用会扣费。</span><div><button class="secondary" id="refreshBillingDetailButton" type="button">刷新</button></div></div>
