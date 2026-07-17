@@ -2826,16 +2826,23 @@ function renderReviewTrackingLog(item, summary, running) {
   $('#reviewOperationLog').innerHTML = `<div class="review-log-summary"><b>${running ? '当前任务正在处理' : counts.failed ? '当前任务需要处理' : '当前任务处理完成'}</b><span>${summary.current}/${summary.total} 张已处理</span><small>完成 ${counts.completed} · 失败 ${counts.failed} · 待处理 ${counts.pending} · 未查看 ${counts.unread}${summary.billingCostMinor ? ` · 成本 ${formatMoney(summary.billingCostMinor)}` : ''}${summaryTimes ? ` · ${escapeHtml(summaryTimes)}` : ''}</small></div><div class="review-log-filters">${filterButton('all', '当前任务全部', entries.length)}${filterButton('unread', '未查看', counts.unread)}${filterButton('completed', '完成', counts.completed)}${filterButton('failed', '失败', counts.failed)}${filterButton('pending', '待处理', counts.pending)}</div><div class="review-track-list">${items}</div><details class="review-log-history"><summary>查看当前任务记录</summary>${history}</details>`;
 }
 
+function renderEmptyReviewTrackingLog() {
+  const log = $('#reviewOperationLog');
+  if (!log) return;
+  state.reviewLogFilter = 'all';
+  log.innerHTML = '<div class="review-track-empty">请先点击左侧任务卡片</div>';
+}
+
 async function loadReviews({ silent = false } = {}) {
   if (!silent) $('#reviewList').innerHTML = '<div class="empty-inline">正在读取结果…</div>';
   try {
     state.reviews = await window.caishen.listReviews();
     if (state.activeReview) {
-      state.activeReview = state.reviews.find(item => item.folder === state.activeReview.folder) || state.reviews[0];
-    } else state.activeReview = state.reviews[0];
+      state.activeReview = state.reviews.find(item => item.folder === state.activeReview.folder) || null;
+    }
     state.selectedReviewFolders = new Set([...state.selectedReviewFolders].filter(folder => state.reviews.some(item => item.folder === folder)));
     const visible = visibleReviewEntries();
-    if (!visible.some(({ item }) => item.folder === state.activeReview?.folder)) state.activeReview = visible[0]?.item || null;
+    if (!visible.some(({ item }) => item.folder === state.activeReview?.folder)) state.activeReview = null;
     renderReviewList();
     if (silent) renderReviewStagePreservingScroll();
     else renderReviewStage();
@@ -2888,6 +2895,7 @@ function pendingReviewQueueEntries() {
 
 function renderReviewList() {
   const visible = visibleReviewEntries();
+  if (state.activeReview && !visible.some(({ item }) => item.folder === state.activeReview.folder)) state.activeReview = null;
   const pendingQueue = pendingReviewQueueEntries();
   const reviewMarkup = visible.length ? visible.map(({ item, index }) => {
     const summary = reviewGenerationSummary(item);
@@ -2915,6 +2923,7 @@ function renderReviewList() {
 function renderReviewStage() {
   const stage = $('#reviewStage');
   const item = state.activeReview;
+  if (!item) renderEmptyReviewTrackingLog();
   if (!item) {
     stage.innerHTML = '<div class="empty-state"><b>选择一个任务</b><span>这里会显示任务内的母版和套图结果。</span></div>';
     return;
@@ -4977,8 +4986,8 @@ function bindEvents() {
   };
   $('#productSearch').oninput = event => { clearTimeout(productSearchTimer); productSearchTimer = setTimeout(() => loadAssets('categoriesPath', event.target.value), 300); };
   $('#printSearch').oninput = event => { clearTimeout(printSearchTimer); printSearchTimer = setTimeout(() => loadAssets('printsPath', event.target.value), 300); };
-  $('#reviewSearch').oninput = renderReviewList;
-  $('#reviewFilter').onchange = renderReviewList;
+  $('#reviewSearch').oninput = () => { renderReviewList(); renderReviewStage(); };
+  $('#reviewFilter').onchange = () => { renderReviewList(); renderReviewStage(); };
 }
 
 async function start() {

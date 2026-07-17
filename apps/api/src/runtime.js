@@ -916,7 +916,7 @@ function packageBillingRange(pack, kind) {
 async function activeApiConcurrencyLimit(total = Infinity) {
   const pack = await activeModelPackage();
   const settingsMax = normalizeImageConcurrencySettings(currentApiSettings()).imageMaxConcurrency || DEFAULT_IMAGE_API_CONCURRENCY;
-  const packageMax = pack && !packageIsFlagship(pack) ? Number(pack.maxConcurrency) : 0;
+  const packageMax = pack ? Number(pack.maxConcurrency) : 0;
   const max = Math.max(1, Math.min(50, packageMax || settingsMax));
   const count = Number(total);
   if (!Number.isFinite(count)) return max;
@@ -1872,7 +1872,7 @@ async function downloadGeneratedImage(url, signal) {
 async function generateImage(prompt, imagePaths, options = {}) {
   const api = await activeApiConfig('image');
   const pack = api.activeModelPackage;
-  if (pack && !packageIsFlagship(pack)) {
+  if (pack) {
     imageApiScheduler.configure({
       initialConcurrency: Math.min(Number(pack.maxConcurrency) || 1, Number(pack.maxConcurrency) || 1),
       maxConcurrency: Number(pack.maxConcurrency) || 1,

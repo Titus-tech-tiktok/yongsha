@@ -71,6 +71,14 @@ async function createFixture(t, workspaceId) {
   t.after(() => delete require.cache[runtimePath]);
   await runtime.initializeRuntime();
   await runtime.saveConfig({ outputPath: path.join(temp, 'output'), imageQuality: 'high' });
+  await runtime.billing.saveRules({
+    enabled: true,
+    imageFeeMinMinor: 1,
+    imageFeeMaxMinor: 1,
+    llmFeeMinMinor: 0,
+    llmFeeMaxMinor: 0,
+    defaultBalanceMinor: 100000000
+  });
   await runtime.saveApiSettings({
     baseUrl: `http://127.0.0.1:${server.address().port}/v1`,
     imageApiKey: 'image-key',
@@ -78,7 +86,8 @@ async function createFixture(t, workspaceId) {
     imageModel: 'gpt-image-2',
     analysisModel: 'gpt-5-3',
     modelPackages: [
-      { id: 'flagship', name: 'Flagship', enabled: true, default: true, promptQuality: 'flagship', modelId: 'gpt-image-2' },
+      { id: 'flagship', name: 'Flagship', enabled: true, default: true, promptQuality: 'flagship', modelId: 'gpt-image-2', maxConcurrency: 14, startIntervalMs: 200, imagePriceMinMinor: 300000, imagePriceMaxMinor: 300000 },
+      { id: 'fast', name: 'Fast', enabled: true, default: false, promptQuality: 'basic', imagePrompt: 'FAST ONLY PROMPT', modelId: 'gpt-image-2', maxConcurrency: 6, startIntervalMs: 1000, imagePriceMinMinor: 50000, imagePriceMaxMinor: 50000 },
       { id: 'standard', name: 'Standard', enabled: true, default: false, promptQuality: 'standard', imagePrompt: 'STANDARD ONLY PROMPT', modelId: 'gpt-image-2' }
     ]
   });
@@ -110,7 +119,7 @@ test('flagship template-print adds complex preservation instructions', { concurr
   const { runtime, captured, templateRoot, printPath } = await createFixture(t, 'flagship');
   await runtime.saveSelectedModelPackage('flagship');
 
-  await runtime.generateTask({
+  const result = await runtime.generateTask({
     taskNumber: 1,
     generationMode: 'template_print',
     printPath,
@@ -119,6 +128,9 @@ test('flagship template-print adds complex preservation instructions', { concurr
   });
 
   assert.match(captured.imageBodies[0], /FLAGSHIP_COMPLEX_TEMPLATE_PRINT_MODE/);
+  assert.equal(result.summary.billingCostMinor, 300000);
+  const events = await fs.readFile(path.join(result.folder, '.caishen-meta', 'image-api-events.jsonl'), 'utf8');
+  assert.match(events, /"maxConcurrency":14/);
   assert.match(captured.imageBodies[0], /preserve every Chinese title/);
   assert.equal((captured.imageBodies[0].match(/name="image"/g) || []).length, 2);
   assert.match(captured.imageBodies[0], /filename="01-complex/);
@@ -141,6 +153,26 @@ test('standard template-print keeps package prompt override and does not receive
 
   assert.match(captured.imageBodies[0], /STANDARD ONLY PROMPT/);
   assert.doesNotMatch(captured.imageBodies[0], /FLAGSHIP_COMPLEX_TEMPLATE_PRINT_MODE/);
+});
+
+test('fast template-print bills package image price and uses package concurrency', { concurrency: false }, async (t) => {
+  const { runtime, captured, templateRoot, printPath, masterImagePath } = await createFixture(t, 'fast-billing-concurrency');
+  await runtime.saveSelectedModelPackage('fast');
+
+  const result = await runtime.generateTask({
+    taskNumber: 1,
+    generationMode: 'template_print',
+    printPath,
+    masterImagePath,
+    templateFolderPath: templateRoot,
+    templateRelativePaths: ['01-complex.png']
+  });
+
+  assert.match(captured.imageBodies[0], /FAST ONLY PROMPT/);
+  assert.doesNotMatch(captured.imageBodies[0], /FLAGSHIP_COMPLEX_TEMPLATE_PRINT_MODE/);
+  assert.equal(result.summary.billingCostMinor, 50000);
+  const events = await fs.readFile(path.join(result.folder, '.caishen-meta', 'image-api-events.jsonl'), 'utf8');
+  assert.match(events, /"maxConcurrency":6/);
 });
 
 test('flagship template-print can include master reference when enabled', { concurrency: false }, async (t) => {
