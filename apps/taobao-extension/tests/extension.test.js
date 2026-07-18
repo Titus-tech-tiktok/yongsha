@@ -10,6 +10,7 @@ const shared = fs.readFileSync(path.join(root, 'src/shared.js'), 'utf8');
 const webBridge = fs.readFileSync(path.join(root, 'src/web-bridge.js'), 'utf8');
 const popup = fs.readFileSync(path.join(root, 'src/popup.html'), 'utf8');
 const popupJs = fs.readFileSync(path.join(root, 'src/popup.js'), 'utf8');
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.background.service_worker, 'src/background.js');
@@ -92,5 +93,7 @@ assert.match(popup, /diagnosticsOutput/);
 assert.match(popupJs, /CAISHEN_TAOBAO_POPUP_DIAGNOSTICS/);
 assert.match(popupJs, /navigator\.clipboard\.writeText/);
 assert.match(popup, /token/);
+assert.match(packageJson.scripts.package, /package-extension\.ps1/);
+assert.ok(fs.existsSync(path.join(root, 'scripts/package-extension.ps1')));
 
 console.log('taobao extension smoke test passed');

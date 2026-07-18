@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build": "node tests/extension.test.js",
+    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1",
     "test": "node tests/extension.test.js"
   }
 }
