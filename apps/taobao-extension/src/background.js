@@ -19,6 +19,12 @@ chrome.tabs.onRemoved.addListener(tabId => {
   }
 });
 
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (tabId === activeTabId && changeInfo.status === 'complete') {
+    trySendTaskToActiveTab().catch(error => setLastError(error));
+  }
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, sender).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
   return true;
@@ -109,10 +115,22 @@ async function openPublishTab(task) {
   const tab = await chrome.tabs.create({ url: publishUrl, active: false });
   activeTabId = tab.id;
   activeTask = { ...task, caishenBaseUrl: options.baseUrl };
+  setTimeout(() => trySendTaskToActiveTab().catch(error => setLastError(error)), 2000);
 }
 
 async function sendTaskToTab(tabId, task) {
   await chrome.tabs.sendMessage(tabId, { type: 'CAISHEN_TAOBAO_START', task });
+}
+
+async function trySendTaskToActiveTab() {
+  if (!activeTask || !activeTabId) return false;
+  try {
+    await sendTaskToTab(activeTabId, activeTask);
+    return true;
+  } catch (error) {
+    if (/Receiving end does not exist|Could not establish connection/i.test(error?.message || '')) return false;
+    throw error;
+  }
 }
 
 async function pollOnce() {
@@ -137,7 +155,7 @@ async function handleMessage(message, sender) {
   if (message?.type === 'CAISHEN_TAOBAO_TRIGGER_POLL') return pollOnce();
   if (message?.type === 'CAISHEN_TAOBAO_FETCH_IMAGE') return { ok: true, image: await fetchTaskImage(message) };
   if (message?.type === 'CAISHEN_TAOBAO_CONTENT_READY') {
-    if (activeTask && sender.tab?.id === activeTabId) await sendTaskToTab(sender.tab.id, activeTask);
+    if (activeTask && sender.tab?.id === activeTabId) await trySendTaskToActiveTab();
     return { ok: true };
   }
   if (message?.type === 'CAISHEN_TAOBAO_STATUS') {
