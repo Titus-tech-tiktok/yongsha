@@ -67,8 +67,10 @@ assert.match(webBridge, /CAISHEN_TAOBAO_POPUP_SAVE/);
 assert.match(webBridge, /baseUrl/);
 assert.match(webBridge, /token/);
 assert.match(popup, /diagnosticsButton/);
+assert.match(popup, /copyDiagnosticsButton/);
 assert.match(popup, /diagnosticsOutput/);
 assert.match(popupJs, /CAISHEN_TAOBAO_POPUP_DIAGNOSTICS/);
+assert.match(popupJs, /navigator\.clipboard\.writeText/);
 assert.match(popup, /token/);
 
 console.log('taobao extension smoke test passed');

@@ -47,10 +47,19 @@ async function diagnostics() {
   if (!result?.ok) throw new Error(result?.error || '读取诊断失败');
   $('#diagnosticsOutput').hidden = false;
   $('#diagnosticsOutput').textContent = JSON.stringify(result.detail || {}, null, 2);
+  $('#copyDiagnosticsButton').hidden = false;
   $('#status').textContent = '诊断已读取，可复制 selector 配置到 Web 端模板';
+}
+
+async function copyDiagnostics() {
+  const content = $('#diagnosticsOutput').textContent || '';
+  if (!content.trim()) throw new Error('暂无可复制的诊断');
+  await navigator.clipboard.writeText(content);
+  $('#status').textContent = '诊断 JSON 已复制';
 }
 
 $('#saveButton').addEventListener('click', () => save().catch(error => { $('#status').textContent = error.message; }));
 $('#pollButton').addEventListener('click', () => poll().catch(error => { $('#status').textContent = error.message; }));
 $('#diagnosticsButton').addEventListener('click', () => diagnostics().catch(error => { $('#status').textContent = error.message; }));
+$('#copyDiagnosticsButton').addEventListener('click', () => copyDiagnostics().catch(error => { $('#status').textContent = error.message; }));
 load().catch(error => { $('#status').textContent = error.message; });
