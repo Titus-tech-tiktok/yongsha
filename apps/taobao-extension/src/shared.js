@@ -1,4 +1,4 @@
-export const DEFAULT_BASE_URL = 'http://127.0.0.1:8790';
+export const DEFAULT_BASE_URL = 'http://127.0.0.1:3008';
 export const DEFAULT_PUBLISH_URL = 'https://item.upload.taobao.com/sell/ai/category.htm';
 
 export const STATUS = {
