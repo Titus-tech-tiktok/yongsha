@@ -970,6 +970,14 @@ const rpc = {
   saveTitleSetup: ([payload]) => runtime.saveTitleSetup(payload || {}),
   generateTitles: ([payload]) => runtime.generateTitles(payload || {}),
   exportTitles: ([payload]) => runtime.exportTitles(payload || {}),
+  getTaobaoPublishSettings: () => runtime.getTaobaoPublishSettings(),
+  saveTaobaoPublishSettings: ([payload]) => runtime.saveTaobaoPublishSettings(payload || {}),
+  listTaobaoPublishTasks: () => runtime.listTaobaoPublishTasks(),
+  queueTaobaoPublishTask: ([payload]) => runtime.queueTaobaoPublishTask({
+    ...(payload || {}),
+    folder: managedPath(payload?.folder),
+    categoryId: String(payload?.categoryId || '')
+  }),
   getFileLink: ([target, kind]) => {
     const file = managedPath(target);
     const token = runtime.fileToken(file);
@@ -1212,6 +1220,33 @@ async function startServer() {
     if (!isTeamAdmin(req.user)) return res.status(403).json({ error: '只有管理员可以切换模型' });
     try {
       return res.json({ data: await runtime.saveSelectedModelPackage(req.body?.selectedModelPackageId) });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
+
+  app.post('/api/taobao/publish/claim', async (req, res) => {
+    try {
+      return res.json({ data: await runtime.claimTaobaoPublishTask(req.body || {}) });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
+
+  app.get('/api/taobao/publish/tasks/:id/package', async (req, res) => {
+    try {
+      const settings = await runtime.getTaobaoPublishSettings();
+      const token = String(req.query.token || req.get('x-caishen-taobao-token') || '');
+      if (token !== settings.token) return res.status(403).json({ error: '淘宝发布助手令牌无效' });
+      return res.json({ data: await runtime.getTaobaoPublishPackage(req.params.id) });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
+
+  app.post('/api/taobao/publish/tasks/:id/status', async (req, res) => {
+    try {
+      return res.json({ data: await runtime.updateTaobaoPublishStatus(req.params.id, req.body || {}) });
     } catch (error) {
       return res.status(400).json({ error: error?.message || String(error) });
     }

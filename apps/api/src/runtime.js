@@ -97,6 +97,12 @@ const {
   createImageReferenceCache,
   imageApiSizeForDimensions
 } = require('./core/image-reference-cache');
+const {
+  TAOBAO_CATEGORY_TEMPLATES,
+  classifyTaobaoImages,
+  isReviewReadyForTaobao,
+  templateById: taobaoTemplateById
+} = require('./core/taobao-publish');
 const { createBillingService } = require('./billing');
 
 
@@ -1112,6 +1118,14 @@ function categoryTitleLibraryFile(categoryName) {
 
 function titleGenerationStateFile() {
   return path.join(app.getPath('userData'), 'standalone-title-generation-state.json');
+}
+
+function taobaoPublishSettingsFile() {
+  return path.join(app.getPath('userData'), 'taobao-publish-settings.json');
+}
+
+function taobaoPublishStateFile() {
+  return path.join(app.getPath('userData'), 'taobao-publish-state.json');
 }
 
 function titleGenerationStateKey(library, prefixRoots) {
@@ -3494,6 +3508,206 @@ async function generateTitleForTask(folderValue) {
   return { ...task, hasTitle: true, firstTitle: title };
 }
 
+function defaultTaobaoPublishSettings() {
+  return {
+    version: 1,
+    token: crypto.randomBytes(24).toString('hex'),
+    categories: TAOBAO_CATEGORY_TEMPLATES.map(item => ({ ...item, defaults: { ...item.defaults } }))
+  };
+}
+
+function normalizeTaobaoPublishSettings(value = {}) {
+  const incoming = Array.isArray(value.categories) ? value.categories : [];
+  const byId = new Map(incoming.map(item => [String(item.id || ''), item]));
+  return {
+    version: 1,
+    token: String(value.token || '').trim() || crypto.randomBytes(24).toString('hex'),
+    categories: TAOBAO_CATEGORY_TEMPLATES.map(template => {
+      const saved = byId.get(template.id) || {};
+      return {
+        ...template,
+        ...saved,
+        id: template.id,
+        name: template.name,
+        product: template.product,
+        defaults: {
+          ...template.defaults,
+          ...(saved.defaults && typeof saved.defaults === 'object' ? saved.defaults : {})
+        }
+      };
+    })
+  };
+}
+
+async function getTaobaoPublishSettings() {
+  const existing = await readJsonFile(taobaoPublishSettingsFile(), null);
+  const settings = normalizeTaobaoPublishSettings(existing || defaultTaobaoPublishSettings());
+  if (!existing) await writeJsonFile(taobaoPublishSettingsFile(), settings);
+  return settings;
+}
+
+async function saveTaobaoPublishSettings(payload = {}) {
+  const current = await getTaobaoPublishSettings();
+  const next = normalizeTaobaoPublishSettings({
+    ...current,
+    ...payload,
+    token: payload.token === '' ? current.token : (payload.token || current.token)
+  });
+  await writeJsonFile(taobaoPublishSettingsFile(), next);
+  return next;
+}
+
+async function readTaobaoPublishState() {
+  const state = await readJsonFile(taobaoPublishStateFile(), {});
+  return {
+    version: 1,
+    tasks: Array.isArray(state?.tasks) ? state.tasks : []
+  };
+}
+
+async function writeTaobaoPublishState(state) {
+  const clean = {
+    version: 1,
+    tasks: Array.isArray(state?.tasks) ? state.tasks.slice(-500) : []
+  };
+  await writeJsonFile(taobaoPublishStateFile(), clean);
+  return clean;
+}
+
+function taobaoPublishTaskId(folder, categoryId) {
+  return crypto.createHash('sha1').update(`${path.resolve(folder)}\u0000${categoryId}`).digest('hex').slice(0, 16);
+}
+
+async function taobaoPublishBaseTasks() {
+  const [reviews, readyTitles, settings, state] = await Promise.all([
+    reviewFolders(),
+    listReadyTitleTasks(),
+    getTaobaoPublishSettings(),
+    readTaobaoPublishState()
+  ]);
+  const titlesByFolder = new Map(readyTitles.map(item => [path.resolve(item.folder), item]));
+  const stateByFolder = new Map(state.tasks.map(item => [path.resolve(item.folder), item]));
+  return reviews.filter(isReviewReadyForTaobao).map(review => {
+    const saved = stateByFolder.get(path.resolve(review.folder)) || {};
+    const categoryId = saved.categoryId || '';
+    const category = settings.categories.find(item => item.id === categoryId) || null;
+    const titleTask = titlesByFolder.get(path.resolve(review.folder)) || null;
+    const images = classifyTaobaoImages(review.jobs || []);
+    return {
+      id: saved.id || (categoryId ? taobaoPublishTaskId(review.folder, categoryId) : ''),
+      folder: review.folder,
+      name: review.name,
+      categoryId,
+      categoryName: category?.name || '',
+      status: saved.status || (categoryId ? '待发布' : '未配置'),
+      failureReason: saved.failureReason || '',
+      updatedAt: saved.updatedAt || '',
+      titleReady: Boolean(titleTask?.firstTitle),
+      title: titleTask?.firstTitle || '',
+      imageCount: (review.jobs || []).filter(job => job.outputUrl).length,
+      mainImageCount: images.mainImages.length,
+      ratioImageCount: images.ratioImages.length,
+      detailImageCount: images.detailImages.length,
+      modifiedAt: review.modifiedAt
+    };
+  });
+}
+
+async function listTaobaoPublishTasks() {
+  const [settings, tasks] = await Promise.all([getTaobaoPublishSettings(), taobaoPublishBaseTasks()]);
+  return {
+    settings,
+    tasks
+  };
+}
+
+async function queueTaobaoPublishTask(payload = {}) {
+  const folder = String(payload.folder || '');
+  const categoryId = String(payload.categoryId || '');
+  const category = taobaoTemplateById(categoryId);
+  if (!folder || !fs.existsSync(folder)) throw new Error('任务文件夹不存在');
+  if (!category) throw new Error('请选择淘宝发布类目');
+  const review = (await reviewFolders()).find(item => path.resolve(item.folder) === path.resolve(folder));
+  if (!review || !isReviewReadyForTaobao(review)) throw new Error('只有人工筛图整套通过的任务可以发布到淘宝');
+  const titleTask = (await listReadyTitleTasks()).find(item => path.resolve(item.folder) === path.resolve(folder));
+  if (!titleTask?.firstTitle) throw new Error('任务缺少标题，请先生成标题');
+  const images = classifyTaobaoImages(review.jobs || []);
+  if (!images.mainImages.length) throw new Error('任务缺少主图');
+  if (!images.detailImages.length) throw new Error('任务缺少详情图');
+  const now = new Date().toISOString();
+  const id = taobaoPublishTaskId(folder, categoryId);
+  const state = await readTaobaoPublishState();
+  const existingIndex = state.tasks.findIndex(item => item.id === id || path.resolve(item.folder || '') === path.resolve(folder));
+  const record = {
+    id,
+    folder,
+    categoryId,
+    status: '等待插件接收',
+    failureReason: '',
+    queuedAt: now,
+    updatedAt: now,
+    attempts: existingIndex >= 0 ? Number(state.tasks[existingIndex].attempts || 0) + 1 : 1
+  };
+  if (existingIndex >= 0) state.tasks.splice(existingIndex, 1, record);
+  else state.tasks.push(record);
+  await writeTaobaoPublishState(state);
+  return (await taobaoPublishBaseTasks()).find(item => item.id === id) || record;
+}
+
+async function getTaobaoPublishPackage(id) {
+  const state = await readTaobaoPublishState();
+  const record = state.tasks.find(item => item.id === id);
+  if (!record) throw new Error('发布任务不存在');
+  const settings = await getTaobaoPublishSettings();
+  const category = settings.categories.find(item => item.id === record.categoryId);
+  if (!category) throw new Error('发布类目不存在');
+  const review = (await reviewFolders()).find(item => path.resolve(item.folder) === path.resolve(record.folder));
+  if (!review || !isReviewReadyForTaobao(review)) throw new Error('任务不再满足发布条件');
+  const titleTask = (await listReadyTitleTasks()).find(item => path.resolve(item.folder) === path.resolve(record.folder));
+  if (!titleTask?.firstTitle) throw new Error('任务缺少标题');
+  const images = classifyTaobaoImages(review.jobs || []);
+  return {
+    id: record.id,
+    folder: record.folder,
+    name: review.name,
+    categoryId: record.categoryId,
+    category,
+    title: titleTask.firstTitle,
+    images,
+    createdAt: record.queuedAt || record.updatedAt || new Date().toISOString()
+  };
+}
+
+async function claimTaobaoPublishTask(payload = {}) {
+  const settings = await getTaobaoPublishSettings();
+  if (String(payload.token || '') !== settings.token) throw new Error('淘宝发布助手令牌无效');
+  const state = await readTaobaoPublishState();
+  const record = state.tasks.find(item => item.status === '等待插件接收');
+  if (!record) return null;
+  const now = new Date().toISOString();
+  record.status = '插件已接收';
+  record.extensionId = String(payload.extensionId || '');
+  record.updatedAt = now;
+  await writeTaobaoPublishState(state);
+  return getTaobaoPublishPackage(record.id);
+}
+
+async function updateTaobaoPublishStatus(id, payload = {}) {
+  const settings = await getTaobaoPublishSettings();
+  if (payload.token != null && String(payload.token || '') !== settings.token) throw new Error('淘宝发布助手令牌无效');
+  const allowed = new Set(['等待插件接收', '插件已接收', '正在打开淘宝页面', '正在填写字段', '正在上传图片', '正在保存草稿', '已保存草稿', '失败']);
+  const state = await readTaobaoPublishState();
+  const record = state.tasks.find(item => item.id === id);
+  if (!record) throw new Error('发布任务不存在');
+  const status = String(payload.status || record.status);
+  if (allowed.has(status)) record.status = status;
+  record.failureReason = String(payload.failureReason || payload.error || '');
+  record.detail = payload.detail && typeof payload.detail === 'object' ? payload.detail : record.detail || {};
+  record.updatedAt = new Date().toISOString();
+  await writeTaobaoPublishState(state);
+  return record;
+}
+
 async function findReviewJob(folder, relativePath) {
   const source = await readSourceMetadata(folder);
   if (!source.templateFolderPath || !fs.existsSync(source.templateFolderPath)) throw new Error('任务缺少套图文件夹');
@@ -3679,7 +3893,9 @@ const runtimeExports = {
   generateTemplateSetForFolder,
   generateTitleForTask,
   generateTitles,
+  getTaobaoPublishPackage,
   getImageSchedulerSnapshot,
+  getTaobaoPublishSettings,
   getTemplatePreparation,
   imageUrl,
   importTitleLibrary,
@@ -3687,6 +3903,7 @@ const runtimeExports = {
   isOutputPath,
   isWorkspacePath,
   listReadyTitleTasks,
+  listTaobaoPublishTasks,
   loadModelPackageSettings,
   listTemplateFolders,
   listTemplates,
@@ -3708,13 +3925,17 @@ const runtimeExports = {
   saveApiSettings,
   saveSelectedModelPackage,
   publicApiConcurrencySettings,
+  queueTaobaoPublishTask,
+  claimTaobaoPublishTask,
   savePromptSetting,
+  saveTaobaoPublishSettings,
   canAdminViewPromptSettings,
   saveTemplateConfiguration,
   saveTemplateProductProfile,
   saveTitleSetup,
   scanImages,
   setTemplateManualStatus,
+  updateTaobaoPublishStatus,
   testAnalysisApi,
   testApiSettings
 };
