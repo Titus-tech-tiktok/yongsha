@@ -3284,6 +3284,37 @@ function activeTaobaoCategory() {
   return categories.find(category => category.id === state.activeTaobaoCategoryId) || categories[0] || null;
 }
 
+const TAOBAO_SELECTOR_FIELDS = [
+  ['title', '标题输入框'],
+  ['price', '价格输入框'],
+  ['stock', '库存输入框'],
+  ['shipFrom', '发货地输入框'],
+  ['freightTemplate', '运费模板控件'],
+  ['serviceTemplate', '服务模板控件'],
+  ['uploadButton', '打开上传按钮'],
+  ['allImages', '全部图片上传框'],
+  ['mainImages', '主图上传框'],
+  ['ratioImages', '3:4 主图上传框'],
+  ['detailImages', '详情页上传框'],
+  ['saveDraft', '保存草稿按钮']
+];
+
+function renderTaobaoSelectorInputs(selectors = {}) {
+  return TAOBAO_SELECTOR_FIELDS.map(([key, label]) => (
+    `<label>${escapeHtml(label)}<input name="selector.${escapeHtml(key)}" value="${escapeHtml(selectors[key] || '')}" placeholder="CSS 选择器，可留空"></label>`
+  )).join('');
+}
+
+function collectTaobaoSelectors(data) {
+  const selectors = parseJsonField(data.get('selectorJson'), '选择器 JSON');
+  for (const [key] of TAOBAO_SELECTOR_FIELDS) {
+    const value = String(data.get(`selector.${key}`) || '').trim();
+    if (value) selectors[key] = value;
+    else delete selectors[key];
+  }
+  return selectors;
+}
+
 function renderTaobaoCategoryEditor() {
   const editor = $('#taobaoCategoryEditor');
   if (!editor) return;
@@ -3293,6 +3324,7 @@ function renderTaobaoCategoryEditor() {
     return;
   }
   const defaults = category.defaults || {};
+  const selectors = defaults.selectors || {};
   editor.innerHTML = `<form class="taobao-template-form" id="taobaoCategoryTemplateForm">
     <b>${escapeHtml(category.name)}模板</b>
     <label>发布链接<input name="publishUrl" value="${escapeHtml(defaults.publishUrl || '')}" placeholder="淘宝后台发布页链接"></label>
@@ -3302,7 +3334,8 @@ function renderTaobaoCategoryEditor() {
     <label>运费模板<input name="freightTemplate" value="${escapeHtml(defaults.freightTemplate || '')}" placeholder="运费模板名称"></label>
     <label>服务模板<input name="serviceTemplate" value="${escapeHtml(defaults.serviceTemplate || '')}" placeholder="服务模板名称"></label>
     <label>属性 JSON<textarea name="attributes" rows="4" placeholder='{"材质":"实木"}'>${escapeHtml(JSON.stringify(defaults.attributes || {}, null, 2))}</textarea></label>
-    <label>选择器 JSON<textarea name="selectors" rows="4" placeholder='{"title":"input[name=title]"}'>${escapeHtml(JSON.stringify(defaults.selectors || {}, null, 2))}</textarea></label>
+    ${renderTaobaoSelectorInputs(selectors)}
+    <label>高级选择器 JSON<textarea name="selectorJson" rows="4" placeholder='{"attribute.材质":"input[name=material]"}'>${escapeHtml(JSON.stringify(Object.fromEntries(Object.entries(selectors).filter(([key]) => !TAOBAO_SELECTOR_FIELDS.some(([field]) => field === key))), null, 2))}</textarea></label>
     <button type="submit" class="primary">保存类目模板</button>
   </form>`;
 }
@@ -3338,7 +3371,7 @@ async function saveActiveTaobaoCategoryTemplate(event) {
         freightTemplate: String(data.get('freightTemplate') || '').trim(),
         serviceTemplate: String(data.get('serviceTemplate') || '').trim(),
         attributes: parseJsonField(data.get('attributes'), '属性 JSON'),
-        selectors: parseJsonField(data.get('selectors'), '选择器 JSON')
+        selectors: collectTaobaoSelectors(data)
       }
     };
   });

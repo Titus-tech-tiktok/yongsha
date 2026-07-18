@@ -3516,6 +3516,26 @@ function defaultTaobaoPublishSettings() {
   };
 }
 
+function normalizePlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function normalizeTaobaoPublishDefaults(templateDefaults = {}, savedDefaults = {}) {
+  const saved = normalizePlainObject(savedDefaults);
+  return {
+    ...templateDefaults,
+    ...saved,
+    attributes: {
+      ...normalizePlainObject(templateDefaults.attributes),
+      ...normalizePlainObject(saved.attributes)
+    },
+    selectors: {
+      ...normalizePlainObject(templateDefaults.selectors),
+      ...normalizePlainObject(saved.selectors)
+    }
+  };
+}
+
 function normalizeTaobaoPublishSettings(value = {}) {
   const incoming = Array.isArray(value.categories) ? value.categories : [];
   const byId = new Map(incoming.map(item => [String(item.id || ''), item]));
@@ -3530,10 +3550,7 @@ function normalizeTaobaoPublishSettings(value = {}) {
         id: template.id,
         name: template.name,
         product: template.product,
-        defaults: {
-          ...template.defaults,
-          ...(saved.defaults && typeof saved.defaults === 'object' ? saved.defaults : {})
-        }
+        defaults: normalizeTaobaoPublishDefaults(template.defaults, saved.defaults)
       };
     })
   };
@@ -3906,6 +3923,7 @@ const runtimeExports = {
   listReadyTitleTasks,
   listTaobaoPublishTasks,
   loadModelPackageSettings,
+  normalizeTaobaoPublishSettings,
   listTemplateFolders,
   listTemplates,
   loadApiSettings,
