@@ -117,16 +117,41 @@ async function fillField(keywords, value, selector = '') {
   return true;
 }
 
-function clickFieldOrOption(keywords, value, selector = '') {
+async function selectOptionByText(value, selector = '') {
+  const wanted = text(value).toLocaleLowerCase('zh-CN');
+  if (!wanted) return false;
+  const options = [
+    ...queryAll(selector),
+    ...document.querySelectorAll('[role="option"], [role="menuitem"], li, span, div')
+  ].filter(visible);
+  const option = options.find(element => {
+    const label = text(element.innerText || element.textContent || element.getAttribute('aria-label') || element.title).toLocaleLowerCase('zh-CN');
+    return label === wanted || label.includes(wanted);
+  });
+  if (!option) return false;
+  option.click();
+  await sleep(220);
+  return true;
+}
+
+async function clickFieldOrOption(keywords, value, selector = '') {
   if (!text(value)) return false;
   const selected = query(selector);
   if (selected) {
     selected.click();
-    return true;
+    await sleep(260);
+    return selectOptionByText(value) || true;
   }
-  const button = findButton([...keywords, value]);
+  const field = findButton(keywords);
+  if (field) {
+    field.click();
+    await sleep(260);
+    if (await selectOptionByText(value)) return true;
+  }
+  const button = findButton([value]);
   if (!button) return false;
   button.click();
+  await sleep(180);
   return true;
 }
 
