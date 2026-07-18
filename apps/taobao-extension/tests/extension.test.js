@@ -18,6 +18,8 @@ assert.match(background, /CAISHEN_TAOBAO_STATUS/);
 assert.match(background, /schedulePoll/);
 assert.match(background, /setTimeout/);
 assert.match(background, /Math\.max\(30000, options\.pollSeconds \* 1000\)/);
+assert.match(background, /chrome\.tabs\.onRemoved\.addListener/);
+assert.match(background, /clearActiveTask/);
 assert.match(content, /input\[type="file"\]/);
 assert.match(content, /dataUrlToFile/);
 assert.match(content, /selectors\(task\)/);

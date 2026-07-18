@@ -13,6 +13,12 @@ chrome.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === 'poll-taobao-publish') pollOnce().catch(error => setLastError(error));
 });
 
+chrome.tabs.onRemoved.addListener(tabId => {
+  if (tabId === activeTabId) {
+    clearActiveTask('淘宝发布页已关闭，任务未完成').catch(error => setLastError(error));
+  }
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, sender).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
   return true;
@@ -44,6 +50,18 @@ async function updateStatus(taskId, status, detail = {}) {
     method: 'POST',
     body: JSON.stringify({ token: options.token, status, ...detail })
   });
+}
+
+async function clearActiveTask(reason = '') {
+  const taskId = activeTask?.id;
+  activeTask = null;
+  activeTabId = 0;
+  if (taskId && reason) {
+    await updateStatus(taskId, STATUS.failed, {
+      failureReason: reason,
+      detail: { step: 'tab-closed', closedAt: new Date().toISOString() }
+    });
+  }
 }
 
 async function blobToDataUrl(blob) {
@@ -124,8 +142,7 @@ async function handleMessage(message, sender) {
   if (message?.type === 'CAISHEN_TAOBAO_STATUS') {
     await updateStatus(message.taskId || activeTask?.id, message.status, message.detail || {});
     if ([STATUS.saved, STATUS.failed].includes(message.status)) {
-      activeTask = null;
-      activeTabId = 0;
+      await clearActiveTask();
     }
     return { ok: true };
   }
