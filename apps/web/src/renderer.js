@@ -3445,7 +3445,7 @@ function renderTaobaoPublishDiagnostics(task) {
     ${inputs.length ? `<div class="taobao-diagnostics-block"><b>上传控件</b><pre>${escapeHtml(JSON.stringify(inputs, null, 2))}</pre></div>` : ''}
     ${fields.length ? `<div class="taobao-diagnostics-block"><b>输入控件</b><pre>${escapeHtml(JSON.stringify(fields, null, 2))}</pre></div>` : ''}
     ${selects.length ? `<div class="taobao-diagnostics-block"><b>下拉控件</b><pre>${escapeHtml(JSON.stringify(selects, null, 2))}</pre></div>` : ''}
-    ${buttons.length ? `<div class="taobao-diagnostics-block"><b>页面按钮</b><pre>${escapeHtml(buttons.join('\n'))}</pre></div>` : ''}
+    ${buttons.length ? `<div class="taobao-diagnostics-block"><b>页面按钮</b><pre>${escapeHtml(JSON.stringify(buttons, null, 2))}</pre></div>` : ''}
   </section>`;
 }
 

@@ -33,6 +33,7 @@ test('web app exposes Taobao publish assistant page and bridge methods', async (
   assert.match(renderer, /saveDraft/);
   assert.match(renderer, /visibleFields/);
   assert.match(renderer, /visibleSelects/);
+  assert.match(renderer, /JSON\.stringify\(buttons/);
   assert.match(renderer, /validationError/);
   assert.match(server, /runTaobaoPublishWithToken/);
   assert.match(server, /\/images\/:group\/:index/);
