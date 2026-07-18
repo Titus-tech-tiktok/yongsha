@@ -3180,7 +3180,8 @@ async function handleReadyTitleTaskAction(event) {
   button.disabled = true;
   button.textContent = '生成中…';
   try {
-    const result = await window.caishen.generateTitleForTask(task.folder);
+    const category = card.querySelector('[data-title-task-category]')?.value.trim() || task.category;
+    const result = await window.caishen.generateTitleForTask({ folder: task.folder, category });
     $('#titleLibraryStatus').textContent = `已生成：${result.name}`;
     await loadReadyTitleTasks();
     toast(`已生成 ${result.name}/标题.xlsx`);
@@ -3296,9 +3297,12 @@ function renderTaobaoCategoryList() {
   const list = $('#taobaoCategoryList');
   if (!list) return;
   const categories = state.taobaoPublishSettings?.categories || [];
-  list.innerHTML = categories.length
-    ? categories.map(category => `<button type="button" class="taobao-category-item${category.id === state.activeTaobaoCategoryId ? ' active' : ''}" data-taobao-category="${escapeHtml(category.id)}"><b>${escapeHtml(category.name)}</b><span>${escapeHtml(category.defaults?.publishUrl ? '已配置发布链接' : '待补发布链接')}</span></button>`).join('')
-    : '<div class="empty-inline">暂无类目模板</div>';
+  if (!categories.length) {
+    list.innerHTML = '<div class="empty-inline">暂无类目模板</div>';
+    return;
+  }
+  const activeId = state.activeTaobaoCategoryId || categories[0]?.id || '';
+  list.innerHTML = `<label class="taobao-category-select">发布类目<select id="taobaoCategoryQuickSelect">${categories.map(category => `<option value="${escapeHtml(category.id)}"${category.id === activeId ? ' selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}</select></label>`;
 }
 
 function activeTaobaoCategory() {
@@ -3405,7 +3409,7 @@ function renderTaobaoCategoryEditor() {
   }
   const defaults = category.defaults || {};
   const selectors = defaults.selectors || {};
-  editor.innerHTML = `<details class="taobao-template-details"><summary>${escapeHtml(category.name)}模板配置</summary><form class="taobao-template-form" id="taobaoCategoryTemplateForm">
+  editor.innerHTML = `<details class="taobao-template-details" open><summary>${escapeHtml(category.name)}模板配置</summary><form class="taobao-template-form" id="taobaoCategoryTemplateForm">
     <label>发布链接<input name="publishUrl" value="${escapeHtml(defaults.publishUrl || '')}" placeholder="淘宝后台发布页链接"></label>
     <label>价格<input name="price" value="${escapeHtml(defaults.price || '')}" placeholder="发布价格"></label>
     <label>库存<input name="stock" value="${escapeHtml(defaults.stock || '')}" placeholder="999"></label>
@@ -3563,10 +3567,11 @@ function renderTaobaoPublishDetail() {
     return;
   }
   title.textContent = task.name || '发布任务';
-  const selectedCategoryId = task.categoryId || state.activeTaobaoCategoryId;
+  const selectedCategoryId = state.activeTaobaoCategoryId || task.categoryId;
   const categories = state.taobaoPublishSettings?.categories || [];
+  const selectedCategory = categories.find(category => category.id === selectedCategoryId) || categories[0] || null;
   detail.innerHTML = `<div class="taobao-package-summary taobao-publish-steps">
-    <section class="taobao-step"><span>01</span><div><b>确认发布类目</b><label>发布类目<select id="taobaoTaskCategorySelect">${categories.map(category => `<option value="${escapeHtml(category.id)}"${category.id === selectedCategoryId ? ' selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}</select></label></div></section>
+    <section class="taobao-step"><span>01</span><div><b>确认发布类目</b><p>${escapeHtml(selectedCategory?.name || task.categoryName || '未选择类目')}</p></div></section>
     <section class="taobao-step"><span>02</span><div><b>确认标题</b><p>${escapeHtml(task.title || '未生成标题')}</p></div></section>
     <section class="taobao-step"><span>03</span><div><b>确认图片包</b><dl>
       <div><dt>主图</dt><dd>${task.mainImageCount || 0} 张</dd></div>
@@ -3610,7 +3615,7 @@ function notifyTaobaoExtensionPoll() {
 async function queueActiveTaobaoPublishTask() {
   const task = state.taobaoPublishTasks.find(item => (item.id || item.folder) === state.activeTaobaoPublishTaskId);
   if (!task) return toast('请先选择任务', true);
-  const categoryId = $('#taobaoTaskCategorySelect')?.value || state.activeTaobaoCategoryId || task.categoryId;
+  const categoryId = state.activeTaobaoCategoryId || task.categoryId;
   try {
     await window.caishen.queueTaobaoPublishTask({ folder: task.folder, categoryId });
     notifyTaobaoExtensionPoll();
@@ -5185,8 +5190,18 @@ function bindEvents() {
   if ($('#copyTaobaoPublishTokenButton')) $('#copyTaobaoPublishTokenButton').onclick = async () => {
     const token = state.taobaoPublishSettings?.token || '';
     if (!token) return toast('插件连接令牌未生成', true);
-    await window.caishen.copyText(token);
-    toast('插件连接令牌已复制');
+    try {
+      await window.caishen.copyText(token);
+      toast('插件连接令牌已复制');
+    } catch (error) {
+      toast(errorText(error), true);
+    }
+  };
+  if ($('#taobaoCategoryList')) $('#taobaoCategoryList').onchange = event => {
+    const select = event.target.closest('#taobaoCategoryQuickSelect');
+    if (!select) return;
+    state.activeTaobaoCategoryId = select.value;
+    renderTaobaoPublishPage();
   };
   if ($('#taobaoCategoryList')) $('#taobaoCategoryList').onclick = event => {
     const button = event.target.closest('[data-taobao-category]');
@@ -5210,12 +5225,6 @@ function bindEvents() {
       if (task?.folder) return window.caishen.openFolder(task.folder);
       return toast('请先选择任务', true);
     }
-  };
-  if ($('#taobaoPublishDetail')) $('#taobaoPublishDetail').onchange = event => {
-    if (!event.target.closest('#taobaoTaskCategorySelect')) return;
-    state.activeTaobaoCategoryId = event.target.value;
-    renderTaobaoCategoryList();
-    renderTaobaoCategoryEditor();
   };
   if ($('#taobaoCategoryEditor')) $('#taobaoCategoryEditor').onclick = event => {
     if (event.target.closest('#importTaobaoDiagnosticsButton')) applyTaobaoDiagnosticsSelectors();
@@ -5407,7 +5416,7 @@ function bindEvents() {
     else state.requiredTitleRoots.delete(input.dataset.requiredRoot);
     $('#titleLibraryStatus').textContent = `当前词库：${state.titleLibrary?.sourceFileName || ''}，${state.titleLibrary?.recordCount || 0} 条关键词；已选择必选词 ${state.requiredTitleRoots.size} 个。`;
   };
-  $('#titleResults').onclick = event => {
+  $('#titleResults').onclick = async event => {
     const row = event.target.closest('[data-title-index]');
     if (!row) return;
     const index = Number(row.dataset.titleIndex);
@@ -5415,8 +5424,12 @@ function bindEvents() {
       if (event.target.checked) state.selectedTitleIndexes.add(index); else state.selectedTitleIndexes.delete(index);
     } else {
       state.selectedTitleIndexes.add(index);
-      window.caishen.copyText(state.generatedTitles[index]);
-      toast('标题已复制');
+      try {
+        await window.caishen.copyText(state.generatedTitles[index]);
+        toast('标题已复制');
+      } catch (error) {
+        toast(errorText(error), true);
+      }
     }
     renderTitleResults();
   };

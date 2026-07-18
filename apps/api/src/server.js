@@ -966,7 +966,11 @@ const rpc = {
   deleteReviews: ([folders]) => runtime.deleteReviewFolders((folders || []).map(value => managedPath(value))),
   getTitleLibrary: async () => runtime.publicTitleLibrary(await runtime.loadTitleLibrary()),
   listReadyTitleTasks: () => runtime.listReadyTitleTasks(),
-  generateTitleForTask: ([folder]) => runtime.generateTitleForTask(managedPath(folder)),
+  generateTitleForTask: ([payload]) => runtime.generateTitleForTask(
+    payload && typeof payload === 'object'
+      ? { ...payload, folder: managedPath(payload.folder) }
+      : managedPath(payload)
+  ),
   saveTitleForTask: ([payload]) => runtime.saveTitleForTask({
     ...(payload || {}),
     folder: managedPath(payload?.folder)

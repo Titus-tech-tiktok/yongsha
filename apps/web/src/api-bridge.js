@@ -295,6 +295,29 @@ async function downloadWorkspaceFolder(target) {
   downloadFrom(url);
 }
 
+async function copyText(text) {
+  const value = String(text || '');
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {}
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  document.body.append(textarea);
+  textarea.focus();
+  textarea.select();
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  if (!copied) throw new Error('浏览器拒绝复制，请手动选中文本复制');
+  return true;
+}
+
 window.caishen = {
   authStatus: () => authRequest('/api/auth/status'),
   bootstrapAccount: payload => authRequest('/api/auth/bootstrap', { method: 'POST', body: JSON.stringify(payload) }),
@@ -365,7 +388,7 @@ window.caishen = {
   revealFile: file => openWorkspacePath(file, 'file'),
   openFolder: folder => openWorkspacePath(folder, 'folder'),
   downloadFolder: folder => downloadWorkspaceFolder(folder),
-  copyText: text => navigator.clipboard.writeText(String(text || '')),
+  copyText,
   getTitleLibrary: () => rpc('getTitleLibrary'),
   importTitleLibrary: async () => (await uploadSingle('/api/upload/title-library', '.xlsx,.csv'))?.data || null,
   listReadyTitleTasks: () => rpc('listReadyTitleTasks'),

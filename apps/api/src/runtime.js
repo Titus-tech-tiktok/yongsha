@@ -3496,20 +3496,22 @@ async function listReadyTitleTasks() {
 }
 
 async function generateTitleForTask(folderValue) {
-  const folder = String(folderValue || '');
+  const payload = folderValue && typeof folderValue === 'object' ? folderValue : { folder: folderValue };
+  const folder = String(payload.folder || '');
   if (!folder || !fs.existsSync(folder)) throw new Error('任务文件夹不存在');
   const task = (await listReadyTitleTasks()).find(item => path.resolve(item.folder) === path.resolve(folder));
   if (!task) throw new Error('任务图片尚未全部通过，不能生成标题');
-  const library = await loadCategoryTitleLibrary(task.category);
-  if (!library || titleLibraryRecordCount(library) === 0) throw new Error(`缺少 ${task.category} 关键词库，请先导入。`);
+  const category = String(payload.category || task.category || '').trim();
+  const library = await loadCategoryTitleLibrary(category);
+  if (!library || titleLibraryRecordCount(library) === 0) throw new Error(`缺少 ${category} 关键词库，请先导入。`);
 
   const profile = await readProductProfileFile(getTaskProductProfileFile(folder)) || normalizeProductProfile({});
   const stateFile = path.join(metadataPaths(folder).metadataFolder, 'title-generation-state.json');
   const nextState = advanceTitleGenerationState(await readJsonFile(stateFile, {}));
   await writeJsonFile(stateFile, nextState);
-  const title = generateTaobaoTitle(task.category, library, profile, nextState.Count);
-  await writeTitlesWorkbook(task.titleFile, task.category, [title]);
-  return { ...task, hasTitle: true, firstTitle: title };
+  const title = generateTaobaoTitle(category, library, profile, nextState.Count);
+  await writeTitlesWorkbook(task.titleFile, category, [title]);
+  return { ...task, category, hasTitle: true, firstTitle: title };
 }
 
 function taobaoCategoryForTitleCategory(categoryValue) {

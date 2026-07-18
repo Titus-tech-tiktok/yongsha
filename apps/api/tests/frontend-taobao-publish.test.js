@@ -7,6 +7,7 @@ test('web app exposes Taobao publish assistant page and bridge methods', async (
   const index = await fs.readFile(path.join(__dirname, '../../web/index.html'), 'utf8');
   const bridge = await fs.readFile(path.join(__dirname, '../../web/src/api-bridge.js'), 'utf8');
   const renderer = await fs.readFile(path.join(__dirname, '../../web/src/renderer.js'), 'utf8');
+  const styles = await fs.readFile(path.join(__dirname, '../../web/src/styles.css'), 'utf8');
   const server = await fs.readFile(path.join(__dirname, '../src/server.js'), 'utf8');
 
   assert.match(index, /page-taobao-publish/);
@@ -16,6 +17,10 @@ test('web app exposes Taobao publish assistant page and bridge methods', async (
   assert.match(bridge, /saveTaobaoPublishSettings/);
   assert.match(bridge, /queueTaobaoPublishTask/);
   assert.match(bridge, /saveTitleForTask/);
+  assert.match(bridge, /execCommand\('copy'\)/);
+  assert.match(renderer, /generateTitleForTask\(\{ folder: task\.folder, category \}\)/);
+  assert.match(renderer, /taobaoCategoryQuickSelect/);
+  assert.doesNotMatch(renderer, /id="taobaoTaskCategorySelect"/);
   assert.match(renderer, /renderTaobaoPublishPage/);
   assert.match(renderer, /taobaoPublishBlockedTasks/);
   assert.match(renderer, /blockedTasks/);
@@ -47,6 +52,9 @@ test('web app exposes Taobao publish assistant page and bridge methods', async (
   assert.match(renderer, /visibleSelects/);
   assert.match(renderer, /JSON\.stringify\(buttons/);
   assert.match(renderer, /validationError/);
+  assert.match(styles, /grid-template-areas:\s*"tasks config detail"/);
+  assert.match(styles, /\.taobao-category-select/);
+  assert.match(styles, /\.taobao-template-form\s*\{[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(server, /runTaobaoPublishWithToken/);
   assert.match(server, /\/api\/taobao\/publish\/extension-options/);
   assert.match(server, /\/images\/:group\/:index/);

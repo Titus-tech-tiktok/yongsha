@@ -3449,11 +3449,24 @@ label input, label textarea {
 }
 
 .taobao-publish-layout {
-  grid-template-columns: minmax(240px, 300px) minmax(320px, 420px) minmax(420px, 1fr);
+  grid-template-areas: "tasks config detail";
+  grid-template-columns: minmax(280px, 360px) minmax(620px, 1fr) minmax(300px, 380px);
   gap: 16px;
   height: calc(100vh - 40px);
   min-height: 620px;
   display: grid;
+}
+
+.taobao-task-panel {
+  grid-area: tasks;
+}
+
+.taobao-category-panel {
+  grid-area: config;
+}
+
+.taobao-detail-panel {
+  grid-area: detail;
 }
 
 .taobao-category-panel, .taobao-task-panel, .taobao-detail-panel {
@@ -3462,7 +3475,13 @@ label input, label textarea {
   overflow: hidden;
 }
 
-.taobao-category-panel, .taobao-detail-panel {
+.taobao-category-panel {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 14px;
+  display: grid;
+}
+
+.taobao-detail-panel {
   align-content: start;
   gap: 14px;
   display: grid;
@@ -3508,6 +3527,7 @@ label input, label textarea {
 }
 
 .taobao-extension-card {
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 9px;
   display: grid;
 }
@@ -3523,13 +3543,19 @@ label input, label textarea {
   background: #f4f3ee;
   border: 1px solid var(--line);
   border-radius: 8px;
+  grid-column: 1 / -1;
+  max-height: 42px;
   padding: 10px;
   font-size: 11px;
+  line-height: 1.45;
+  overflow: auto;
   overflow-wrap: anywhere;
 }
 
 .taobao-extension-card button {
+  justify-self: end;
   min-height: 34px;
+  padding: 0 14px;
 }
 
 .taobao-category-list, .taobao-task-list {
@@ -3541,7 +3567,20 @@ label input, label textarea {
 }
 
 .taobao-category-list {
-  max-height: 210px;
+  min-height: auto;
+  overflow: visible;
+}
+
+.taobao-category-select {
+  color: var(--subtle);
+  gap: 7px;
+  display: grid;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.taobao-category-select select {
+  width: 100%;
 }
 
 .taobao-category-item, .taobao-task-card {
@@ -3613,6 +3652,8 @@ label input, label textarea {
 .taobao-task-card em.failed { color: var(--red); background: #f1dedb; }
 
 .taobao-detail-head {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
   gap: 5px;
   display: grid;
 }
@@ -3630,15 +3671,15 @@ label input, label textarea {
   border: 1px solid var(--line);
   background: #fdfcf9;
   border-radius: 10px;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 12px;
-  padding: 14px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
   display: grid;
 }
 
 .taobao-step > span {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -3680,7 +3721,8 @@ label input, label textarea {
 }
 
 .taobao-package-summary dl {
-  gap: 9px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   margin: 0;
   display: grid;
 }
@@ -3779,6 +3821,7 @@ label input, label textarea {
   border: 1px solid var(--line);
   background: #fdfcf9;
   border-radius: 10px;
+  min-height: 0;
 }
 
 .taobao-template-details summary {
@@ -3794,6 +3837,7 @@ label input, label textarea {
 }
 
 .taobao-template-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   padding: 12px;
   display: grid;
@@ -3810,6 +3854,12 @@ label input, label textarea {
   display: grid;
   font-size: 11px;
   font-weight: 800;
+  min-width: 0;
+}
+
+.taobao-template-form > label:nth-of-type(n+7),
+.taobao-template-form > button {
+  grid-column: 1 / -1;
 }
 
 .taobao-template-form input,
@@ -5591,13 +5641,17 @@ label input, label textarea {
   }
 
   .taobao-publish-layout {
-    grid-template-columns: 240px minmax(380px, 1fr) 280px;
+    grid-template-columns: 260px minmax(440px, 1fr) 300px;
   }
 }
 
 @media (width <= 900px) {
   .task-layout, .task-layout.template-print-mode, .review-layout, .free-layout, .prompt-settings-layout, .taobao-publish-layout {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "tasks"
+      "config"
+      "detail";
     height: auto;
     min-height: 0;
   }
@@ -5669,6 +5723,15 @@ label input, label textarea {
 
   .taobao-category-panel, .taobao-task-panel, .taobao-detail-panel {
     min-height: 320px;
+  }
+
+  .taobao-template-form {
+    grid-template-columns: 1fr;
+  }
+
+  .taobao-template-form > label:nth-of-type(n+7),
+  .taobao-template-form > button {
+    grid-column: auto;
   }
 
   .review-list {
