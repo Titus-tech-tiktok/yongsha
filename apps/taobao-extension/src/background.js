@@ -37,6 +37,10 @@ async function setLastError(error) {
   await chrome.storage.local.set({ lastError: error?.message || String(error), lastErrorAt: new Date().toISOString() });
 }
 
+async function clearLastError() {
+  await chrome.storage.local.remove(['lastError', 'lastErrorAt']);
+}
+
 function schedulePoll(options) {
   clearTimeout(pollTimer);
   chrome.alarms.create('poll-taobao-publish', { periodInMinutes: 1 });
@@ -126,7 +130,7 @@ async function openPublishTab(task) {
   await updateStatus(task.id, STATUS.opening);
   const existingTab = await findExistingPublishTab();
   const tab = existingTab
-    ? await chrome.tabs.update(existingTab.id, { active: false })
+    ? await chrome.tabs.update(existingTab.id, { url: publishUrl, active: false })
     : await chrome.tabs.create({ url: publishUrl, active: false });
   activeTabId = tab.id;
   activeTask = { ...task, caishenBaseUrl: options.baseUrl };
@@ -234,6 +238,7 @@ async function trySendTaskToActiveTab() {
 async function pollOnce() {
   if (activeTask) return { ok: true, active: true };
   const task = await claimTask();
+  await clearLastError();
   if (!task) return { ok: true, claimed: false };
   await openPublishTab(task);
   return { ok: true, claimed: true, taskId: task.id };
@@ -253,10 +258,13 @@ async function handleMessage(message, sender) {
     return { ok: true, options: await readOptions(), activeTask, activeTabId, activeFrameId, frameCandidates: lastFrameCandidates, ...(await chrome.storage.local.get(['lastError', 'lastErrorAt'])) };
   }
   if (message?.type === 'CAISHEN_TAOBAO_POPUP_REFRESH_TOKEN') {
-    return { ok: true, options: await refreshToken() };
+    const options = await refreshToken();
+    await clearLastError();
+    return { ok: true, options };
   }
   if (message?.type === 'CAISHEN_TAOBAO_POPUP_SAVE') {
     const options = await writeOptions(message.options || {});
+    if (options.token) await clearLastError();
     schedulePoll(options);
     if (options.enabled) pollOnce().catch(error => setLastError(error));
     return { ok: true, options };
@@ -271,6 +279,7 @@ async function handleMessage(message, sender) {
   }
   if (message?.type === 'CAISHEN_TAOBAO_STATUS') {
     await updateStatus(message.taskId || activeTask?.id, message.status, message.detail || {});
+    await clearLastError();
     if ([STATUS.saved, STATUS.failed].includes(message.status)) {
       await clearActiveTask();
     }

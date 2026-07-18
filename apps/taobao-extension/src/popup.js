@@ -22,14 +22,18 @@ async function load() {
   $('#token').value = options.token;
   $('#enabled').checked = options.enabled;
   $('#pollSeconds').value = options.pollSeconds;
-  try {
-    await refreshToken();
-  } catch (error) {
-    showStatus(`自动读取失败：${error.message}，可手动粘贴令牌保存`);
+  if (options.token) {
+    showStatus('令牌已由 Web 端自动同步');
+  } else {
+    try {
+      await refreshToken();
+    } catch (error) {
+      showStatus(`自动读取失败：${error.message}，可手动粘贴令牌保存`);
+    }
   }
   const state = await chrome.runtime.sendMessage({ type: 'CAISHEN_TAOBAO_POPUP_GET' });
   if (state?.activeTask) showStatus(`正在处理：${state.activeTask.name || state.activeTask.id}`);
-  else if (state?.lastError) showStatus(`最近错误：${state.lastError}`);
+  else if (!options.token && state?.lastError) showStatus(`最近错误：${state.lastError}`);
 }
 
 async function save() {
