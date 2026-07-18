@@ -70,6 +70,8 @@ assert.match(content, /if \(isSelectLike\(selected\)\) return setSelectValue\(se
 assert.match(content, /clickElement/);
 assert.match(content, /scrollIntoView/);
 assert.match(content, /aria-disabled/);
+assert.match(content, /element\.click\?\.\(\)/);
+assert.doesNotMatch(content, /for \(const type of \['pointerdown', 'mousedown', 'mouseup', 'click'\]\)/);
 assert.match(content, /waitForButton/);
 assert.match(content, /fallbackAllImages/);
 assert.match(content, /fileInputFromSelector/);
@@ -95,6 +97,8 @@ assert.match(content, /isCategoryEntryPage/);
 assert.match(content, /selectTaobaoCategory/);
 assert.match(content, /preparePublishForm/);
 assert.match(content, /scoreCategoryCandidate/);
+assert.match(content, /ownKeywordHit/);
+assert.match(content, /score \+= 60/);
 assert.match(content, /categoryCandidateText/);
 assert.match(content, /genericCategoryLabels/);
 assert.match(content, /findCategoryAction/);

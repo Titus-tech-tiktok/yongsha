@@ -85,9 +85,10 @@ function clickElement(element) {
   if (!element || disabled(element)) return false;
   element.scrollIntoView?.({ block: 'center', inline: 'center' });
   element.focus?.();
-  for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+  for (const type of ['pointerdown', 'mousedown', 'mouseup']) {
     element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
   }
+  element.click?.();
   return true;
 }
 
@@ -332,15 +333,17 @@ function scoreCategoryCandidate(element, keyword) {
   const compactLabel = ownLabel.replace(/\s+/g, '');
   if (!compactLabel || genericCategoryLabels.has(compactLabel) || ownLabel.length > 600) return 0;
   const lowerKeyword = text(keyword).toLocaleLowerCase('zh-CN');
+  const ownKeywordHit = ownLabel.toLocaleLowerCase('zh-CN').includes(lowerKeyword);
   const haystack = categoryCandidateText(element).toLocaleLowerCase('zh-CN');
   const keywordHit = lowerKeyword && haystack.includes(lowerKeyword);
   const actionHit = categoryActionWords.some(word => haystack.includes(word));
   if (!keywordHit) return 0;
   let score = 100;
+  if (ownKeywordHit) score += 60;
   if (actionHit) score += 40;
   if (['BUTTON', 'A'].includes(element.tagName) || element.getAttribute('role') === 'button') score += 15;
   if (['LI', 'DIV'].includes(element.tagName)) score += 5;
-  return score - Math.min(Math.floor(ownLabel.length / 80), 10);
+  return score - Math.min(Math.floor(ownLabel.length / 20), 30);
 }
 
 function findCategoryCandidate(keyword) {
