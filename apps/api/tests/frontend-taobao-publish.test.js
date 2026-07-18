@@ -24,6 +24,9 @@ test('web app exposes Taobao publish assistant page and bridge methods', async (
   assert.match(renderer, /CAISHEN_TAOBAO_WEB_TRIGGER/);
   assert.match(renderer, /TAOBAO_SELECTOR_FIELDS/);
   assert.match(renderer, /collectTaobaoSelectors/);
+  assert.match(renderer, /categorySearch/);
+  assert.match(renderer, /categorySearchButton/);
+  assert.match(renderer, /categoryResult/);
   assert.match(renderer, /mainImages/);
   assert.match(renderer, /saveDraft/);
   assert.match(renderer, /visibleFields/);

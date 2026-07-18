@@ -3285,6 +3285,9 @@ function activeTaobaoCategory() {
 }
 
 const TAOBAO_SELECTOR_FIELDS = [
+  ['categorySearch', '类目搜索输入框'],
+  ['categorySearchButton', '类目搜索按钮'],
+  ['categoryResult', '类目结果/下一步按钮'],
   ['title', '标题输入框'],
   ['price', '价格输入框'],
   ['stock', '库存输入框'],
