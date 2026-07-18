@@ -134,6 +134,7 @@ async function handleMessage(message, sender) {
     return { ok: true, options };
   }
   if (message?.type === 'CAISHEN_TAOBAO_POPUP_POLL') return pollOnce();
+  if (message?.type === 'CAISHEN_TAOBAO_TRIGGER_POLL') return pollOnce();
   if (message?.type === 'CAISHEN_TAOBAO_FETCH_IMAGE') return { ok: true, image: await fetchTaskImage(message) };
   if (message?.type === 'CAISHEN_TAOBAO_CONTENT_READY') {
     if (activeTask && sender.tab?.id === activeTabId) await sendTaskToTab(sender.tab.id, activeTask);

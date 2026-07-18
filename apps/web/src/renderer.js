@@ -3480,12 +3480,19 @@ function renderTaobaoPublishPage() {
   renderTaobaoPublishDetail();
 }
 
+function notifyTaobaoExtensionPoll() {
+  try {
+    window.postMessage({ type: 'CAISHEN_TAOBAO_WEB_TRIGGER' }, window.location.origin);
+  } catch {}
+}
+
 async function queueActiveTaobaoPublishTask() {
   const task = state.taobaoPublishTasks.find(item => (item.id || item.folder) === state.activeTaobaoPublishTaskId);
   if (!task) return toast('请先选择任务', true);
   const categoryId = $('#taobaoTaskCategorySelect')?.value || state.activeTaobaoCategoryId || task.categoryId;
   try {
     await window.caishen.queueTaobaoPublishTask({ folder: task.folder, categoryId });
+    notifyTaobaoExtensionPoll();
     toast('已提交，等待浏览器插件接收');
     await loadTaobaoPublishPage();
   } catch (error) {

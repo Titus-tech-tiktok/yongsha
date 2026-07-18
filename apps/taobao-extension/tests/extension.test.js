@@ -6,12 +6,16 @@ const root = path.resolve(__dirname, '..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const background = fs.readFileSync(path.join(root, 'src/background.js'), 'utf8');
 const content = fs.readFileSync(path.join(root, 'src/content.js'), 'utf8');
+const webBridge = fs.readFileSync(path.join(root, 'src/web-bridge.js'), 'utf8');
 const popup = fs.readFileSync(path.join(root, 'src/popup.html'), 'utf8');
 
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.background.service_worker, 'src/background.js');
 assert.ok(manifest.host_permissions.includes('https://item.upload.taobao.com/*'));
+assert.ok(manifest.host_permissions.includes('http://127.0.0.1/*'));
+assert.ok(manifest.content_scripts.some(item => item.js.includes('src/web-bridge.js')));
 assert.match(background, /\/api\/taobao\/publish\/claim/);
+assert.match(background, /CAISHEN_TAOBAO_TRIGGER_POLL/);
 assert.match(background, /CAISHEN_TAOBAO_FETCH_IMAGE/);
 assert.match(background, /\/images\/\$\{group\}\/\$\{index\}/);
 assert.match(background, /CAISHEN_TAOBAO_STATUS/);
@@ -37,6 +41,8 @@ assert.match(content, /saveDraft/);
 assert.match(content, /waitForDraftSaved/);
 assert.match(content, /findValidationError/);
 assert.doesNotMatch(content, /successKeywords[\s\S]*'\\u8349\\u7a3f'/);
+assert.match(webBridge, /CAISHEN_TAOBAO_WEB_TRIGGER/);
+assert.match(webBridge, /CAISHEN_TAOBAO_TRIGGER_POLL/);
 assert.match(popup, /token/);
 
 console.log('taobao extension smoke test passed');

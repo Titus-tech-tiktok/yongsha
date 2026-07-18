@@ -21,6 +21,11 @@
   },
   "content_scripts": [
     {
+      "matches": ["http://127.0.0.1/*", "http://localhost/*"],
+      "js": ["src/web-bridge.js"],
+      "run_at": "document_idle"
+    },
+    {
       "matches": ["https://item.upload.taobao.com/*"],
       "js": ["src/content.js"],
       "run_at": "document_idle"
