@@ -30,6 +30,8 @@ assert.match(background, /trySendTaskToActiveTab/);
 assert.match(background, /findExistingPublishTab/);
 assert.match(background, /chrome\.tabs\.query\(\{ url: 'https:\/\/item\.upload\.taobao\.com\/\*' \}\)/);
 assert.match(background, /chrome\.tabs\.update\(existingTab\.id, \{ active: true \}\)/);
+assert.match(background, /injectContentScript/);
+assert.match(background, /chrome\.scripting\.executeScript/);
 assert.match(background, /CAISHEN_TAOBAO_POPUP_DIAGNOSTICS/);
 assert.match(background, /CAISHEN_TAOBAO_COLLECT_DIAGNOSTICS/);
 assert.match(content, /input\[type="file"\]/);

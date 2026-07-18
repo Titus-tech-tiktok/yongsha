@@ -132,13 +132,24 @@ async function sendTaskToTab(tabId, task) {
   await chrome.tabs.sendMessage(tabId, { type: 'CAISHEN_TAOBAO_START', task });
 }
 
+async function injectContentScript(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ['src/content.js']
+  });
+}
+
 async function trySendTaskToActiveTab() {
   if (!activeTask || !activeTabId) return false;
   try {
     await sendTaskToTab(activeTabId, activeTask);
     return true;
   } catch (error) {
-    if (/Receiving end does not exist|Could not establish connection/i.test(error?.message || '')) return false;
+    if (/Receiving end does not exist|Could not establish connection/i.test(error?.message || '')) {
+      await injectContentScript(activeTabId);
+      await sendTaskToTab(activeTabId, activeTask);
+      return true;
+    }
     throw error;
   }
 }
