@@ -351,6 +351,51 @@ function findCategoryCandidate(keyword) {
   return candidates[0]?.element || null;
 }
 
+function categoryActionLabel(element) {
+  return text(element?.innerText || element?.textContent || element?.getAttribute?.('aria-label') || element?.title)
+    .replace(/\s+/g, '');
+}
+
+function isCategoryAction(element) {
+  if (!element || !visible(element) || disabled(element)) return false;
+  if (!['BUTTON', 'A'].includes(element.tagName) && element.getAttribute('role') !== 'button') return false;
+  const label = categoryActionLabel(element);
+  return label && !label.includes('\u641c\u7d22') && categoryActionWords.some(word => label.includes(word));
+}
+
+function categoryResultRoots(selected, keyword) {
+  const lowerKeyword = text(keyword).toLocaleLowerCase('zh-CN');
+  const roots = [];
+  let node = selected;
+  for (let index = 0; node && index < 6 && node !== document.body; index += 1, node = node.parentElement) {
+    const label = text(node.innerText || node.textContent).toLocaleLowerCase('zh-CN');
+    if (label.includes(lowerKeyword) && label.length <= 1200) roots.push(node);
+  }
+  return roots;
+}
+
+function findCategoryAction(selected, keyword) {
+  for (const root of categoryResultRoots(selected, keyword)) {
+    const candidates = [root, ...root.querySelectorAll('button, [role="button"], a')]
+      .filter(isCategoryAction)
+      .sort((left, right) => categoryActionLabel(left).length - categoryActionLabel(right).length);
+    if (candidates[0]) return candidates[0];
+  }
+  return null;
+}
+
+function findCategoryContinuation(selected, excluded) {
+  const candidates = [...document.querySelectorAll('button, [role="button"], a')]
+    .filter(element => element !== excluded)
+    .filter(isCategoryAction)
+    .sort((left, right) => {
+      const preferred = label => /^(\u53d1\u5e03|\u4e0b\u4e00\u6b65|\u5f00\u59cb|\u786e\u8ba4)/.test(label) ? 0 : 1;
+      return preferred(categoryActionLabel(left)) - preferred(categoryActionLabel(right))
+        || categoryActionLabel(left).length - categoryActionLabel(right).length;
+    });
+  return candidates[0] || null;
+}
+
 async function waitForPublishForm(timeoutMs = 15000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -377,8 +422,15 @@ async function selectTaobaoCategory(task) {
   }
   const selected = query(selectors(task).categoryResult) || findCategoryCandidate(keyword);
   if (!selected) throw fail(`未找到淘宝类目候选：${keyword}`, 'select-category');
-  clickElement(selected);
-  await sleep(1800);
+  const action = findCategoryAction(selected, keyword);
+  const clicked = action || selected;
+  clickElement(clicked);
+  if (await waitForPublishForm(3500)) return;
+  const continuation = findCategoryContinuation(selected, clicked);
+  if (continuation) {
+    clickElement(continuation);
+    await sleep(1200);
+  }
   if (!(await waitForPublishForm())) throw fail(`已选择淘宝类目但未进入发布表单：${keyword}`, 'select-category');
 }
 
