@@ -1084,6 +1084,28 @@ async function startServer() {
     }
   });
 
+  app.get('/api/taobao/publish/tasks/:id/images/:group/:index', async (req, res) => {
+    try {
+      const token = String(req.query.token || req.get('x-caishen-taobao-token') || '');
+      const file = await runTaobaoPublishWithToken(token, async () => {
+        const pack = await runtime.getTaobaoPublishPackage(req.params.id);
+        const groupMap = {
+          main: 'mainImages',
+          ratio: 'ratioImages',
+          detail: 'detailImages'
+        };
+        const key = groupMap[String(req.params.group || '')];
+        const index = Math.max(0, Math.trunc(Number(req.params.index) || 0));
+        const image = key ? pack.images?.[key]?.[index] : null;
+        if (!image?.outputPath || !runtime.isOutputPath(image.outputPath)) throw new Error('淘宝发布图片不存在');
+        return image.outputPath;
+      });
+      return res.sendFile(file, { dotfiles: 'allow' });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
+
   app.post('/api/taobao/publish/tasks/:id/status', async (req, res) => {
     try {
       const token = String(req.body?.token || '');
@@ -1262,33 +1284,6 @@ async function startServer() {
     if (!isTeamAdmin(req.user)) return res.status(403).json({ error: '只有管理员可以切换模型' });
     try {
       return res.json({ data: await runtime.saveSelectedModelPackage(req.body?.selectedModelPackageId) });
-    } catch (error) {
-      return res.status(400).json({ error: error?.message || String(error) });
-    }
-  });
-
-  app.post('/api/taobao/publish/claim', async (req, res) => {
-    try {
-      return res.json({ data: await runtime.claimTaobaoPublishTask(req.body || {}) });
-    } catch (error) {
-      return res.status(400).json({ error: error?.message || String(error) });
-    }
-  });
-
-  app.get('/api/taobao/publish/tasks/:id/package', async (req, res) => {
-    try {
-      const settings = await runtime.getTaobaoPublishSettings();
-      const token = String(req.query.token || req.get('x-caishen-taobao-token') || '');
-      if (token !== settings.token) return res.status(403).json({ error: '淘宝发布助手令牌无效' });
-      return res.json({ data: await runtime.getTaobaoPublishPackage(req.params.id) });
-    } catch (error) {
-      return res.status(400).json({ error: error?.message || String(error) });
-    }
-  });
-
-  app.post('/api/taobao/publish/tasks/:id/status', async (req, res) => {
-    try {
-      return res.json({ data: await runtime.updateTaobaoPublishStatus(req.params.id, req.body || {}) });
     } catch (error) {
       return res.status(400).json({ error: error?.message || String(error) });
     }

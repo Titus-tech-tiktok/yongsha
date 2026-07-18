@@ -30,6 +30,35 @@ async function updateStatus(taskId, status, detail = {}) {
   });
 }
 
+async function blobToDataUrl(blob) {
+  const buffer = await blob.arrayBuffer();
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index]);
+  return `data:${blob.type || 'image/jpeg'};base64,${btoa(binary)}`;
+}
+
+async function fetchTaskImage(message = {}) {
+  const options = await readOptions();
+  if (!options.token) throw new Error('插件连接令牌未配置');
+  const taskId = encodeURIComponent(String(message.taskId || activeTask?.id || ''));
+  const group = encodeURIComponent(String(message.group || 'main'));
+  const index = Math.max(0, Math.trunc(Number(message.index) || 0));
+  if (!taskId) throw new Error('缺少发布任务 ID');
+  const url = `${options.baseUrl}/api/taobao/publish/tasks/${taskId}/images/${group}/${index}?token=${encodeURIComponent(options.token)}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || `图片下载失败 HTTP ${response.status}`);
+  }
+  const blob = await response.blob();
+  return {
+    dataUrl: await blobToDataUrl(blob),
+    type: blob.type || 'image/jpeg',
+    name: String(message.name || `image-${group}-${index}.jpg`)
+  };
+}
+
 async function claimTask() {
   const options = await readOptions();
   if (!options.enabled || !options.token) return null;
@@ -70,6 +99,7 @@ async function handleMessage(message, sender) {
     return { ok: true, options };
   }
   if (message?.type === 'CAISHEN_TAOBAO_POPUP_POLL') return pollOnce();
+  if (message?.type === 'CAISHEN_TAOBAO_FETCH_IMAGE') return { ok: true, image: await fetchTaskImage(message) };
   if (message?.type === 'CAISHEN_TAOBAO_CONTENT_READY') {
     if (activeTask && sender.tab?.id === activeTabId) await sendTaskToTab(sender.tab.id, activeTask);
     return { ok: true };

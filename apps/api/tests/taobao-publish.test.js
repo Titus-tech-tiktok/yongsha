@@ -55,3 +55,12 @@ test('taobao image classifier separates main, ratio and detail images by relativ
   assert.equal(images.ratioImages.length, 1);
   assert.equal(images.detailImages.length, 2);
 });
+
+test('taobao image classifier keeps outputPath for extension image proxy', () => {
+  const images = classifyTaobaoImages([
+    { relativePath: 'main/1.jpg', outputUrl: '/1.jpg', outputPath: 'D:/output/1.jpg' },
+    { relativePath: 'detail/1.jpg', outputUrl: '/2.jpg', outputPath: 'D:/output/2.jpg' }
+  ]);
+  assert.equal(images.mainImages[0].outputPath, 'D:/output/1.jpg');
+  assert.equal(images.detailImages[0].outputPath, 'D:/output/2.jpg');
+});

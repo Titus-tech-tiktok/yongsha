@@ -62,7 +62,8 @@ function classifyTaobaoImages(jobs = []) {
       relativePath,
       name: path.basename(relativePath),
       url: job.outputUrl,
-      outputUrl: job.outputUrl
+      outputUrl: job.outputUrl,
+      outputPath: job.outputPath || ''
     };
     if (lower.includes('3-4') || lower.includes('3:4') || lower.includes('3_4')) result.ratioImages.push(image);
     else if (lower.includes('详情') || lower.includes('detail')) result.detailImages.push(image);
