@@ -3,6 +3,7 @@ import { DEFAULT_PUBLISH_URL, STATUS, apiFetch, ensureToken, readOptions, refres
 let activeTask = null;
 let activeTabId = 0;
 let activeFrameId = 0;
+let lastFrameCandidates = [];
 let pollTimer = 0;
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -65,6 +66,7 @@ async function clearActiveTask(reason = '') {
   activeTask = null;
   activeTabId = 0;
   activeFrameId = 0;
+  lastFrameCandidates = [];
   if (taskId && reason) {
     await updateStatus(taskId, STATUS.failed, {
       failureReason: reason,
@@ -180,12 +182,30 @@ async function findPublishFrame(tabId) {
     .map(result => ({ frameId: result.frameId || 0, ...(result.result || {}) }))
     .filter(frame => frame.score > 0)
     .sort((left, right) => right.score - left.score);
+  lastFrameCandidates = frames.slice(0, 8);
   return frames[0] || { frameId: 0, score: 0 };
 }
 
 async function sendTaskToTab(tabId, task) {
   const frame = await findPublishFrame(tabId).catch(() => ({ frameId: 0, score: 0 }));
   activeFrameId = frame.frameId || 0;
+  await updateStatus(task.id, STATUS.opening, {
+    detail: {
+      step: 'frame-selected',
+      frameId: activeFrameId,
+      frame: {
+        href: frame.href || '',
+        title: frame.title || '',
+        score: frame.score || 0,
+        hasFileInputs: Boolean(frame.hasFileInputs),
+        hasTitleField: Boolean(frame.hasTitleField),
+        hasSaveDraft: Boolean(frame.hasSaveDraft),
+        hasCategorySearch: Boolean(frame.hasCategorySearch),
+        isCategoryEntry: Boolean(frame.isCategoryEntry)
+      },
+      frameCandidates: lastFrameCandidates
+    }
+  });
   await chrome.tabs.sendMessage(tabId, { type: 'CAISHEN_TAOBAO_START', task }, { frameId: activeFrameId });
 }
 
@@ -230,7 +250,7 @@ async function collectActiveTaobaoDiagnostics() {
 
 async function handleMessage(message, sender) {
   if (message?.type === 'CAISHEN_TAOBAO_POPUP_GET') {
-    return { ok: true, options: await readOptions(), activeTask, activeTabId, ...(await chrome.storage.local.get(['lastError', 'lastErrorAt'])) };
+    return { ok: true, options: await readOptions(), activeTask, activeTabId, activeFrameId, frameCandidates: lastFrameCandidates, ...(await chrome.storage.local.get(['lastError', 'lastErrorAt'])) };
   }
   if (message?.type === 'CAISHEN_TAOBAO_POPUP_REFRESH_TOKEN') {
     return { ok: true, options: await refreshToken() };
