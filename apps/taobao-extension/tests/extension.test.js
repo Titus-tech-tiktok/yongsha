@@ -93,6 +93,8 @@ assert.match(content, /selectorForElement/);
 assert.match(content, /CAISHEN_TAOBAO_COLLECT_DIAGNOSTICS/);
 assert.match(content, /collectDiagnostics\(error\.step \|\| 'unknown'\)/);
 assert.match(content, /KeyboardEvent/);
+assert.match(content, /runningTaskId/);
+assert.match(content, /if \(runningTaskId === message\.task\?\.id\)/);
 assert.doesNotMatch(content, /if \(await preparePublishForm\(task\)\) return/);
 assert.doesNotMatch(content, /successKeywords[\s\S]*'\\u8349\\u7a3f'/);
 assert.match(webBridge, /CAISHEN_TAOBAO_WEB_TRIGGER/);

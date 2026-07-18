@@ -7,6 +7,7 @@ const STATUS = {
 };
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+let runningTaskId = '';
 
 chrome.runtime.sendMessage({ type: 'CAISHEN_TAOBAO_CONTENT_READY' });
 
@@ -16,12 +17,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return;
   }
   if (message?.type !== 'CAISHEN_TAOBAO_START') return;
+  if (runningTaskId === message.task?.id) {
+    sendResponse({ ok: true, duplicate: true });
+    return;
+  }
+  runningTaskId = message.task?.id || '';
   runPublish(message.task).then(() => sendResponse({ ok: true })).catch(error => {
     report(message.task?.id, STATUS.failed, {
       failureReason: error.message,
       detail: collectDiagnostics(error.step || 'unknown')
     });
     sendResponse({ ok: false, error: error.message });
+  }).finally(() => {
+    runningTaskId = '';
   });
   return true;
 });
