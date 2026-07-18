@@ -967,6 +967,10 @@ const rpc = {
   getTitleLibrary: async () => runtime.publicTitleLibrary(await runtime.loadTitleLibrary()),
   listReadyTitleTasks: () => runtime.listReadyTitleTasks(),
   generateTitleForTask: ([folder]) => runtime.generateTitleForTask(managedPath(folder)),
+  saveTitleForTask: ([payload]) => runtime.saveTitleForTask({
+    ...(payload || {}),
+    folder: managedPath(payload?.folder)
+  }),
   saveTitleSetup: ([payload]) => runtime.saveTitleSetup(payload || {}),
   generateTitles: ([payload]) => runtime.generateTitles(payload || {}),
   exportTitles: ([payload]) => runtime.exportTitles(payload || {}),
@@ -1065,6 +1069,19 @@ async function startServer() {
     }
     throw new Error('淘宝发布助手令牌无效');
   }
+
+  app.get('/api/taobao/publish/extension-options', async (req, res) => {
+    try {
+      const user = await auth.userFromRequest(req);
+      if (!user) return res.status(401).json({ error: '请先登录 Web 端' });
+      return res.json({ data: await runtime.runWithWorkspace(user.workspaceId, async () => {
+        const settings = await runtime.getTaobaoPublishSettings();
+        return { token: settings.token || '', pollSeconds: 12 };
+      }) });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
 
   app.post('/api/taobao/publish/claim', async (req, res) => {
     try {

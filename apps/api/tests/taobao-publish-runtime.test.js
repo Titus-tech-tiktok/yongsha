@@ -34,10 +34,10 @@ async function writeTitleWorkbook(file, title) {
   XLSX.writeFile(workbook, file);
 }
 
-async function createPublishableReviewTask() {
+async function createPublishableReviewTask(name = 'taobao-ready-0001') {
   const outputRoot = path.join(runtime.WORKSPACE_ROOT, 'outputs');
   const templateRoot = path.join(runtime.WORKSPACE_ROOT, 'assets', 'templates', 'sideboard-set');
-  const folder = path.join(outputRoot, 'taobao-ready-0001');
+  const folder = path.join(outputRoot, name);
   const relativePaths = [
     '1-1主图/1.jpg',
     '3-4主图/1.jpg',
@@ -110,4 +110,38 @@ test('taobao publish runtime queues claims packages and records draft save statu
   });
   assert.equal(updated.status, '已保存草稿');
   assert.equal(updated.detail.confirmation, '保存成功');
+});
+
+test('taobao publish list only includes reviewed tasks that already have a title', async () => {
+  const folder = await createPublishableReviewTask('taobao-ready-without-title');
+  const entries = await fs.readdir(folder);
+  await Promise.all(entries.filter(item => item.toLowerCase().endsWith('.xlsx')).map(item => fs.rm(path.join(folder, item), { force: true })));
+
+  const listed = await runtime.listTaobaoPublishTasks();
+  assert.equal(listed.tasks.some(item => path.resolve(item.folder) === path.resolve(folder)), false);
+  assert.equal(listed.blockedTasks.some(item => path.resolve(item.folder) === path.resolve(folder)), true);
+});
+
+test('manual task title is saved to the title workbook and used by Taobao publish package', async () => {
+  const folder = await createPublishableReviewTask();
+  const settings = await runtime.getTaobaoPublishSettings();
+  const manualTitle = '餐边柜中古风客厅靠墙储物柜玄关柜';
+
+  const saved = await runtime.saveTitleForTask({ folder, title: manualTitle, category: '餐边柜' });
+  assert.equal(saved.firstTitle, manualTitle);
+  assert.equal(saved.category, '餐边柜');
+
+  const listed = await runtime.listReadyTitleTasks();
+  const titleTask = listed.find(item => path.resolve(item.folder) === path.resolve(folder));
+  assert.equal(titleTask.firstTitle, manualTitle);
+
+  const publishTasks = await runtime.listTaobaoPublishTasks();
+  const publishTask = publishTasks.tasks.find(item => path.resolve(item.folder) === path.resolve(folder));
+  assert.equal(publishTask.categoryId, 'sideboard');
+  assert.equal(publishTask.categoryName, '餐边柜（储物柜）');
+
+  const queued = await runtime.queueTaobaoPublishTask({ folder, categoryId: 'sideboard' });
+  const claimed = await runtime.claimTaobaoPublishTask({ token: settings.token, extensionId: 'manual-title-test' });
+  assert.equal(claimed.id, queued.id);
+  assert.equal(claimed.title, manualTitle);
 });

@@ -23,6 +23,16 @@ test('任务品类优先取套图根目录下的第一级目录', () => {
   }), '玄关柜');
 });
 
+test('任务品类从套图路径中优先识别固定淘宝产品类目而不是随机导入目录', () => {
+  assert.equal(getTitleCategoryForReviewFolder({
+    folder: path.join('/output', '0717-0001'),
+    templateFolderPath: path.join('/sets', '1784127009902-9b42deda', '餐边柜', '款式一'),
+    detailSetsPath: '/sets',
+    knownCategories: ['餐边柜', '电视柜'],
+    directoryExists: () => true
+  }), '餐边柜');
+});
+
 test('套图不在配置根目录时回退到套图父目录，缺少套图时回退任务名', () => {
   assert.equal(getTitleCategoryForReviewFolder({
     folder: '/output/0710-0001',

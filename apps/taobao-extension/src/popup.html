@@ -8,14 +8,19 @@
   <body>
     <main>
       <h1>淘宝发布辅助</h1>
-      <label>本地 Web 地址<input id="baseUrl" placeholder="http://127.0.0.1:3008"></label>
-      <label>插件连接令牌<textarea id="token" rows="4" placeholder="从 Web 端复制"></textarea></label>
+      <section class="connection-card">
+        <span>固定 Web 地址</span>
+        <code id="fixedBaseUrl">http://66.42.101.154:8788</code>
+        <small>默认自动读取连接令牌，手动填写仅作为失败时备用。</small>
+      </section>
+      <label>插件连接令牌<textarea id="token" rows="4" placeholder="自动读取失败时，从 Web 端复制后粘贴"></textarea></label>
       <label class="inline"><input id="enabled" type="checkbox">启用自动领取</label>
       <label>轮询间隔秒<input id="pollSeconds" type="number" min="5" max="120" step="1"></label>
       <div class="actions">
-        <button id="saveButton">保存</button>
-        <button id="pollButton" class="secondary">立即领取</button>
+        <button id="refreshTokenButton" class="secondary">自动读取令牌</button>
+        <button id="saveButton">保存备用令牌</button>
       </div>
+      <button id="pollButton" class="wide secondary">立即领取</button>
       <button id="diagnosticsButton" class="wide secondary">诊断当前淘宝页</button>
       <button id="copyDiagnosticsButton" class="wide secondary" hidden>复制诊断 JSON</button>
       <p id="status">读取中...</p>

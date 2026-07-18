@@ -7,6 +7,19 @@ function text(value) {
   return value == null ? '' : String(value).trim();
 }
 
+function matchKnownCategory(parts, knownCategories = []) {
+  const categories = (knownCategories || []).map(text).filter(Boolean);
+  for (const part of parts.map(text).filter(Boolean)) {
+    const exact = categories.find(category => part.localeCompare(category, 'zh-CN', { sensitivity: 'accent' }) === 0);
+    if (exact) return exact;
+  }
+  for (const part of parts.map(text).filter(Boolean)) {
+    const contained = categories.find(category => part.includes(category) || category.includes(part));
+    if (contained) return contained;
+  }
+  return '';
+}
+
 /** Mirrors MainWindow.GetTitleCategoryForReviewFolder. */
 function getTitleCategoryForReviewFolder(options = {}) {
   const folder = text(options.folder);
@@ -22,13 +35,17 @@ function getTitleCategoryForReviewFolder(options = {}) {
     const relative = root.toLocaleLowerCase('en-US') === full.toLocaleLowerCase('en-US')
       ? '.'
       : full.slice(root.length + path.sep.length);
-    const first = relative.split(/[\\/]+/).find(Boolean);
+    const parts = relative.split(/[\\/]+/).filter(Boolean);
+    const known = matchKnownCategory(parts, options.knownCategories);
+    if (known) return known;
+    const first = parts.find(Boolean);
     if (first && first !== '.') return first;
   }
 
-  return templateFolderPath
+  const fallback = templateFolderPath
     ? path.basename(path.dirname(templateFolderPath) || templateFolderPath)
     : path.basename(folder);
+  return matchKnownCategory([fallback, templateFolderPath, folder], options.knownCategories) || fallback;
 }
 
 /** Mirrors TitleGenerationState.Count++ and its PascalCase JSON shape. */

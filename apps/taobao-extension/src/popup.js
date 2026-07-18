@@ -1,24 +1,39 @@
-import { readOptions, writeOptions } from './shared.js';
+import { DEFAULT_BASE_URL, readOptions, writeOptions } from './shared.js';
 
 const $ = selector => document.querySelector(selector);
 
+function showStatus(text) {
+  $('#status').textContent = text;
+}
+
+async function refreshToken() {
+  showStatus('正在自动读取令牌...');
+  const result = await chrome.runtime.sendMessage({ type: 'CAISHEN_TAOBAO_POPUP_REFRESH_TOKEN' });
+  if (!result?.ok) throw new Error(result?.error || '自动读取令牌失败');
+  $('#token').value = result.options?.token || '';
+  $('#pollSeconds').value = result.options?.pollSeconds || 12;
+  showStatus('令牌已自动读取');
+  return result.options;
+}
+
 async function load() {
+  $('#fixedBaseUrl').textContent = DEFAULT_BASE_URL;
   const options = await readOptions();
-  $('#baseUrl').value = options.baseUrl;
   $('#token').value = options.token;
   $('#enabled').checked = options.enabled;
   $('#pollSeconds').value = options.pollSeconds;
+  try {
+    await refreshToken();
+  } catch (error) {
+    showStatus(`自动读取失败：${error.message}，可手动粘贴令牌保存`);
+  }
   const state = await chrome.runtime.sendMessage({ type: 'CAISHEN_TAOBAO_POPUP_GET' });
-  $('#status').textContent = state?.activeTask
-    ? `正在处理：${state.activeTask.name || state.activeTask.id}`
-    : state?.lastError
-      ? `最近错误：${state.lastError}`
-      : '当前没有正在处理的任务';
+  if (state?.activeTask) showStatus(`正在处理：${state.activeTask.name || state.activeTask.id}`);
+  else if (state?.lastError) showStatus(`最近错误：${state.lastError}`);
 }
 
 async function save() {
   await writeOptions({
-    baseUrl: $('#baseUrl').value,
     token: $('#token').value,
     enabled: $('#enabled').checked,
     pollSeconds: Number($('#pollSeconds').value)
@@ -26,40 +41,40 @@ async function save() {
   await chrome.runtime.sendMessage({
     type: 'CAISHEN_TAOBAO_POPUP_SAVE',
     options: {
-      baseUrl: $('#baseUrl').value,
       token: $('#token').value,
       enabled: $('#enabled').checked,
       pollSeconds: Number($('#pollSeconds').value)
     }
   });
-  $('#status').textContent = '已保存';
+  showStatus('已保存备用令牌');
 }
 
 async function poll() {
-  $('#status').textContent = '正在领取任务...';
+  showStatus('正在领取任务...');
   const result = await chrome.runtime.sendMessage({ type: 'CAISHEN_TAOBAO_POPUP_POLL' });
-  $('#status').textContent = result?.claimed ? '已领取任务，正在打开淘宝页面' : '没有等待插件接收的任务';
+  showStatus(result?.claimed ? '已领取任务，正在打开淘宝页面' : '没有等待插件接收的任务');
 }
 
 async function diagnostics() {
-  $('#status').textContent = '正在读取当前淘宝页诊断...';
+  showStatus('正在读取当前淘宝页诊断...');
   const result = await chrome.runtime.sendMessage({ type: 'CAISHEN_TAOBAO_POPUP_DIAGNOSTICS' });
   if (!result?.ok) throw new Error(result?.error || '读取诊断失败');
   $('#diagnosticsOutput').hidden = false;
   $('#diagnosticsOutput').textContent = JSON.stringify(result.detail || {}, null, 2);
   $('#copyDiagnosticsButton').hidden = false;
-  $('#status').textContent = '诊断已读取，可复制 selector 配置到 Web 端模板';
+  showStatus('诊断已读取，可复制到 Web 端模板配置');
 }
 
 async function copyDiagnostics() {
   const content = $('#diagnosticsOutput').textContent || '';
   if (!content.trim()) throw new Error('暂无可复制的诊断');
   await navigator.clipboard.writeText(content);
-  $('#status').textContent = '诊断 JSON 已复制';
+  showStatus('诊断 JSON 已复制');
 }
 
-$('#saveButton').addEventListener('click', () => save().catch(error => { $('#status').textContent = error.message; }));
-$('#pollButton').addEventListener('click', () => poll().catch(error => { $('#status').textContent = error.message; }));
-$('#diagnosticsButton').addEventListener('click', () => diagnostics().catch(error => { $('#status').textContent = error.message; }));
-$('#copyDiagnosticsButton').addEventListener('click', () => copyDiagnostics().catch(error => { $('#status').textContent = error.message; }));
-load().catch(error => { $('#status').textContent = error.message; });
+$('#refreshTokenButton').addEventListener('click', () => refreshToken().catch(error => showStatus(error.message)));
+$('#saveButton').addEventListener('click', () => save().catch(error => showStatus(error.message)));
+$('#pollButton').addEventListener('click', () => poll().catch(error => showStatus(error.message)));
+$('#diagnosticsButton').addEventListener('click', () => diagnostics().catch(error => showStatus(error.message)));
+$('#copyDiagnosticsButton').addEventListener('click', () => copyDiagnostics().catch(error => showStatus(error.message)));
+load().catch(error => showStatus(error.message));

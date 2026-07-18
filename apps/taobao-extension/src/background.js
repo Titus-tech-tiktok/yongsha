@@ -1,4 +1,4 @@
-import { DEFAULT_PUBLISH_URL, STATUS, apiFetch, readOptions, writeOptions } from './shared.js';
+import { DEFAULT_PUBLISH_URL, STATUS, apiFetch, ensureToken, readOptions, refreshToken, writeOptions } from './shared.js';
 
 let activeTask = null;
 let activeTabId = 0;
@@ -6,6 +6,7 @@ let pollTimer = 0;
 
 chrome.runtime.onInstalled.addListener(async () => {
   const options = await writeOptions({});
+  refreshToken().catch(error => setLastError(error));
   schedulePoll(options);
 });
 
@@ -50,7 +51,7 @@ function schedulePoll(options) {
 }
 
 async function updateStatus(taskId, status, detail = {}) {
-  const options = await readOptions();
+  const options = await ensureToken();
   if (!taskId || !options.token) return;
   await apiFetch(`/api/taobao/publish/tasks/${encodeURIComponent(taskId)}/status`, {
     method: 'POST',
@@ -79,7 +80,7 @@ async function blobToDataUrl(blob) {
 }
 
 async function fetchTaskImage(message = {}) {
-  const options = await readOptions();
+  const options = await ensureToken();
   if (!options.token) throw new Error('插件连接令牌未配置');
   const taskId = encodeURIComponent(String(message.taskId || activeTask?.id || ''));
   const group = encodeURIComponent(String(message.group || 'main'));
@@ -100,7 +101,7 @@ async function fetchTaskImage(message = {}) {
 }
 
 async function claimTask() {
-  const options = await readOptions();
+  const options = await ensureToken();
   if (!options.enabled || !options.token) return null;
   return apiFetch('/api/taobao/publish/claim', {
     method: 'POST',
@@ -121,7 +122,7 @@ async function openPublishTab(task) {
   await updateStatus(task.id, STATUS.opening);
   const existingTab = await findExistingPublishTab();
   const tab = existingTab
-    ? await chrome.tabs.update(existingTab.id, { active: true })
+    ? await chrome.tabs.update(existingTab.id, { active: false })
     : await chrome.tabs.create({ url: publishUrl, active: false });
   activeTabId = tab.id;
   activeTask = { ...task, caishenBaseUrl: options.baseUrl };
@@ -174,6 +175,9 @@ async function collectActiveTaobaoDiagnostics() {
 async function handleMessage(message, sender) {
   if (message?.type === 'CAISHEN_TAOBAO_POPUP_GET') {
     return { ok: true, options: await readOptions(), activeTask, activeTabId, ...(await chrome.storage.local.get(['lastError', 'lastErrorAt'])) };
+  }
+  if (message?.type === 'CAISHEN_TAOBAO_POPUP_REFRESH_TOKEN') {
+    return { ok: true, options: await refreshToken() };
   }
   if (message?.type === 'CAISHEN_TAOBAO_POPUP_SAVE') {
     const options = await writeOptions(message.options || {});

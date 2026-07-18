@@ -15,6 +15,7 @@ test('web app exposes Taobao publish assistant page and bridge methods', async (
   assert.match(bridge, /getTaobaoPublishSettings/);
   assert.match(bridge, /saveTaobaoPublishSettings/);
   assert.match(bridge, /queueTaobaoPublishTask/);
+  assert.match(bridge, /saveTitleForTask/);
   assert.match(renderer, /renderTaobaoPublishPage/);
   assert.match(renderer, /taobaoPublishBlockedTasks/);
   assert.match(renderer, /blockedTasks/);
@@ -22,10 +23,16 @@ test('web app exposes Taobao publish assistant page and bridge methods', async (
   assert.match(renderer, /queueActiveTaobaoPublishTask/);
   assert.match(renderer, /renderTaobaoPublishDiagnostics/);
   assert.match(renderer, /copyTaobaoPublishDiagnostics/);
+  assert.match(renderer, /data-copy-title/);
+  assert.match(renderer, /title-task-manual-title/);
+  assert.match(renderer, /data-title-task-action="save-title"/);
+  assert.match(renderer, /saveTitleForTask/);
   assert.match(renderer, /applyTaobaoDiagnosticsSelectors/);
   assert.match(renderer, /taobaoDiagnosticsImport/);
   assert.match(renderer, /importTaobaoDiagnosticsButton/);
   assert.match(renderer, /notifyTaobaoExtensionPoll/);
+  assert.match(renderer, /syncTaobaoExtensionOptions/);
+  assert.match(renderer, /CAISHEN_TAOBAO_WEB_SYNC/);
   assert.match(renderer, /CAISHEN_TAOBAO_WEB_TRIGGER/);
   assert.match(renderer, /TAOBAO_SELECTOR_FIELDS/);
   assert.match(renderer, /collectTaobaoSelectors/);
@@ -41,6 +48,7 @@ test('web app exposes Taobao publish assistant page and bridge methods', async (
   assert.match(renderer, /JSON\.stringify\(buttons/);
   assert.match(renderer, /validationError/);
   assert.match(server, /runTaobaoPublishWithToken/);
+  assert.match(server, /\/api\/taobao\/publish\/extension-options/);
   assert.match(server, /\/images\/:group\/:index/);
   assert.match(await fs.readFile(path.join(__dirname, '../src/runtime.js'), 'utf8'), /detail: saved\.detail \|\| \{\}/);
   assert.ok(server.indexOf("app.post('/api/taobao/publish/claim'") < server.indexOf("app.use('/api'"));

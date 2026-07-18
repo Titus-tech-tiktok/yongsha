@@ -15,6 +15,28 @@ h1 {
   font-size: 18px;
 }
 
+.connection-card {
+  border: 1px solid #d9d7d0;
+  background: #fffefa;
+  border-radius: 10px;
+  gap: 6px;
+  padding: 10px;
+  display: grid;
+}
+
+.connection-card span,
+.connection-card small {
+  color: #56616f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.connection-card code {
+  color: #0f1c2f;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
 label {
   color: #56616f;
   gap: 6px;

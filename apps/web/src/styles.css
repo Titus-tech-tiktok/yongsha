@@ -3380,15 +3380,35 @@ label input, label textarea {
   border: 1px solid var(--line);
   background: #fdfcf9;
   border-radius: 9px;
-  justify-content: space-between;
-  align-items: center;
+  align-items: stretch;
   gap: 18px;
   padding: 13px;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(260px, 1fr) auto;
 }
 
 .title-task-copy {
   min-width: 0;
+}
+
+.title-task-manual-title {
+  gap: 8px;
+  display: grid;
+  min-width: 0;
+}
+
+.title-task-manual-title label {
+  color: var(--subtle);
+  gap: 5px;
+  margin: 0;
+  display: grid;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.title-task-manual-title input {
+  min-height: 36px;
+  font-size: 12px;
 }
 
 .title-task-copy b, .title-task-copy span, .title-task-copy strong {
@@ -3429,7 +3449,7 @@ label input, label textarea {
 }
 
 .taobao-publish-layout {
-  grid-template-columns: minmax(260px, 320px) minmax(420px, 1fr) minmax(280px, 360px);
+  grid-template-columns: minmax(240px, 300px) minmax(320px, 420px) minmax(420px, 1fr);
   gap: 16px;
   height: calc(100vh - 40px);
   min-height: 620px;
@@ -3521,7 +3541,7 @@ label input, label textarea {
 }
 
 .taobao-category-list {
-  max-height: 260px;
+  max-height: 210px;
 }
 
 .taobao-category-item, .taobao-task-card {
@@ -3530,8 +3550,8 @@ label input, label textarea {
   background: #fdfcf9;
   border-radius: 9px;
   width: 100%;
-  min-height: 72px;
-  padding: 13px;
+  min-height: 62px;
+  padding: 12px;
 }
 
 .taobao-category-item {
@@ -3600,6 +3620,51 @@ label input, label textarea {
 .taobao-package-summary {
   gap: 14px;
   display: grid;
+}
+
+.taobao-publish-steps {
+  align-content: start;
+}
+
+.taobao-step {
+  border: 1px solid var(--line);
+  background: #fdfcf9;
+  border-radius: 10px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  display: grid;
+}
+
+.taobao-step > span {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--gold-soft);
+  color: #896c37;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.taobao-step > div {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.taobao-step b {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.taobao-step p {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .taobao-package-summary label {
@@ -3710,8 +3775,27 @@ label input, label textarea {
   overflow: auto;
 }
 
+.taobao-template-details {
+  border: 1px solid var(--line);
+  background: #fdfcf9;
+  border-radius: 10px;
+}
+
+.taobao-template-details summary {
+  cursor: pointer;
+  color: var(--ink);
+  padding: 12px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.taobao-template-details[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+
 .taobao-template-form {
   gap: 10px;
+  padding: 12px;
   display: grid;
 }
 
@@ -5824,6 +5908,10 @@ label input, label textarea {
     overflow-wrap: anywhere;
     font-size: 13px;
     line-height: 1.45;
+  }
+
+  .title-task-card {
+    grid-template-columns: 1fr;
   }
 
   .title-task-actions {

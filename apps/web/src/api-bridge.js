@@ -370,6 +370,7 @@ window.caishen = {
   importTitleLibrary: async () => (await uploadSingle('/api/upload/title-library', '.xlsx,.csv'))?.data || null,
   listReadyTitleTasks: () => rpc('listReadyTitleTasks'),
   generateTitleForTask: folder => rpc('generateTitleForTask', folder),
+  saveTitleForTask: payload => rpc('saveTitleForTask', payload),
   saveTitleSetup: payload => rpc('saveTitleSetup', payload),
   generateTitles: payload => rpc('generateTitles', payload),
   getTaobaoPublishSettings: () => rpc('getTaobaoPublishSettings'),

@@ -3149,7 +3149,7 @@ function renderReadyTitleTasks() {
     ? `${state.readyTitleTasks.length} 个任务已满足标题生成条件`
     : '人工筛图中全部图片通过后会出现在这里';
   list.innerHTML = state.readyTitleTasks.length
-    ? state.readyTitleTasks.map((task, index) => `<article class="title-task-card" data-title-task-index="${index}"><div class="title-task-copy"><b>${escapeHtml(task.name)}</b><span>${task.imageCount} 张套图图片已通过；品类：${escapeHtml(task.category)}；${task.libraryAvailable ? `词库 ${task.libraryRecordCount} 条` : '缺少关键词库'}；${task.hasTitle ? '已生成标题.xlsx' : '未生成标题'}</span>${task.firstTitle ? `<strong>${escapeHtml(task.firstTitle)}</strong>` : ''}</div><div class="title-task-actions"><button class="primary" data-title-task-action="generate">${task.hasTitle ? '重新生成标题' : '生成标题'}</button>${task.hasTitle ? '<button class="secondary" data-title-task-action="open-title">下载标题</button>' : ''}<button class="secondary" data-title-task-action="open-folder">查看任务文件</button></div></article>`).join('')
+    ? state.readyTitleTasks.map((task, index) => `<article class="title-task-card" data-title-task-index="${index}"><div class="title-task-copy"><b>${escapeHtml(task.name)}</b><span>${task.imageCount} 张套图图片已通过；品类：${escapeHtml(task.category)}；${task.libraryAvailable ? `词库 ${task.libraryRecordCount} 条` : '缺少关键词库'}；${task.hasTitle ? '已生成标题.xlsx' : '未生成标题'}</span>${task.firstTitle ? `<strong>${escapeHtml(task.firstTitle)}</strong>` : ''}</div><div class="title-task-manual-title"><label>品类<input data-title-task-category value="${escapeHtml(task.category || '')}" placeholder="例如：餐边柜"></label><label>标题<input data-title-task-title value="${escapeHtml(task.firstTitle || '')}" maxlength="30" placeholder="手动输入淘宝标题"></label></div><div class="title-task-actions"><button class="secondary" data-title-task-action="save-title">保存标题</button><button class="primary" data-title-task-action="generate">${task.hasTitle ? '重新生成标题' : '生成标题'}</button>${task.hasTitle ? '<button class="secondary" data-title-task-action="open-title">下载标题</button>' : ''}<button class="secondary" data-title-task-action="open-folder">查看任务文件</button></div></article>`).join('')
     : '<div class="title-empty-state"><span>02</span><b>暂无可生成标题的任务</b><p>请先在“人工筛图”中完成套图审核；全部图片通过后，任务会自动出现在这里。</p></div>';
 }
 
@@ -3161,6 +3161,22 @@ async function handleReadyTitleTaskAction(event) {
   if (!task) return;
   if (button.dataset.titleTaskAction === 'open-title') return window.caishen.revealFile(task.titleFile);
   if (button.dataset.titleTaskAction === 'open-folder') return window.caishen.openFolder(task.folder);
+  if (button.dataset.titleTaskAction === 'save-title') {
+    const title = card.querySelector('[data-title-task-title]')?.value || '';
+    const category = card.querySelector('[data-title-task-category]')?.value || task.category;
+    button.disabled = true;
+    button.textContent = '保存中…';
+    try {
+      const result = await window.caishen.saveTitleForTask({ folder: task.folder, title, category });
+      $('#titleLibraryStatus').textContent = `已保存：${result.name}`;
+      await loadReadyTitleTasks();
+      toast('标题已保存');
+    } catch (error) {
+      toast(errorText(error), true);
+      renderReadyTitleTasks();
+    }
+    return;
+  }
   button.disabled = true;
   button.textContent = '生成中…';
   try {
@@ -3236,7 +3252,7 @@ function renderTitleResults() {
     return;
   }
   $('#titleSummary').textContent = `${state.generatedTitleCategory}：已生成 ${state.generatedTitles.length} 个标题，已选 ${state.selectedTitleIndexes.size} 个。点击标题会复制并选中；选择后可导出 Excel。`;
-  results.innerHTML = state.generatedTitles.map((title, index) => `<div class="title-row${state.selectedTitleIndexes.has(index) ? ' selected' : ''}" data-title-index="${index}"><input class="title-select" type="checkbox"${state.selectedTitleIndexes.has(index) ? ' checked' : ''}><span>${String(index + 1).padStart(2, '0')}</span><b>${escapeHtml(title)}</b><span>${title.length}/30</span></div>`).join('');
+  results.innerHTML = state.generatedTitles.map((title, index) => `<div class="title-row${state.selectedTitleIndexes.has(index) ? ' selected' : ''}" data-title-index="${index}"><input class="title-select" type="checkbox"${state.selectedTitleIndexes.has(index) ? ' checked' : ''}><span>${String(index + 1).padStart(2, '0')}</span><b data-copy-title="${index}">${escapeHtml(title)}</b><span>${title.length}/30</span></div>`).join('');
 }
 
 async function exportSelectedTitles() {
@@ -3255,8 +3271,11 @@ async function loadTaobaoPublishPage() {
     state.taobaoPublishSettings = data.settings || null;
     state.taobaoPublishTasks = data.tasks || [];
     state.taobaoPublishBlockedTasks = data.blockedTasks || [];
+    const currentTask = state.taobaoPublishTasks.find(item => (item.id || item.folder) === state.activeTaobaoPublishTaskId);
+    if (!currentTask) state.activeTaobaoPublishTaskId = state.taobaoPublishTasks[0]?.id || state.taobaoPublishTasks[0]?.folder || '';
+    const activeTask = state.taobaoPublishTasks.find(item => (item.id || item.folder) === state.activeTaobaoPublishTaskId);
+    if (activeTask?.categoryId) state.activeTaobaoCategoryId = activeTask.categoryId;
     if (!state.activeTaobaoCategoryId) state.activeTaobaoCategoryId = state.taobaoPublishSettings?.categories?.[0]?.id || '';
-    if (!state.activeTaobaoPublishTaskId && state.taobaoPublishTasks.length) state.activeTaobaoPublishTaskId = state.taobaoPublishTasks[0].id || state.taobaoPublishTasks[0].folder;
     renderTaobaoPublishPage();
   } catch (error) {
     state.taobaoPublishTasks = [];
@@ -3386,8 +3405,7 @@ function renderTaobaoCategoryEditor() {
   }
   const defaults = category.defaults || {};
   const selectors = defaults.selectors || {};
-  editor.innerHTML = `<form class="taobao-template-form" id="taobaoCategoryTemplateForm">
-    <b>${escapeHtml(category.name)}模板</b>
+  editor.innerHTML = `<details class="taobao-template-details"><summary>${escapeHtml(category.name)}模板配置</summary><form class="taobao-template-form" id="taobaoCategoryTemplateForm">
     <label>发布链接<input name="publishUrl" value="${escapeHtml(defaults.publishUrl || '')}" placeholder="淘宝后台发布页链接"></label>
     <label>价格<input name="price" value="${escapeHtml(defaults.price || '')}" placeholder="发布价格"></label>
     <label>库存<input name="stock" value="${escapeHtml(defaults.stock || '')}" placeholder="999"></label>
@@ -3401,7 +3419,7 @@ function renderTaobaoCategoryEditor() {
     ${renderTaobaoSelectorInputs(selectors)}
     <label>高级选择器 JSON<textarea name="selectorJson" rows="4" placeholder='{"attribute.材质":"input[name=material]"}'>${escapeHtml(JSON.stringify(Object.fromEntries(Object.entries(selectors).filter(([key]) => !TAOBAO_SELECTOR_FIELDS.some(([field]) => field === key))), null, 2))}</textarea></label>
     <button type="submit" class="primary">保存类目模板</button>
-  </form>`;
+  </form></details>`;
 }
 
 function parseJsonField(value, label) {
@@ -3541,21 +3559,21 @@ function renderTaobaoPublishDetail() {
   const task = state.taobaoPublishTasks.find(item => (item.id || item.folder) === state.activeTaobaoPublishTaskId);
   if (!task) {
     title.textContent = '选择一个任务';
-    detail.innerHTML = '<div class="empty-inline">选择左侧任务后查看标题、图片分类和发布状态。</div>';
+    detail.innerHTML = '<div class="empty-inline">先点击中间任务卡片，再按步骤确认发布信息。</div>';
     return;
   }
   title.textContent = task.name || '发布任务';
   const selectedCategoryId = task.categoryId || state.activeTaobaoCategoryId;
   const categories = state.taobaoPublishSettings?.categories || [];
-  detail.innerHTML = `<div class="taobao-package-summary">
-    <label>发布类目<select id="taobaoTaskCategorySelect">${categories.map(category => `<option value="${escapeHtml(category.id)}"${category.id === selectedCategoryId ? ' selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}</select></label>
-    <dl>
-      <div><dt>标题</dt><dd>${escapeHtml(task.title || '未生成标题')}</dd></div>
+  detail.innerHTML = `<div class="taobao-package-summary taobao-publish-steps">
+    <section class="taobao-step"><span>01</span><div><b>确认发布类目</b><label>发布类目<select id="taobaoTaskCategorySelect">${categories.map(category => `<option value="${escapeHtml(category.id)}"${category.id === selectedCategoryId ? ' selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}</select></label></div></section>
+    <section class="taobao-step"><span>02</span><div><b>确认标题</b><p>${escapeHtml(task.title || '未生成标题')}</p></div></section>
+    <section class="taobao-step"><span>03</span><div><b>确认图片包</b><dl>
       <div><dt>主图</dt><dd>${task.mainImageCount || 0} 张</dd></div>
       <div><dt>3:4 主图</dt><dd>${task.ratioImageCount || 0} 张</dd></div>
       <div><dt>详情图</dt><dd>${task.detailImageCount || 0} 张</dd></div>
       <div><dt>状态</dt><dd>${escapeHtml(task.status || '未配置')}</dd></div>
-    </dl>
+    </dl></div></section>
     ${renderTaobaoPublishDiagnostics(task)}
     <div class="taobao-publish-actions"><button class="primary" id="queueTaobaoPublishButton" type="button">发布到淘宝草稿</button><button class="secondary" id="openTaobaoTaskFolderButton" type="button">查看任务文件</button></div>
   </div>`;
@@ -3567,6 +3585,16 @@ function renderTaobaoPublishPage() {
   renderTaobaoCategoryEditor();
   renderTaobaoTaskList();
   renderTaobaoPublishDetail();
+  syncTaobaoExtensionOptions();
+}
+
+function syncTaobaoExtensionOptions() {
+  try {
+    window.postMessage({
+      type: 'CAISHEN_TAOBAO_WEB_SYNC',
+      token: state.taobaoPublishSettings?.token || ''
+    }, window.location.origin);
+  } catch {}
 }
 
 function notifyTaobaoExtensionPoll() {
@@ -5170,6 +5198,8 @@ function bindEvents() {
     const card = event.target.closest('[data-taobao-task]');
     if (!card) return;
     state.activeTaobaoPublishTaskId = card.dataset.taobaoTask;
+    const task = state.taobaoPublishTasks.find(item => (item.id || item.folder) === state.activeTaobaoPublishTaskId);
+    if (task?.categoryId) state.activeTaobaoCategoryId = task.categoryId;
     renderTaobaoPublishPage();
   };
   if ($('#taobaoPublishDetail')) $('#taobaoPublishDetail').onclick = event => {

@@ -5,8 +5,7 @@
   "description": "从财神 Web 端领取已通过任务，自动填写淘宝发布页并保存草稿。",
   "permissions": ["storage", "tabs", "scripting", "alarms"],
   "host_permissions": [
-    "http://127.0.0.1/*",
-    "http://localhost/*",
+    "http://66.42.101.154:8788/*",
     "https://item.upload.taobao.com/*",
     "https://*.taobao.com/*",
     "https://*.tmall.com/*"
@@ -21,7 +20,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://127.0.0.1/*", "http://localhost/*"],
+      "matches": ["http://66.42.101.154:8788/*"],
       "js": ["src/web-bridge.js"],
       "run_at": "document_idle"
     },

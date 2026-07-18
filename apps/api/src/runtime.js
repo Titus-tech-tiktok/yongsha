@@ -3466,12 +3466,14 @@ async function writeTitlesWorkbook(file, category, titles) {
 async function listReadyTitleTasks() {
   const config = await loadConfig();
   const ready = (await reviewFolders()).filter(isFolderReadyForTitle);
+  const knownCategories = TAOBAO_CATEGORY_TEMPLATES.flatMap(item => [item.product, item.name]);
   const tasks = [];
   for (const item of ready) {
     const category = getTitleCategoryForReviewFolder({
       folder: item.folder,
       templateFolderPath: item.source?.templateFolderPath,
       detailSetsPath: config.detailSetsPath,
+      knownCategories,
       directoryExists: candidate => fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()
     });
     const library = await loadCategoryTitleLibrary(category);
@@ -3508,6 +3510,29 @@ async function generateTitleForTask(folderValue) {
   const title = generateTaobaoTitle(task.category, library, profile, nextState.Count);
   await writeTitlesWorkbook(task.titleFile, task.category, [title]);
   return { ...task, hasTitle: true, firstTitle: title };
+}
+
+function taobaoCategoryForTitleCategory(categoryValue) {
+  const value = String(categoryValue || '').trim();
+  if (!value) return null;
+  return TAOBAO_CATEGORY_TEMPLATES.find(item =>
+    value === item.product
+    || value === item.name
+    || item.name.includes(value)
+    || value.includes(item.product)
+  ) || null;
+}
+
+async function saveTitleForTask(payload = {}) {
+  const folder = String(payload.folder || '');
+  if (!folder || !fs.existsSync(folder)) throw new Error('任务文件夹不存在');
+  const task = (await listReadyTitleTasks()).find(item => path.resolve(item.folder) === path.resolve(folder));
+  if (!task) throw new Error('任务图片尚未全部通过，不能保存标题');
+  const title = normalizeTitleText(payload.title || '').slice(0, 30);
+  if (!title) throw new Error('请输入标题');
+  const category = String(payload.category || task.category || '').trim();
+  await writeTitlesWorkbook(task.titleFile, category, [title]);
+  return { ...task, category, hasTitle: true, firstTitle: title };
 }
 
 function defaultTaobaoPublishSettings() {
@@ -3617,11 +3642,16 @@ async function taobaoPublishBaseTasks() {
   ]);
   const titlesByFolder = new Map(readyTitles.map(item => [path.resolve(item.folder), item]));
   const stateByFolder = new Map(state.tasks.map(item => [path.resolve(item.folder), item]));
-  return reviews.filter(isReviewReadyForTaobao).map(review => {
-    const saved = stateByFolder.get(path.resolve(review.folder)) || {};
-    const categoryId = saved.categoryId || '';
-    const category = settings.categories.find(item => item.id === categoryId) || null;
+  return reviews.filter(review => {
+    if (!isReviewReadyForTaobao(review)) return false;
     const titleTask = titlesByFolder.get(path.resolve(review.folder)) || null;
+    return Boolean(titleTask?.firstTitle);
+  }).map(review => {
+    const saved = stateByFolder.get(path.resolve(review.folder)) || {};
+    const titleTask = titlesByFolder.get(path.resolve(review.folder)) || null;
+    const inferredCategory = taobaoCategoryForTitleCategory(titleTask?.category);
+    const categoryId = saved.categoryId || inferredCategory?.id || '';
+    const category = settings.categories.find(item => item.id === categoryId) || null;
     const images = classifyTaobaoImages(review.jobs || []);
     return {
       id: saved.id || (categoryId ? taobaoPublishTaskId(review.folder, categoryId) : ''),
@@ -3993,6 +4023,7 @@ const runtimeExports = {
   claimTaobaoPublishTask,
   savePromptSetting,
   saveTaobaoPublishSettings,
+  saveTitleForTask,
   canAdminViewPromptSettings,
   saveTemplateConfiguration,
   saveTemplateProductProfile,
