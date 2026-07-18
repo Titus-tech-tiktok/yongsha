@@ -65,6 +65,24 @@ function visible(element) {
   return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
 }
 
+function disabled(element) {
+  if (!element) return true;
+  return Boolean(element.disabled)
+    || element.getAttribute('aria-disabled') === 'true'
+    || element.classList.contains('disabled')
+    || /disabled/i.test(String(element.className || ''));
+}
+
+function clickElement(element) {
+  if (!element || disabled(element)) return false;
+  element.scrollIntoView?.({ block: 'center', inline: 'center' });
+  element.focus?.();
+  for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+    element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+  }
+  return true;
+}
+
 function selectorForElement(element) {
   if (!element?.tagName) return '';
   const tag = element.tagName.toLowerCase();
@@ -149,7 +167,7 @@ async function setSelectValue(element, value) {
     await sleep(180);
     return true;
   }
-  element.click();
+  clickElement(element);
   await sleep(260);
   return selectOptionByText(wanted);
 }
@@ -194,7 +212,7 @@ async function selectOptionByText(value, selector = '') {
     return label === wanted || label.includes(wanted);
   });
   if (!option) return false;
-  option.click();
+  clickElement(option);
   await sleep(220);
   return true;
 }
@@ -203,33 +221,44 @@ async function clickFieldOrOption(keywords, value, selector = '') {
   if (!text(value)) return false;
   const selected = query(selector);
   if (selected) {
-    selected.click();
+    clickElement(selected);
     await sleep(260);
     return selectOptionByText(value) || true;
   }
   const field = findButton(keywords);
   if (field) {
-    field.click();
+    clickElement(field);
     await sleep(260);
     if (await selectOptionByText(value)) return true;
   }
   const button = findButton([value]);
   if (!button) return false;
-  button.click();
+  clickElement(button);
   await sleep(180);
   return true;
 }
 
 function findButton(keywords, selector = '') {
   const selected = query(selector);
-  if (selected) return selected;
+  if (selected && visible(selected) && !disabled(selected)) return selected;
   const wanted = keywords.map(item => item.toLocaleLowerCase('zh-CN'));
   return [...document.querySelectorAll('button, [role="button"], a, span, div')]
     .filter(visible)
+    .filter(element => !disabled(element))
     .find(element => {
       const label = [element.innerText, element.textContent, element.getAttribute('aria-label'), element.title].join(' ').toLocaleLowerCase('zh-CN');
       return wanted.some(keyword => label.includes(keyword));
     });
+}
+
+async function waitForButton(keywords, selector = '', timeoutMs = 15000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const button = findButton(keywords, selector);
+    if (button) return button;
+    await sleep(500);
+  }
+  return null;
 }
 
 function categoryKeyword(task) {
@@ -334,12 +363,12 @@ async function selectTaobaoCategory(task) {
   await sleep(1200);
   const searchButton = findButton(['搜索', '查询'], selectors(task).categorySearchButton);
   if (searchButton) {
-    searchButton.click();
+    clickElement(searchButton);
     await sleep(1200);
   }
   const selected = query(selectors(task).categoryResult) || findCategoryCandidate(keyword);
   if (!selected) throw fail(`未找到淘宝类目候选：${keyword}`, 'select-category');
-  selected.click();
+  clickElement(selected);
   await sleep(1800);
   if (!(await waitForPublishForm())) throw fail(`已选择淘宝类目但未进入发布表单：${keyword}`, 'select-category');
 }
@@ -486,7 +515,7 @@ function findFileInput(task, selectorKey, keywords) {
 async function revealUploadControls(task) {
   const uploadButton = findButton(['上传图片', '上传', '选择图片', '添加图片', '图片空间'], selectors(task).uploadButton);
   if (uploadButton) {
-    uploadButton.click();
+    clickElement(uploadButton);
     await sleep(800);
   }
 }
@@ -564,10 +593,24 @@ async function fillCustomFields(task) {
   }
 }
 
+async function confirmSaveDraftIfPrompted() {
+  const confirmButton = findButton([
+    '确认',
+    '确定',
+    '继续',
+    '保存'
+  ]);
+  if (!confirmButton) return false;
+  clickElement(confirmButton);
+  await sleep(800);
+  return true;
+}
+
 async function saveDraft(task) {
-  const button = findButton(['保存草稿', '存草稿', '保存'], selectors(task).saveDraft);
+  const button = await waitForButton(['保存草稿', '存草稿', '保存'], selectors(task).saveDraft);
   if (!button) throw fail('未找到保存草稿按钮', 'save-draft');
-  button.click();
+  clickElement(button);
+  await confirmSaveDraftIfPrompted();
   const result = await waitForDraftSaved();
   if (!result.ok) throw fail(result.reason, 'save-draft');
   await report(task.id, STATUS.saved, { detail: { savedAt: new Date().toISOString(), confirmation: result.confirmation } });
