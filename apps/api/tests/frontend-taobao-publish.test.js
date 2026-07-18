@@ -20,6 +20,9 @@ test('web app exposes Taobao publish assistant page and bridge methods', async (
   assert.match(renderer, /queueActiveTaobaoPublishTask/);
   assert.match(renderer, /renderTaobaoPublishDiagnostics/);
   assert.match(renderer, /copyTaobaoPublishDiagnostics/);
+  assert.match(renderer, /visibleFields/);
+  assert.match(renderer, /visibleSelects/);
+  assert.match(renderer, /validationError/);
   assert.match(server, /runTaobaoPublishWithToken/);
   assert.match(server, /\/images\/:group\/:index/);
   assert.match(await fs.readFile(path.join(__dirname, '../src/runtime.js'), 'utf8'), /detail: saved\.detail \|\| \{\}/);

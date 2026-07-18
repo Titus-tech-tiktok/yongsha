@@ -324,6 +324,34 @@ async function saveDraft(task) {
   await report(task.id, STATUS.saved, { detail: { savedAt: new Date().toISOString(), confirmation: result.confirmation } });
 }
 
+function collectVisibleFields() {
+  return fields().slice(0, 40).map((element, index) => ({
+    index,
+    tag: element.tagName.toLowerCase(),
+    type: element.type || '',
+    id: element.id || '',
+    name: element.name || '',
+    placeholder: element.placeholder || '',
+    value: text(element.isContentEditable ? element.textContent : element.value).slice(0, 80),
+    label: text(labelText(element)).slice(0, 160)
+  }));
+}
+
+function collectVisibleSelects() {
+  return [...document.querySelectorAll('select, [role="combobox"], [aria-haspopup="listbox"], [aria-haspopup="menu"]')]
+    .filter(visible)
+    .slice(0, 40)
+    .map((element, index) => ({
+      index,
+      tag: element.tagName.toLowerCase(),
+      id: element.id || '',
+      name: element.name || '',
+      value: text(element.value || element.getAttribute('aria-valuetext') || '').slice(0, 80),
+      label: text(labelText(element)).slice(0, 160),
+      text: text(element.innerText || element.textContent || '').slice(0, 160)
+    }));
+}
+
 function collectDiagnostics(step) {
   const buttons = [...document.querySelectorAll('button, [role="button"], a')]
     .filter(visible)
@@ -341,7 +369,10 @@ function collectDiagnostics(step) {
     step,
     url: location.href,
     title: document.title,
+    validationError: findValidationError(),
     fileInputs: inputs,
+    visibleFields: collectVisibleFields(),
+    visibleSelects: collectVisibleSelects(),
     visibleButtons: buttons
   };
 }

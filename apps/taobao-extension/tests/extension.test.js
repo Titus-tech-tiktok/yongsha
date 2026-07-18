@@ -26,6 +26,8 @@ assert.match(content, /selectors\(task\)/);
 assert.match(content, /selectOptionByText/);
 assert.match(content, /fallbackAllImages/);
 assert.match(content, /collectDiagnostics/);
+assert.match(content, /collectVisibleFields/);
+assert.match(content, /collectVisibleSelects/);
 assert.match(content, /saveDraft/);
 assert.match(content, /waitForDraftSaved/);
 assert.match(content, /findValidationError/);

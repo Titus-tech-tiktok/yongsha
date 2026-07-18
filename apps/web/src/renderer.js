@@ -3380,16 +3380,21 @@ function renderTaobaoPublishDiagnostics(task) {
     ['当前步骤', taskDetail.step],
     ['页面地址', taskDetail.url],
     ['页面标题', taskDetail.title],
+    ['页面错误', taskDetail.validationError],
     ['保存确认', taskDetail.confirmation],
     ['保存时间', taskDetail.savedAt]
   ].filter(([, value]) => value != null && String(value).trim());
   const inputs = Array.isArray(taskDetail.fileInputs) ? taskDetail.fileInputs : [];
+  const fields = Array.isArray(taskDetail.visibleFields) ? taskDetail.visibleFields : [];
+  const selects = Array.isArray(taskDetail.visibleSelects) ? taskDetail.visibleSelects : [];
   const buttons = Array.isArray(taskDetail.visibleButtons) ? taskDetail.visibleButtons : [];
   return `<section class="taobao-diagnostics">
     <div class="taobao-diagnostics-head"><b>插件诊断</b>${hasDetail ? '<button type="button" id="copyTaobaoPublishDiagnosticsButton">复制诊断</button>' : ''}</div>
     ${task.failureReason ? `<p class="taobao-failure">${escapeHtml(task.failureReason)}</p>` : ''}
     ${rows.length ? `<dl>${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>` : ''}
     ${inputs.length ? `<div class="taobao-diagnostics-block"><b>上传控件</b><pre>${escapeHtml(JSON.stringify(inputs, null, 2))}</pre></div>` : ''}
+    ${fields.length ? `<div class="taobao-diagnostics-block"><b>输入控件</b><pre>${escapeHtml(JSON.stringify(fields, null, 2))}</pre></div>` : ''}
+    ${selects.length ? `<div class="taobao-diagnostics-block"><b>下拉控件</b><pre>${escapeHtml(JSON.stringify(selects, null, 2))}</pre></div>` : ''}
     ${buttons.length ? `<div class="taobao-diagnostics-block"><b>页面按钮</b><pre>${escapeHtml(buttons.join('\n'))}</pre></div>` : ''}
   </section>`;
 }
