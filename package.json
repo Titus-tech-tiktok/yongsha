@@ -5,6 +5,7 @@
   "workspaces": ["apps/*"],
   "scripts": {
     "dev": "concurrently -k -n API,WEB -c green,cyan \"npm run dev -w @caishen/api\" \"npm run dev -w @caishen/web\"",
+    "dev:api-local": "node scripts/start-local-api.js",
     "build": "npm run build -w @caishen/web && npm run build -w @caishen/api && npm run build -w @caishen/taobao-extension",
     "start": "npm run start -w @caishen/api",
     "test": "npm run test -w @caishen/api && npm run test -w @caishen/taobao-extension",
