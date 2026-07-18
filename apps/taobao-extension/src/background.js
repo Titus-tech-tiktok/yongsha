@@ -2,10 +2,11 @@ import { DEFAULT_PUBLISH_URL, STATUS, apiFetch, readOptions, writeOptions } from
 
 let activeTask = null;
 let activeTabId = 0;
+let pollTimer = 0;
 
 chrome.runtime.onInstalled.addListener(async () => {
   const options = await writeOptions({});
-  chrome.alarms.create('poll-taobao-publish', { periodInMinutes: Math.max(1, options.pollSeconds / 60) });
+  schedulePoll(options);
 });
 
 chrome.alarms.onAlarm.addListener(alarm => {
@@ -19,6 +20,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function setLastError(error) {
   await chrome.storage.local.set({ lastError: error?.message || String(error), lastErrorAt: new Date().toISOString() });
+}
+
+function schedulePoll(options) {
+  clearTimeout(pollTimer);
+  chrome.alarms.create('poll-taobao-publish', { periodInMinutes: 1 });
+  if (!options?.enabled) return;
+  pollTimer = setTimeout(async () => {
+    try {
+      await pollOnce();
+    } catch (error) {
+      await setLastError(error);
+    } finally {
+      schedulePoll(await readOptions());
+    }
+  }, Math.max(30000, options.pollSeconds * 1000));
 }
 
 async function updateStatus(taskId, status, detail = {}) {
@@ -95,7 +111,8 @@ async function handleMessage(message, sender) {
   }
   if (message?.type === 'CAISHEN_TAOBAO_POPUP_SAVE') {
     const options = await writeOptions(message.options || {});
-    chrome.alarms.create('poll-taobao-publish', { periodInMinutes: Math.max(1, options.pollSeconds / 60) });
+    schedulePoll(options);
+    if (options.enabled) pollOnce().catch(error => setLastError(error));
     return { ok: true, options };
   }
   if (message?.type === 'CAISHEN_TAOBAO_POPUP_POLL') return pollOnce();
