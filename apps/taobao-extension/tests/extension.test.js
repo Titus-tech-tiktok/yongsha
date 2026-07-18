@@ -8,6 +8,7 @@ const background = fs.readFileSync(path.join(root, 'src/background.js'), 'utf8')
 const content = fs.readFileSync(path.join(root, 'src/content.js'), 'utf8');
 const webBridge = fs.readFileSync(path.join(root, 'src/web-bridge.js'), 'utf8');
 const popup = fs.readFileSync(path.join(root, 'src/popup.html'), 'utf8');
+const popupJs = fs.readFileSync(path.join(root, 'src/popup.js'), 'utf8');
 
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.background.service_worker, 'src/background.js');
@@ -26,6 +27,8 @@ assert.match(background, /chrome\.tabs\.onRemoved\.addListener/);
 assert.match(background, /chrome\.tabs\.onUpdated\.addListener/);
 assert.match(background, /clearActiveTask/);
 assert.match(background, /trySendTaskToActiveTab/);
+assert.match(background, /CAISHEN_TAOBAO_POPUP_DIAGNOSTICS/);
+assert.match(background, /CAISHEN_TAOBAO_COLLECT_DIAGNOSTICS/);
 assert.match(content, /input\[type="file"\]/);
 assert.match(content, /dataUrlToFile/);
 assert.match(content, /selectors\(task\)/);
@@ -52,11 +55,15 @@ assert.match(content, /categoryCandidateText/);
 assert.match(content, /genericCategoryLabels/);
 assert.match(content, /cssSelectorForDiagnostics/);
 assert.match(content, /selectorForElement/);
+assert.match(content, /CAISHEN_TAOBAO_COLLECT_DIAGNOSTICS/);
 assert.match(content, /KeyboardEvent/);
 assert.doesNotMatch(content, /if \(await preparePublishForm\(task\)\) return/);
 assert.doesNotMatch(content, /successKeywords[\s\S]*'\\u8349\\u7a3f'/);
 assert.match(webBridge, /CAISHEN_TAOBAO_WEB_TRIGGER/);
 assert.match(webBridge, /CAISHEN_TAOBAO_TRIGGER_POLL/);
+assert.match(popup, /diagnosticsButton/);
+assert.match(popup, /diagnosticsOutput/);
+assert.match(popupJs, /CAISHEN_TAOBAO_POPUP_DIAGNOSTICS/);
 assert.match(popup, /token/);
 
 console.log('taobao extension smoke test passed');

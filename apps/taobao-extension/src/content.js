@@ -11,6 +11,10 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 chrome.runtime.sendMessage({ type: 'CAISHEN_TAOBAO_CONTENT_READY' });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === 'CAISHEN_TAOBAO_COLLECT_DIAGNOSTICS') {
+    sendResponse({ ok: true, detail: collectDiagnostics('manual-diagnostics') });
+    return;
+  }
   if (message?.type !== 'CAISHEN_TAOBAO_START') return;
   runPublish(message.task).then(() => sendResponse({ ok: true })).catch(error => {
     report(message.task?.id, STATUS.failed, {

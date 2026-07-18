@@ -141,6 +141,15 @@ async function pollOnce() {
   return { ok: true, claimed: true, taskId: task.id };
 }
 
+async function collectActiveTaobaoDiagnostics() {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tab = tabs.find(item => /item\.upload\.taobao\.com/i.test(item.url || '')) || tabs[0];
+  if (!tab?.id || !/item\.upload\.taobao\.com/i.test(tab.url || '')) {
+    throw new Error('请先切换到淘宝商品发布页面');
+  }
+  return chrome.tabs.sendMessage(tab.id, { type: 'CAISHEN_TAOBAO_COLLECT_DIAGNOSTICS' });
+}
+
 async function handleMessage(message, sender) {
   if (message?.type === 'CAISHEN_TAOBAO_POPUP_GET') {
     return { ok: true, options: await readOptions(), activeTask, activeTabId, ...(await chrome.storage.local.get(['lastError', 'lastErrorAt'])) };
@@ -152,6 +161,7 @@ async function handleMessage(message, sender) {
     return { ok: true, options };
   }
   if (message?.type === 'CAISHEN_TAOBAO_POPUP_POLL') return pollOnce();
+  if (message?.type === 'CAISHEN_TAOBAO_POPUP_DIAGNOSTICS') return collectActiveTaobaoDiagnostics();
   if (message?.type === 'CAISHEN_TAOBAO_TRIGGER_POLL') return pollOnce();
   if (message?.type === 'CAISHEN_TAOBAO_FETCH_IMAGE') return { ok: true, image: await fetchTaskImage(message) };
   if (message?.type === 'CAISHEN_TAOBAO_CONTENT_READY') {
