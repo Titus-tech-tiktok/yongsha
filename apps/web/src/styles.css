@@ -3476,9 +3476,9 @@ label input, label textarea {
 }
 
 .taobao-category-panel {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  flex-direction: column;
   gap: 14px;
-  display: grid;
+  display: flex;
 }
 
 .taobao-detail-panel {
@@ -3567,7 +3567,10 @@ label input, label textarea {
 }
 
 .taobao-category-list {
+  flex: none;
   min-height: auto;
+  position: relative;
+  z-index: 2;
   overflow: visible;
 }
 
@@ -3813,7 +3816,10 @@ label input, label textarea {
 }
 
 .taobao-category-editor {
+  flex: 1 1 auto;
   min-height: 0;
+  position: relative;
+  z-index: 1;
   overflow: auto;
 }
 

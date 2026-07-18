@@ -2,6 +2,7 @@ import { DEFAULT_PUBLISH_URL, STATUS, apiFetch, ensureToken, readOptions, refres
 
 let activeTask = null;
 let activeTabId = 0;
+let activeFrameId = 0;
 let pollTimer = 0;
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -63,6 +64,7 @@ async function clearActiveTask(reason = '') {
   const taskId = activeTask?.id;
   activeTask = null;
   activeTabId = 0;
+  activeFrameId = 0;
   if (taskId && reason) {
     await updateStatus(taskId, STATUS.failed, {
       failureReason: reason,
@@ -129,13 +131,67 @@ async function openPublishTab(task) {
   setTimeout(() => trySendTaskToActiveTab().catch(error => setLastError(error)), 2000);
 }
 
+function publishFrameProbe() {
+  const bodyText = String(document.body?.innerText || document.body?.textContent || '');
+  const fieldText = [...document.querySelectorAll('input, textarea, [contenteditable="true"], select, button, [role="button"]')]
+    .slice(0, 120)
+    .map(element => [
+      element.placeholder,
+      element.getAttribute('aria-label'),
+      element.name,
+      element.id,
+      element.innerText,
+      element.textContent
+    ].filter(Boolean).join(' '))
+    .join('\n');
+  const combined = `${bodyText}\n${fieldText}`;
+  const hasFileInputs = document.querySelectorAll('input[type="file"]').length > 0;
+  const hasTitleField = /标题|宝贝标题|商品标题/.test(combined);
+  const hasSaveDraft = /保存草稿|存草稿|保存/.test(combined);
+  const hasCategorySearch = /搜索发品|类目关键词|产品名称|条码信息/.test(combined);
+  const isTaobaoUpload = /item\.upload\.taobao\.com/i.test(location.href);
+  const isCategoryEntry = /\/sell\/ai\/category\.htm/i.test(location.href) || /category\.htm/i.test(location.href);
+  const score = [
+    isTaobaoUpload ? 10 : 0,
+    isCategoryEntry ? 30 : 0,
+    hasCategorySearch ? 25 : 0,
+    hasTitleField ? 45 : 0,
+    hasFileInputs ? 45 : 0,
+    hasSaveDraft ? 20 : 0
+  ].reduce((sum, value) => sum + value, 0);
+  return {
+    href: location.href,
+    title: document.title,
+    hasFileInputs,
+    hasTitleField,
+    hasSaveDraft,
+    hasCategorySearch,
+    isCategoryEntry,
+    score
+  };
+}
+
+async function findPublishFrame(tabId) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    func: publishFrameProbe
+  });
+  const frames = (results || [])
+    .map(result => ({ frameId: result.frameId || 0, ...(result.result || {}) }))
+    .filter(frame => frame.score > 0)
+    .sort((left, right) => right.score - left.score);
+  return frames[0] || { frameId: 0, score: 0 };
+}
+
 async function sendTaskToTab(tabId, task) {
-  await chrome.tabs.sendMessage(tabId, { type: 'CAISHEN_TAOBAO_START', task });
+  const frame = await findPublishFrame(tabId).catch(() => ({ frameId: 0, score: 0 }));
+  activeFrameId = frame.frameId || 0;
+  await chrome.tabs.sendMessage(tabId, { type: 'CAISHEN_TAOBAO_START', task }, { frameId: activeFrameId });
 }
 
 async function injectContentScript(tabId) {
   await chrome.scripting.executeScript({
-    target: { tabId },
+    target: { tabId, allFrames: true },
     files: ['src/content.js']
   });
 }

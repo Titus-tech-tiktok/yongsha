@@ -27,6 +27,7 @@
     {
       "matches": ["https://item.upload.taobao.com/*"],
       "js": ["src/content.js"],
+      "all_frames": true,
       "run_at": "document_idle"
     }
   ]
