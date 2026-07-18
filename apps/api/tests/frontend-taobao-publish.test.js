@@ -16,6 +16,8 @@ test('web app exposes Taobao publish assistant page and bridge methods', async (
   assert.match(bridge, /saveTaobaoPublishSettings/);
   assert.match(bridge, /queueTaobaoPublishTask/);
   assert.match(renderer, /renderTaobaoPublishPage/);
+  assert.match(renderer, /taobaoPublishBlockedTasks/);
+  assert.match(renderer, /blockedTasks/);
   assert.match(renderer, /saveActiveTaobaoCategoryTemplate/);
   assert.match(renderer, /queueActiveTaobaoPublishTask/);
   assert.match(renderer, /renderTaobaoPublishDiagnostics/);

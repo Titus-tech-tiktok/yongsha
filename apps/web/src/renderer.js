@@ -156,6 +156,7 @@ const state = {
   requiredTitleRoots: new Set(),
   taobaoPublishSettings: null,
   taobaoPublishTasks: [],
+  taobaoPublishBlockedTasks: [],
   activeTaobaoPublishTaskId: '',
   activeTaobaoCategoryId: '',
   promptSettings: null,
@@ -3253,11 +3254,13 @@ async function loadTaobaoPublishPage() {
     const data = await window.caishen.listTaobaoPublishTasks();
     state.taobaoPublishSettings = data.settings || null;
     state.taobaoPublishTasks = data.tasks || [];
+    state.taobaoPublishBlockedTasks = data.blockedTasks || [];
     if (!state.activeTaobaoCategoryId) state.activeTaobaoCategoryId = state.taobaoPublishSettings?.categories?.[0]?.id || '';
     if (!state.activeTaobaoPublishTaskId && state.taobaoPublishTasks.length) state.activeTaobaoPublishTaskId = state.taobaoPublishTasks[0].id || state.taobaoPublishTasks[0].folder;
     renderTaobaoPublishPage();
   } catch (error) {
     state.taobaoPublishTasks = [];
+    state.taobaoPublishBlockedTasks = [];
     if (list) list.innerHTML = `<div class="title-empty-state error"><span>!</span><b>读取失败</b><p>${escapeHtml(errorText(error))}</p></div>`;
     toast(errorText(error), true);
   }
@@ -3464,19 +3467,31 @@ async function saveActiveTaobaoCategoryTemplate(event) {
 function renderTaobaoTaskList() {
   const list = $('#taobaoPublishTaskList');
   if (!list) return;
+  const blocked = state.taobaoPublishBlockedTasks || [];
   $('#taobaoPublishSummary').textContent = state.taobaoPublishTasks.length
     ? `${state.taobaoPublishTasks.length} 个任务可发布`
-    : '暂无整套通过任务';
-  list.innerHTML = state.taobaoPublishTasks.length
-    ? state.taobaoPublishTasks.map(task => {
+    : blocked.length
+      ? `${blocked.length} 个任务暂不可发布`
+      : '暂无整套通过任务';
+  if (state.taobaoPublishTasks.length) {
+    list.innerHTML = state.taobaoPublishTasks.map(task => {
       const active = (task.id || task.folder) === state.activeTaobaoPublishTaskId;
       const statusClass = taobaoStatusClass(task.status);
       return `<article class="taobao-task-card${active ? ' active' : ''}" data-taobao-task="${escapeHtml(task.id || task.folder)}">
         <div><b>${escapeHtml(task.name)}</b><span>${escapeHtml(task.categoryName || '未选择类目')} · ${task.imageCount || 0} 张 · ${task.titleReady ? '标题已就绪' : '缺少标题'}</span></div>
         <em class="${statusClass}">${escapeHtml(task.status || '未配置')}</em>
       </article>`;
-    }).join('')
-    : '<div class="title-empty-state"><span>淘</span><b>暂无可发布任务</b><p>人工筛图整套通过后会自动同步到这里。</p></div>';
+    }).join('');
+    return;
+  }
+  if (blocked.length) {
+    list.innerHTML = blocked.map(task => `<article class="taobao-task-card blocked">
+      <div><b>${escapeHtml(task.name)}</b><span>${escapeHtml((task.reasons || []).join('、'))}</span></div>
+      <em class="failed">暂不可发布</em>
+    </article>`).join('');
+    return;
+  }
+  list.innerHTML = '<div class="title-empty-state"><span>淘</span><b>暂无可发布任务</b><p>人工筛图整套通过后会自动同步到这里。</p></div>';
 }
 
 function renderTaobaoPublishDiagnostics(task) {

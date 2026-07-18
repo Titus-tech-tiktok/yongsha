@@ -52,6 +52,24 @@ function isReviewReadyForTaobao(review = {}) {
   });
 }
 
+function taobaoReviewBlockers(review = {}) {
+  const jobs = Array.isArray(review.jobs) ? review.jobs : [];
+  const actionable = jobs.filter(job => normalizedStatus(job.status) !== '已跳过' && job.action !== 'exclude');
+  const progress = review.generationProgress || {};
+  const blockers = [];
+  if (!actionable.length) blockers.push('没有可发布图片');
+  if (Number(progress.pending) > 0 || Number(progress.failed) > 0 || ['queued', 'preparing', 'generating', 'auditing', 'running'].includes(String(progress.phase || ''))) {
+    blockers.push('仍有图片生成中或失败');
+  }
+  if (actionable.length && actionable.some(job => {
+    const status = normalizedStatus(job.status);
+    return !job.outputUrl || (status !== '已通过' && status !== '直接套模板');
+  })) {
+    blockers.push('仍有图片未人工通过');
+  }
+  return blockers;
+}
+
 function classifyTaobaoImages(jobs = []) {
   const result = { mainImages: [], ratioImages: [], detailImages: [] };
   for (const job of jobs) {
@@ -88,6 +106,7 @@ module.exports = {
   TAOBAO_CATEGORY_TEMPLATES,
   classifyTaobaoImages,
   isReviewReadyForTaobao,
+  taobaoReviewBlockers,
   validateTaobaoImagePackage,
   templateById
 };

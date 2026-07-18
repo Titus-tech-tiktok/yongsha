@@ -101,6 +101,7 @@ const {
   TAOBAO_CATEGORY_TEMPLATES,
   classifyTaobaoImages,
   isReviewReadyForTaobao,
+  taobaoReviewBlockers,
   validateTaobaoImagePackage,
   templateById: taobaoTemplateById
 } = require('./core/taobao-publish');
@@ -3643,11 +3644,41 @@ async function taobaoPublishBaseTasks() {
   });
 }
 
+async function taobaoPublishBlockedTasks() {
+  const [reviews, readyTitles] = await Promise.all([
+    reviewFolders(),
+    listReadyTitleTasks()
+  ]);
+  const titlesByFolder = new Map(readyTitles.map(item => [path.resolve(item.folder), item]));
+  return reviews.map(review => {
+    const titleTask = titlesByFolder.get(path.resolve(review.folder)) || null;
+    const images = classifyTaobaoImages(review.jobs || []);
+    const imagePackage = validateTaobaoImagePackage(images);
+    const reasons = [
+      ...taobaoReviewBlockers(review),
+      ...(!titleTask?.firstTitle ? ['缺少淘宝标题'] : []),
+      ...(!imagePackage.ok ? [`缺少${imagePackage.missing.join('、')}`] : [])
+    ];
+    return {
+      folder: review.folder,
+      name: review.name,
+      reasons: [...new Set(reasons)],
+      titleReady: Boolean(titleTask?.firstTitle),
+      imageCount: (review.jobs || []).filter(job => job.outputUrl).length,
+      mainImageCount: images.mainImages.length,
+      ratioImageCount: images.ratioImages.length,
+      detailImageCount: images.detailImages.length,
+      modifiedAt: review.modifiedAt
+    };
+  }).filter(item => item.reasons.length);
+}
+
 async function listTaobaoPublishTasks() {
-  const [settings, tasks] = await Promise.all([getTaobaoPublishSettings(), taobaoPublishBaseTasks()]);
+  const [settings, tasks, blockedTasks] = await Promise.all([getTaobaoPublishSettings(), taobaoPublishBaseTasks(), taobaoPublishBlockedTasks()]);
   return {
     settings,
-    tasks
+    tasks,
+    blockedTasks
   };
 }
 

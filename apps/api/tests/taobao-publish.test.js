@@ -5,6 +5,7 @@ const {
   TAOBAO_CATEGORY_TEMPLATES,
   classifyTaobaoImages,
   isReviewReadyForTaobao,
+  taobaoReviewBlockers,
   validateTaobaoImagePackage
 } = require('../src/core/taobao-publish');
 
@@ -78,4 +79,18 @@ test('taobao image package requires main ratio and detail images before publishi
     ratioImages: [],
     detailImages: [{ name: 'detail.jpg' }]
   }), { ok: false, missing: ['3:4 主图'] });
+});
+
+test('taobao review blockers explain why a task is not publishable', () => {
+  assert.deepEqual(taobaoReviewBlockers({
+    jobs: [],
+    generationProgress: { pending: 0, failed: 0, phase: 'completed' }
+  }), ['没有可发布图片']);
+
+  assert.deepEqual(taobaoReviewBlockers({
+    jobs: [
+      { status: '待人工确认', outputUrl: '/a.jpg' }
+    ],
+    generationProgress: { pending: 1, failed: 0, phase: 'running' }
+  }), ['仍有图片生成中或失败', '仍有图片未人工通过']);
 });

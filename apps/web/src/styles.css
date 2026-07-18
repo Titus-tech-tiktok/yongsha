@@ -3567,6 +3567,11 @@ label input, label textarea {
   display: flex;
 }
 
+.taobao-task-card.blocked {
+  cursor: default;
+  background: #fff8f6;
+}
+
 .taobao-task-card > div {
   min-width: 0;
   display: grid;
