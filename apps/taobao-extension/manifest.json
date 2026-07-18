@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "财神淘宝发布辅助",
+  "version": "0.1.0",
+  "description": "从财神 Web 端领取已通过任务，自动填写淘宝发布页并保存草稿。",
+  "permissions": ["storage", "tabs", "scripting", "alarms"],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://item.upload.taobao.com/*",
+    "https://*.taobao.com/*",
+    "https://*.tmall.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "淘宝发布辅助",
+    "default_popup": "src/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://item.upload.taobao.com/*"],
+      "js": ["src/content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

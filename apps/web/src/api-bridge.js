@@ -372,6 +372,10 @@ window.caishen = {
   generateTitleForTask: folder => rpc('generateTitleForTask', folder),
   saveTitleSetup: payload => rpc('saveTitleSetup', payload),
   generateTitles: payload => rpc('generateTitles', payload),
+  getTaobaoPublishSettings: () => rpc('getTaobaoPublishSettings'),
+  saveTaobaoPublishSettings: payload => rpc('saveTaobaoPublishSettings', payload),
+  listTaobaoPublishTasks: () => rpc('listTaobaoPublishTasks'),
+  queueTaobaoPublishTask: payload => rpc('queueTaobaoPublishTask', payload),
   exportTitles: async payload => {
     const file = await rpc('exportTitles', payload);
     if (file) await openWorkspacePath(file, 'file');

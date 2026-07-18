@@ -548,7 +548,7 @@ h2 {
   width: 100%;
 }
 
-.asset-panel, .queue-panel, .review-sidebar, .review-stage, .review-log, .form-sheet, .title-results, .drop-zone, .prompt-sheet, .result-zone, .settings-sheet {
+.asset-panel, .queue-panel, .review-sidebar, .review-stage, .review-log, .form-sheet, .title-results, .drop-zone, .prompt-sheet, .result-zone, .settings-sheet, .taobao-category-panel, .taobao-task-panel, .taobao-detail-panel {
   background: var(--paper);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
@@ -3428,6 +3428,274 @@ label input, label textarea {
   font-size: 11px;
 }
 
+.taobao-publish-layout {
+  grid-template-columns: minmax(260px, 320px) minmax(420px, 1fr) minmax(280px, 360px);
+  gap: 16px;
+  height: calc(100vh - 40px);
+  min-height: 620px;
+  display: grid;
+}
+
+.taobao-category-panel, .taobao-task-panel, .taobao-detail-panel {
+  min-height: 0;
+  padding: 18px;
+  overflow: hidden;
+}
+
+.taobao-category-panel, .taobao-detail-panel {
+  align-content: start;
+  gap: 14px;
+  display: grid;
+}
+
+.taobao-task-panel {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  display: grid;
+}
+
+.taobao-task-head, .taobao-detail-head, .taobao-extension-card {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+}
+
+.taobao-task-head {
+  justify-content: space-between;
+  align-items: start;
+  gap: 18px;
+  display: flex;
+}
+
+.taobao-task-head h2, .taobao-detail-head b {
+  color: var(--ink);
+  margin: 0;
+}
+
+.taobao-task-head p {
+  color: var(--subtle);
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.taobao-task-head > span {
+  color: var(--teal);
+  background: var(--teal-soft);
+  border-radius: 999px;
+  flex: none;
+  padding: 7px 11px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.taobao-extension-card {
+  gap: 9px;
+  display: grid;
+}
+
+.taobao-extension-card span, .taobao-detail-head span {
+  color: var(--subtle);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.taobao-extension-card code {
+  color: var(--ink);
+  background: #f4f3ee;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.taobao-extension-card button {
+  min-height: 34px;
+}
+
+.taobao-category-list, .taobao-task-list {
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+  display: grid;
+  overflow: auto;
+}
+
+.taobao-category-list {
+  max-height: 260px;
+}
+
+.taobao-category-item, .taobao-task-card {
+  border: 1px solid var(--line);
+  text-align: left;
+  background: #fdfcf9;
+  border-radius: 9px;
+  width: 100%;
+  min-height: 72px;
+  padding: 13px;
+}
+
+.taobao-category-item {
+  display: grid;
+  gap: 5px;
+}
+
+.taobao-category-item:hover, .taobao-task-card:hover {
+  border-color: #b8d1cb;
+  background: #f7fbf8;
+}
+
+.taobao-category-item.active, .taobao-task-card.active {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+  box-shadow: inset 4px 0 0 var(--teal);
+}
+
+.taobao-category-item b, .taobao-task-card b {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.taobao-category-item span, .taobao-task-card span {
+  color: var(--subtle);
+  font-size: 11px;
+}
+
+.taobao-task-card {
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  display: flex;
+}
+
+.taobao-task-card > div {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.taobao-task-card em {
+  border-radius: 999px;
+  flex: none;
+  padding: 6px 9px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.taobao-task-card em.idle { color: var(--subtle); background: #f0efea; }
+.taobao-task-card em.running { color: var(--teal); background: var(--teal-soft); }
+.taobao-task-card em.complete { color: #2f7a45; background: #e1f2e5; }
+.taobao-task-card em.failed { color: var(--red); background: #f1dedb; }
+
+.taobao-detail-head {
+  gap: 5px;
+  display: grid;
+}
+
+.taobao-package-summary {
+  gap: 14px;
+  display: grid;
+}
+
+.taobao-package-summary label {
+  color: var(--subtle);
+  gap: 7px;
+  display: grid;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.taobao-package-summary select {
+  width: 100%;
+}
+
+.taobao-package-summary dl {
+  gap: 9px;
+  margin: 0;
+  display: grid;
+}
+
+.taobao-package-summary dl > div {
+  border: 1px solid var(--line);
+  background: #fdfcf9;
+  border-radius: 8px;
+  padding: 11px;
+}
+
+.taobao-package-summary dt {
+  color: var(--subtle);
+  margin-bottom: 5px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.taobao-package-summary dd {
+  color: var(--ink);
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.taobao-failure {
+  color: var(--red);
+  background: #f7e7e4;
+  border-radius: 8px;
+  margin: 0;
+  padding: 10px;
+  font-size: 12px;
+}
+
+.taobao-publish-actions {
+  gap: 9px;
+  display: grid;
+}
+
+.taobao-category-editor {
+  min-height: 0;
+  overflow: auto;
+}
+
+.taobao-template-form {
+  gap: 10px;
+  display: grid;
+}
+
+.taobao-template-form > b {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.taobao-template-form label {
+  color: var(--subtle);
+  gap: 6px;
+  display: grid;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.taobao-template-form input,
+.taobao-template-form textarea {
+  width: 100%;
+  min-height: 36px;
+  font-size: 12px;
+}
+
+.taobao-template-form textarea {
+  resize: vertical;
+  min-height: 92px;
+}
+
+.empty-inline {
+  color: var(--subtle);
+  background: #f7f6f1;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  padding: 14px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .free-layout {
   grid-template-columns: minmax(340px, 420px) minmax(480px, 1fr);
   gap: 16px;
@@ -5177,10 +5445,14 @@ label input, label textarea {
   .review-layout {
     grid-template-columns: 250px minmax(360px, 1fr) 260px;
   }
+
+  .taobao-publish-layout {
+    grid-template-columns: 240px minmax(380px, 1fr) 280px;
+  }
 }
 
 @media (width <= 900px) {
-  .task-layout, .task-layout.template-print-mode, .review-layout, .free-layout, .prompt-settings-layout {
+  .task-layout, .task-layout.template-print-mode, .review-layout, .free-layout, .prompt-settings-layout, .taobao-publish-layout {
     grid-template-columns: 1fr;
     height: auto;
     min-height: 0;
@@ -5249,6 +5521,10 @@ label input, label textarea {
 
   .review-sidebar, .review-stage, .review-log {
     min-height: 380px;
+  }
+
+  .taobao-category-panel, .taobao-task-panel, .taobao-detail-panel {
+    min-height: 320px;
   }
 
   .review-list {

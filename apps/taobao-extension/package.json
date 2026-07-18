@@ -1,0 +1,9 @@
+{
+  "name": "@caishen/taobao-extension",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "node tests/extension.test.js",
+    "test": "node tests/extension.test.js"
+  }
+}

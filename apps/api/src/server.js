@@ -1051,6 +1051,48 @@ async function startServer() {
     return res.json({ data: { ok: true } });
   });
 
+  async function runTaobaoPublishWithToken(token, worker) {
+    const wanted = String(token || '');
+    if (!wanted) throw new Error('淘宝发布助手令牌无效');
+    const users = await auth.listUsers();
+    const workspaceIds = [...new Set(users.map(user => user.workspaceId).filter(Boolean))];
+    for (const workspaceId of workspaceIds) {
+      const matched = await runtime.runWithWorkspace(workspaceId, async () => {
+        const settings = await runtime.getTaobaoPublishSettings();
+        return String(settings.token || '') === wanted;
+      });
+      if (matched) return runtime.runWithWorkspace(workspaceId, worker);
+    }
+    throw new Error('淘宝发布助手令牌无效');
+  }
+
+  app.post('/api/taobao/publish/claim', async (req, res) => {
+    try {
+      const token = String(req.body?.token || '');
+      return res.json({ data: await runTaobaoPublishWithToken(token, () => runtime.claimTaobaoPublishTask(req.body || {})) });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
+
+  app.get('/api/taobao/publish/tasks/:id/package', async (req, res) => {
+    try {
+      const token = String(req.query.token || req.get('x-caishen-taobao-token') || '');
+      return res.json({ data: await runTaobaoPublishWithToken(token, () => runtime.getTaobaoPublishPackage(req.params.id)) });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
+
+  app.post('/api/taobao/publish/tasks/:id/status', async (req, res) => {
+    try {
+      const token = String(req.body?.token || '');
+      return res.json({ data: await runTaobaoPublishWithToken(token, () => runtime.updateTaobaoPublishStatus(req.params.id, req.body || {})) });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
+
   app.use('/api', async (req, res, next) => {
     const user = await auth.userFromRequest(req);
     if (!user) return res.status(401).json({ error: '请先登录' });

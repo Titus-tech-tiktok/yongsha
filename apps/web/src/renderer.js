@@ -154,6 +154,10 @@ const state = {
   generatedTitleCategory: '',
   selectedTitleIndexes: new Set(),
   requiredTitleRoots: new Set(),
+  taobaoPublishSettings: null,
+  taobaoPublishTasks: [],
+  activeTaobaoPublishTaskId: '',
+  activeTaobaoCategoryId: '',
   promptSettings: null,
   activePromptId: '',
   freePromptDefaultApplied: false,
@@ -622,6 +626,7 @@ function setPage(name) {
     if (currentPage !== name) return;
     if (name === 'review') loadReviews({ silent: state.reviews.length > 0 });
     if (name === 'titles') loadTitlePage();
+    if (name === 'taobao-publish') loadTaobaoPublishPage();
     if (name === 'prompts' && canViewPrompts() && !state.promptSettings) loadPromptSettings();
     if (name === 'assets') loadAssetLibraryPreview(state.assetPreviewKey, { preserveSelection: true });
     if (name === 'settings' && isTeamAdmin() && !state.modelPackageSettings) loadModelPackageSettings();
@@ -3241,6 +3246,180 @@ async function exportSelectedTitles() {
   } catch (error) { toast(errorText(error), true); }
 }
 
+async function loadTaobaoPublishPage() {
+  const list = $('#taobaoPublishTaskList');
+  if (list) list.innerHTML = '<div class="title-empty-state"><span>淘</span><b>正在读取任务</b><p>正在同步人工筛图已通过任务。</p></div>';
+  try {
+    const data = await window.caishen.listTaobaoPublishTasks();
+    state.taobaoPublishSettings = data.settings || null;
+    state.taobaoPublishTasks = data.tasks || [];
+    if (!state.activeTaobaoCategoryId) state.activeTaobaoCategoryId = state.taobaoPublishSettings?.categories?.[0]?.id || '';
+    if (!state.activeTaobaoPublishTaskId && state.taobaoPublishTasks.length) state.activeTaobaoPublishTaskId = state.taobaoPublishTasks[0].id || state.taobaoPublishTasks[0].folder;
+    renderTaobaoPublishPage();
+  } catch (error) {
+    state.taobaoPublishTasks = [];
+    if (list) list.innerHTML = `<div class="title-empty-state error"><span>!</span><b>读取失败</b><p>${escapeHtml(errorText(error))}</p></div>`;
+    toast(errorText(error), true);
+  }
+}
+
+function taobaoStatusClass(status = '') {
+  if (status === '已保存草稿') return 'complete';
+  if (status === '失败') return 'failed';
+  if (['等待插件接收', '插件已接收', '正在打开淘宝页面', '正在填写字段', '正在上传图片', '正在保存草稿'].includes(status)) return 'running';
+  return 'idle';
+}
+
+function renderTaobaoCategoryList() {
+  const list = $('#taobaoCategoryList');
+  if (!list) return;
+  const categories = state.taobaoPublishSettings?.categories || [];
+  list.innerHTML = categories.length
+    ? categories.map(category => `<button type="button" class="taobao-category-item${category.id === state.activeTaobaoCategoryId ? ' active' : ''}" data-taobao-category="${escapeHtml(category.id)}"><b>${escapeHtml(category.name)}</b><span>${escapeHtml(category.defaults?.publishUrl ? '已配置发布链接' : '待补发布链接')}</span></button>`).join('')
+    : '<div class="empty-inline">暂无类目模板</div>';
+}
+
+function activeTaobaoCategory() {
+  const categories = state.taobaoPublishSettings?.categories || [];
+  return categories.find(category => category.id === state.activeTaobaoCategoryId) || categories[0] || null;
+}
+
+function renderTaobaoCategoryEditor() {
+  const editor = $('#taobaoCategoryEditor');
+  if (!editor) return;
+  const category = activeTaobaoCategory();
+  if (!category) {
+    editor.innerHTML = '<div class="empty-inline">暂无类目模板</div>';
+    return;
+  }
+  const defaults = category.defaults || {};
+  editor.innerHTML = `<form class="taobao-template-form" id="taobaoCategoryTemplateForm">
+    <b>${escapeHtml(category.name)}模板</b>
+    <label>发布链接<input name="publishUrl" value="${escapeHtml(defaults.publishUrl || '')}" placeholder="淘宝后台发布页链接"></label>
+    <label>价格<input name="price" value="${escapeHtml(defaults.price || '')}" placeholder="发布价格"></label>
+    <label>库存<input name="stock" value="${escapeHtml(defaults.stock || '')}" placeholder="999"></label>
+    <label>发货地<input name="shipFrom" value="${escapeHtml(defaults.shipFrom || '')}" placeholder="发货地"></label>
+    <label>运费模板<input name="freightTemplate" value="${escapeHtml(defaults.freightTemplate || '')}" placeholder="运费模板名称"></label>
+    <label>服务模板<input name="serviceTemplate" value="${escapeHtml(defaults.serviceTemplate || '')}" placeholder="服务模板名称"></label>
+    <label>属性 JSON<textarea name="attributes" rows="4" placeholder='{"材质":"实木"}'>${escapeHtml(JSON.stringify(defaults.attributes || {}, null, 2))}</textarea></label>
+    <label>选择器 JSON<textarea name="selectors" rows="4" placeholder='{"title":"input[name=title]"}'>${escapeHtml(JSON.stringify(defaults.selectors || {}, null, 2))}</textarea></label>
+    <button type="submit" class="primary">保存类目模板</button>
+  </form>`;
+}
+
+function parseJsonField(value, label) {
+  const text = String(value || '').trim();
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('must be object');
+    return parsed;
+  } catch {
+    throw new Error(`${label} 必须是 JSON 对象`);
+  }
+}
+
+async function saveActiveTaobaoCategoryTemplate(event) {
+  event?.preventDefault();
+  const category = activeTaobaoCategory();
+  const form = $('#taobaoCategoryTemplateForm');
+  if (!category || !form || !state.taobaoPublishSettings) return;
+  const data = new FormData(form);
+  const categories = (state.taobaoPublishSettings.categories || []).map(item => {
+    if (item.id !== category.id) return item;
+    return {
+      ...item,
+      defaults: {
+        ...(item.defaults || {}),
+        publishUrl: String(data.get('publishUrl') || '').trim(),
+        price: String(data.get('price') || '').trim(),
+        stock: String(data.get('stock') || '').trim(),
+        shipFrom: String(data.get('shipFrom') || '').trim(),
+        freightTemplate: String(data.get('freightTemplate') || '').trim(),
+        serviceTemplate: String(data.get('serviceTemplate') || '').trim(),
+        attributes: parseJsonField(data.get('attributes'), '属性 JSON'),
+        selectors: parseJsonField(data.get('selectors'), '选择器 JSON')
+      }
+    };
+  });
+  try {
+    state.taobaoPublishSettings = await window.caishen.saveTaobaoPublishSettings({
+      ...state.taobaoPublishSettings,
+      categories
+    });
+    toast('类目模板已保存');
+    renderTaobaoPublishPage();
+  } catch (error) {
+    toast(errorText(error), true);
+  }
+}
+
+function renderTaobaoTaskList() {
+  const list = $('#taobaoPublishTaskList');
+  if (!list) return;
+  $('#taobaoPublishSummary').textContent = state.taobaoPublishTasks.length
+    ? `${state.taobaoPublishTasks.length} 个任务可发布`
+    : '暂无整套通过任务';
+  list.innerHTML = state.taobaoPublishTasks.length
+    ? state.taobaoPublishTasks.map(task => {
+      const active = (task.id || task.folder) === state.activeTaobaoPublishTaskId;
+      const statusClass = taobaoStatusClass(task.status);
+      return `<article class="taobao-task-card${active ? ' active' : ''}" data-taobao-task="${escapeHtml(task.id || task.folder)}">
+        <div><b>${escapeHtml(task.name)}</b><span>${escapeHtml(task.categoryName || '未选择类目')} · ${task.imageCount || 0} 张 · ${task.titleReady ? '标题已就绪' : '缺少标题'}</span></div>
+        <em class="${statusClass}">${escapeHtml(task.status || '未配置')}</em>
+      </article>`;
+    }).join('')
+    : '<div class="title-empty-state"><span>淘</span><b>暂无可发布任务</b><p>人工筛图整套通过后会自动同步到这里。</p></div>';
+}
+
+function renderTaobaoPublishDetail() {
+  const detail = $('#taobaoPublishDetail');
+  const title = $('#taobaoPublishDetailTitle');
+  if (!detail || !title) return;
+  const task = state.taobaoPublishTasks.find(item => (item.id || item.folder) === state.activeTaobaoPublishTaskId);
+  if (!task) {
+    title.textContent = '选择一个任务';
+    detail.innerHTML = '<div class="empty-inline">选择左侧任务后查看标题、图片分类和发布状态。</div>';
+    return;
+  }
+  title.textContent = task.name || '发布任务';
+  const selectedCategoryId = task.categoryId || state.activeTaobaoCategoryId;
+  const categories = state.taobaoPublishSettings?.categories || [];
+  detail.innerHTML = `<div class="taobao-package-summary">
+    <label>发布类目<select id="taobaoTaskCategorySelect">${categories.map(category => `<option value="${escapeHtml(category.id)}"${category.id === selectedCategoryId ? ' selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}</select></label>
+    <dl>
+      <div><dt>标题</dt><dd>${escapeHtml(task.title || '未生成标题')}</dd></div>
+      <div><dt>主图</dt><dd>${task.mainImageCount || 0} 张</dd></div>
+      <div><dt>3:4 主图</dt><dd>${task.ratioImageCount || 0} 张</dd></div>
+      <div><dt>详情图</dt><dd>${task.detailImageCount || 0} 张</dd></div>
+      <div><dt>状态</dt><dd>${escapeHtml(task.status || '未配置')}</dd></div>
+    </dl>
+    ${task.failureReason ? `<p class="taobao-failure">${escapeHtml(task.failureReason)}</p>` : ''}
+    <div class="taobao-publish-actions"><button class="primary" id="queueTaobaoPublishButton" type="button">发布到淘宝草稿</button><button class="secondary" id="openTaobaoTaskFolderButton" type="button">查看任务文件</button></div>
+  </div>`;
+}
+
+function renderTaobaoPublishPage() {
+  $('#taobaoPublishToken').textContent = state.taobaoPublishSettings?.token || '未生成';
+  renderTaobaoCategoryList();
+  renderTaobaoCategoryEditor();
+  renderTaobaoTaskList();
+  renderTaobaoPublishDetail();
+}
+
+async function queueActiveTaobaoPublishTask() {
+  const task = state.taobaoPublishTasks.find(item => (item.id || item.folder) === state.activeTaobaoPublishTaskId);
+  if (!task) return toast('请先选择任务', true);
+  const categoryId = $('#taobaoTaskCategorySelect')?.value || state.activeTaobaoCategoryId || task.categoryId;
+  try {
+    await window.caishen.queueTaobaoPublishTask({ folder: task.folder, categoryId });
+    toast('已提交，等待浏览器插件接收');
+    await loadTaobaoPublishPage();
+  } catch (error) {
+    toast(errorText(error), true);
+  }
+}
+
 const TEMPLATE_ACTIONS = [
   ['replace_print', '换印花'],
   ['copy_original', '保留原图'],
@@ -4801,6 +4980,40 @@ function bindEvents() {
   $('#clearTitleSelectionButton').onclick = () => { state.selectedTitleIndexes.clear(); renderTitleResults(); };
   $('#exportTitlesButton').onclick = exportSelectedTitles;
   $('#readyTitleTaskList').onclick = handleReadyTitleTaskAction;
+  if ($('#refreshTaobaoPublishButton')) $('#refreshTaobaoPublishButton').onclick = loadTaobaoPublishPage;
+  if ($('#copyTaobaoPublishTokenButton')) $('#copyTaobaoPublishTokenButton').onclick = async () => {
+    const token = state.taobaoPublishSettings?.token || '';
+    if (!token) return toast('插件连接令牌未生成', true);
+    await window.caishen.copyText(token);
+    toast('插件连接令牌已复制');
+  };
+  if ($('#taobaoCategoryList')) $('#taobaoCategoryList').onclick = event => {
+    const button = event.target.closest('[data-taobao-category]');
+    if (!button) return;
+    state.activeTaobaoCategoryId = button.dataset.taobaoCategory;
+    renderTaobaoPublishPage();
+  };
+  if ($('#taobaoPublishTaskList')) $('#taobaoPublishTaskList').onclick = event => {
+    const card = event.target.closest('[data-taobao-task]');
+    if (!card) return;
+    state.activeTaobaoPublishTaskId = card.dataset.taobaoTask;
+    renderTaobaoPublishPage();
+  };
+  if ($('#taobaoPublishDetail')) $('#taobaoPublishDetail').onclick = event => {
+    if (event.target.closest('#queueTaobaoPublishButton')) return queueActiveTaobaoPublishTask();
+    if (event.target.closest('#openTaobaoTaskFolderButton')) {
+      const task = state.taobaoPublishTasks.find(item => (item.id || item.folder) === state.activeTaobaoPublishTaskId);
+      if (task?.folder) return window.caishen.openFolder(task.folder);
+      return toast('请先选择任务', true);
+    }
+  };
+  if ($('#taobaoPublishDetail')) $('#taobaoPublishDetail').onchange = event => {
+    if (!event.target.closest('#taobaoTaskCategorySelect')) return;
+    state.activeTaobaoCategoryId = event.target.value;
+    renderTaobaoCategoryList();
+    renderTaobaoCategoryEditor();
+  };
+  if ($('#taobaoCategoryEditor')) $('#taobaoCategoryEditor').onsubmit = saveActiveTaobaoCategoryTemplate;
   $('#saveSettingsButton').onclick = saveSettings;
   $('#resetSettingsButton').onclick = resetSettings;
   $('#openBillingDetailButton').onclick = openBillingDetail;

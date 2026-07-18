@@ -5,9 +5,9 @@
   "workspaces": ["apps/*"],
   "scripts": {
     "dev": "concurrently -k -n API,WEB -c green,cyan \"npm run dev -w @caishen/api\" \"npm run dev -w @caishen/web\"",
-    "build": "npm run build -w @caishen/web && npm run build -w @caishen/api",
+    "build": "npm run build -w @caishen/web && npm run build -w @caishen/api && npm run build -w @caishen/taobao-extension",
     "start": "npm run start -w @caishen/api",
-    "test": "npm run test -w @caishen/api",
+    "test": "npm run test -w @caishen/api && npm run test -w @caishen/taobao-extension",
     "check": "npm run build && npm test"
   },
   "devDependencies": {
