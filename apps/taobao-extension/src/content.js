@@ -229,6 +229,7 @@ async function clickFieldOrOption(keywords, value, selector = '') {
   if (!text(value)) return false;
   const selected = query(selector);
   if (selected) {
+    if (isSelectLike(selected)) return setSelectValue(selected, value);
     clickElement(selected);
     await sleep(260);
     return selectOptionByText(value) || true;
@@ -601,13 +602,20 @@ async function fillCustomFields(task) {
   }
 }
 
-async function confirmSaveDraftIfPrompted() {
-  const confirmButton = findButton([
-    '确认',
-    '确定',
-    '继续',
-    '保存'
-  ]);
+async function confirmSaveDraftIfPrompted(excludedButton) {
+  await sleep(300);
+  const dialog = [...document.querySelectorAll('[role="dialog"], .ant-modal, .next-dialog, .el-dialog')].find(visible);
+  const candidates = [...(dialog || document).querySelectorAll('button, [role="button"], a')]
+    .filter(element => element !== excludedButton)
+    .filter(visible)
+    .filter(element => !disabled(element));
+  const keywords = dialog
+    ? ['确认', '确定', '继续', '保存']
+    : ['确认保存', '继续保存', '仍要保存'];
+  const confirmButton = candidates.find(element => {
+    const label = text(element.innerText || element.textContent || element.getAttribute('aria-label') || element.title);
+    return keywords.some(keyword => label.includes(keyword));
+  });
   if (!confirmButton) return false;
   clickElement(confirmButton);
   await sleep(800);
@@ -618,7 +626,7 @@ async function saveDraft(task) {
   const button = await waitForButton(['保存草稿', '存草稿', '保存'], selectors(task).saveDraft);
   if (!button) throw fail('未找到保存草稿按钮', 'save-draft');
   clickElement(button);
-  await confirmSaveDraftIfPrompted();
+  await confirmSaveDraftIfPrompted(button);
   const result = await waitForDraftSaved();
   if (!result.ok) throw fail(result.reason, 'save-draft');
   await report(task.id, STATUS.saved, { detail: { savedAt: new Date().toISOString(), confirmation: result.confirmation } });
