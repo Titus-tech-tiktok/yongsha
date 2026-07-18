@@ -273,6 +273,38 @@ async function assignFiles(task, input, images, group, step) {
   return true;
 }
 
+function uploadBusyElements() {
+  const candidates = [
+    ...document.querySelectorAll('[aria-busy="true"], [role="progressbar"], .ant-upload-list-item-uploading, .next-upload-list-item-uploading, .uploading, .loading, .spinner, .ant-spin, .next-loading')
+  ];
+  const busyText = /上传中|处理中|正在上传|等待上传|解析中|uploading|processing/i;
+  candidates.push(...[...document.querySelectorAll('[class], [id], span, div')]
+    .filter(element => {
+      const marker = `${element.className || ''} ${element.id || ''}`.toLocaleLowerCase('zh-CN');
+      if (!/(upload|progress|loading|spin)/i.test(marker)) return false;
+      return busyText.test(text(element.innerText || element.textContent || element.getAttribute('aria-label') || ''));
+    }));
+  return candidates.filter(visible);
+}
+
+async function waitForUploadSettled(task, timeoutMs = 60000) {
+  const started = Date.now();
+  let quietChecks = 0;
+  let lastBusyCount = 0;
+  while (Date.now() - started < timeoutMs) {
+    const busy = uploadBusyElements();
+    lastBusyCount = busy.length;
+    if (!busy.length) quietChecks += 1;
+    else quietChecks = 0;
+    if (quietChecks >= 3) {
+      await report(task.id, STATUS.uploading, { detail: { step: 'upload-settled', waitedMs: Date.now() - started } });
+      return;
+    }
+    await sleep(1000);
+  }
+  throw fail(`图片上传仍在处理中，已等待 ${Math.round((Date.now() - started) / 1000)} 秒，忙碌控件 ${lastBusyCount} 个`, 'upload-settled');
+}
+
 function fileInputs() {
   return [...document.querySelectorAll('input[type="file"]')];
 }
@@ -412,6 +444,7 @@ async function runPublish(task) {
   await fillDefaults(task);
   await report(task.id, STATUS.uploading, { detail: { step: 'upload' } });
   await uploadImages(task);
+  await waitForUploadSettled(task);
   await report(task.id, STATUS.saving, { detail: { step: 'save' } });
   await saveDraft(task);
 }
