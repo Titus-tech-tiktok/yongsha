@@ -108,11 +108,21 @@ async function claimTask() {
   });
 }
 
+async function findExistingPublishTab() {
+  const tabs = await chrome.tabs.query({ url: 'https://item.upload.taobao.com/*' });
+  return tabs.find(item => /\/sell\/(ai\/category|v2\/publish)\.htm/i.test(item.url || ''))
+    || tabs.find(item => /item\.upload\.taobao\.com/i.test(item.url || ''))
+    || null;
+}
+
 async function openPublishTab(task) {
   const options = await readOptions();
   const publishUrl = task?.category?.defaults?.publishUrl || DEFAULT_PUBLISH_URL;
   await updateStatus(task.id, STATUS.opening);
-  const tab = await chrome.tabs.create({ url: publishUrl, active: false });
+  const existingTab = await findExistingPublishTab();
+  const tab = existingTab
+    ? await chrome.tabs.update(existingTab.id, { active: true })
+    : await chrome.tabs.create({ url: publishUrl, active: false });
   activeTabId = tab.id;
   activeTask = { ...task, caishenBaseUrl: options.baseUrl };
   setTimeout(() => trySendTaskToActiveTab().catch(error => setLastError(error)), 2000);
