@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const {
   TAOBAO_CATEGORY_TEMPLATES,
   classifyTaobaoImages,
-  isReviewReadyForTaobao
+  isReviewReadyForTaobao,
+  validateTaobaoImagePackage
 } = require('../src/core/taobao-publish');
 
 test('taobao category templates include the fixed product categories', () => {
@@ -63,4 +64,18 @@ test('taobao image classifier keeps outputPath for extension image proxy', () =>
   ]);
   assert.equal(images.mainImages[0].outputPath, 'D:/output/1.jpg');
   assert.equal(images.detailImages[0].outputPath, 'D:/output/2.jpg');
+});
+
+test('taobao image package requires main ratio and detail images before publishing', () => {
+  assert.deepEqual(validateTaobaoImagePackage({
+    mainImages: [{ name: 'main.jpg' }],
+    ratioImages: [{ name: 'ratio.jpg' }],
+    detailImages: [{ name: 'detail.jpg' }]
+  }), { ok: true, missing: [] });
+
+  assert.deepEqual(validateTaobaoImagePackage({
+    mainImages: [{ name: 'main.jpg' }],
+    ratioImages: [],
+    detailImages: [{ name: 'detail.jpg' }]
+  }), { ok: false, missing: ['3:4 主图'] });
 });

@@ -101,6 +101,7 @@ const {
   TAOBAO_CATEGORY_TEMPLATES,
   classifyTaobaoImages,
   isReviewReadyForTaobao,
+  validateTaobaoImagePackage,
   templateById: taobaoTemplateById
 } = require('./core/taobao-publish');
 const { createBillingService } = require('./billing');
@@ -3650,8 +3651,8 @@ async function queueTaobaoPublishTask(payload = {}) {
   const titleTask = (await listReadyTitleTasks()).find(item => path.resolve(item.folder) === path.resolve(folder));
   if (!titleTask?.firstTitle) throw new Error('任务缺少标题，请先生成标题');
   const images = classifyTaobaoImages(review.jobs || []);
-  if (!images.mainImages.length) throw new Error('任务缺少主图');
-  if (!images.detailImages.length) throw new Error('任务缺少详情图');
+  const imagePackage = validateTaobaoImagePackage(images);
+  if (!imagePackage.ok) throw new Error(`发布任务缺少${imagePackage.missing.join('、')}`);
   const now = new Date().toISOString();
   const id = taobaoPublishTaskId(folder, categoryId);
   const state = await readTaobaoPublishState();
@@ -3684,6 +3685,8 @@ async function getTaobaoPublishPackage(id) {
   const titleTask = (await listReadyTitleTasks()).find(item => path.resolve(item.folder) === path.resolve(record.folder));
   if (!titleTask?.firstTitle) throw new Error('任务缺少标题');
   const images = classifyTaobaoImages(review.jobs || []);
+  const imagePackage = validateTaobaoImagePackage(images);
+  if (!imagePackage.ok) throw new Error(`发布任务缺少${imagePackage.missing.join('、')}`);
   return {
     id: record.id,
     folder: record.folder,

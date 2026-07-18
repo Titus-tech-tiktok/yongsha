@@ -72,9 +72,22 @@ function classifyTaobaoImages(jobs = []) {
   return result;
 }
 
+function validateTaobaoImagePackage(images = {}) {
+  const checks = [
+    ['mainImages', '主图'],
+    ['ratioImages', '3:4 主图'],
+    ['detailImages', '详情页']
+  ];
+  const missing = checks
+    .filter(([key]) => !Array.isArray(images[key]) || !images[key].length)
+    .map(([, label]) => label);
+  return { ok: missing.length === 0, missing };
+}
+
 module.exports = {
   TAOBAO_CATEGORY_TEMPLATES,
   classifyTaobaoImages,
   isReviewReadyForTaobao,
+  validateTaobaoImagePackage,
   templateById
 };
