@@ -142,6 +142,50 @@ function findButton(keywords, selector = '') {
     });
 }
 
+function pageText() {
+  return text(document.body?.innerText || document.body?.textContent || '');
+}
+
+function findValidationError() {
+  const keywords = [
+    '\u5fc5\u586b',
+    '\u4e0d\u80fd\u4e3a\u7a7a',
+    '\u8bf7\u9009\u62e9',
+    '\u672a\u586b\u5199',
+    '\u9519\u8bef',
+    '\u5931\u8d25',
+    '\u6821\u9a8c',
+    '\u8fdd\u89c4'
+  ];
+  const allText = pageText();
+  const keyword = keywords.find(item => allText.includes(item));
+  if (!keyword) return '';
+  const lines = allText.split('\n').map(line => text(line)).filter(Boolean);
+  return lines.find(line => line.includes(keyword)) || keyword;
+}
+
+async function waitForDraftSaved(timeoutMs = 10000) {
+  const successKeywords = [
+    '\u4fdd\u5b58\u6210\u529f',
+    '\u5df2\u4fdd\u5b58',
+    '\u63d0\u4ea4\u6210\u529f'
+  ];
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const validationError = findValidationError();
+    if (validationError) {
+      return { ok: false, reason: validationError };
+    }
+    const allText = pageText();
+    const matched = successKeywords.find(item => allText.includes(item));
+    if (matched || /draft/i.test(location.href)) {
+      return { ok: true, confirmation: matched || 'url:draft' };
+    }
+    await sleep(500);
+  }
+  return { ok: false, reason: '\u4fdd\u5b58\u6309\u94ae\u5df2\u70b9\u51fb\uff0c\u4f46\u672a\u68c0\u6d4b\u5230\u8349\u7a3f\u4fdd\u5b58\u6210\u529f\u63d0\u793a' };
+}
+
 function dataUrlToFile(dataUrl, name, type) {
   const [header, payload] = String(dataUrl || '').split(',');
   if (!payload || !/^data:/i.test(header)) throw fail(`图片数据无效：${name}`, 'fetch-image');
@@ -250,8 +294,9 @@ async function saveDraft(task) {
   const button = findButton(['保存草稿', '存草稿', '保存'], selectors(task).saveDraft);
   if (!button) throw fail('未找到保存草稿按钮', 'save-draft');
   button.click();
-  await sleep(1800);
-  await report(task.id, STATUS.saved, { detail: { savedAt: new Date().toISOString() } });
+  const result = await waitForDraftSaved();
+  if (!result.ok) throw fail(result.reason, 'save-draft');
+  await report(task.id, STATUS.saved, { detail: { savedAt: new Date().toISOString(), confirmation: result.confirmation } });
 }
 
 function collectDiagnostics(step) {

@@ -3601,6 +3601,7 @@ async function taobaoPublishBaseTasks() {
       categoryName: category?.name || '',
       status: saved.status || (categoryId ? '待发布' : '未配置'),
       failureReason: saved.failureReason || '',
+      detail: saved.detail || {},
       updatedAt: saved.updatedAt || '',
       titleReady: Boolean(titleTask?.firstTitle),
       title: titleTask?.firstTitle || '',

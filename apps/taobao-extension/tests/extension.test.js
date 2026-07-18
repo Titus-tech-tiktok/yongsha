@@ -21,6 +21,9 @@ assert.match(content, /selectors\(task\)/);
 assert.match(content, /fallbackAllImages/);
 assert.match(content, /collectDiagnostics/);
 assert.match(content, /saveDraft/);
+assert.match(content, /waitForDraftSaved/);
+assert.match(content, /findValidationError/);
+assert.doesNotMatch(content, /successKeywords[\s\S]*'\\u8349\\u7a3f'/);
 assert.match(popup, /token/);
 
 console.log('taobao extension smoke test passed');

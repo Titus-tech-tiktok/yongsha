@@ -3646,6 +3646,55 @@ label input, label textarea {
   font-size: 12px;
 }
 
+.taobao-diagnostics {
+  border: 1px solid var(--line);
+  background: #fdfcf9;
+  border-radius: 8px;
+  gap: 10px;
+  display: grid;
+  padding: 12px;
+}
+
+.taobao-diagnostics-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.taobao-diagnostics-head button {
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+.taobao-diagnostics dl {
+  gap: 8px;
+  display: grid;
+  margin: 0;
+}
+
+.taobao-diagnostics dl > div {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.taobao-diagnostics-block {
+  gap: 6px;
+  display: grid;
+}
+
+.taobao-diagnostics pre {
+  background: #f4f1ea;
+  border-radius: 8px;
+  color: var(--subtle);
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .taobao-publish-actions {
   gap: 9px;
   display: grid;

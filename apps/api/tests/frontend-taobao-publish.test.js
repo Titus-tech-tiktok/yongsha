@@ -18,7 +18,10 @@ test('web app exposes Taobao publish assistant page and bridge methods', async (
   assert.match(renderer, /renderTaobaoPublishPage/);
   assert.match(renderer, /saveActiveTaobaoCategoryTemplate/);
   assert.match(renderer, /queueActiveTaobaoPublishTask/);
+  assert.match(renderer, /renderTaobaoPublishDiagnostics/);
+  assert.match(renderer, /copyTaobaoPublishDiagnostics/);
   assert.match(server, /runTaobaoPublishWithToken/);
   assert.match(server, /\/images\/:group\/:index/);
+  assert.match(await fs.readFile(path.join(__dirname, '../src/runtime.js'), 'utf8'), /detail: saved\.detail \|\| \{\}/);
   assert.ok(server.indexOf("app.post('/api/taobao/publish/claim'") < server.indexOf("app.use('/api'"));
 });

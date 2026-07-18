@@ -3372,6 +3372,41 @@ function renderTaobaoTaskList() {
     : '<div class="title-empty-state"><span>淘</span><b>暂无可发布任务</b><p>人工筛图整套通过后会自动同步到这里。</p></div>';
 }
 
+function renderTaobaoPublishDiagnostics(task) {
+  const taskDetail = task?.detail && typeof task.detail === 'object' ? task.detail : {};
+  const hasDetail = Object.keys(taskDetail).length > 0;
+  if (!task?.failureReason && !hasDetail) return '';
+  const rows = [
+    ['当前步骤', taskDetail.step],
+    ['页面地址', taskDetail.url],
+    ['页面标题', taskDetail.title],
+    ['保存确认', taskDetail.confirmation],
+    ['保存时间', taskDetail.savedAt]
+  ].filter(([, value]) => value != null && String(value).trim());
+  const inputs = Array.isArray(taskDetail.fileInputs) ? taskDetail.fileInputs : [];
+  const buttons = Array.isArray(taskDetail.visibleButtons) ? taskDetail.visibleButtons : [];
+  return `<section class="taobao-diagnostics">
+    <div class="taobao-diagnostics-head"><b>插件诊断</b>${hasDetail ? '<button type="button" id="copyTaobaoPublishDiagnosticsButton">复制诊断</button>' : ''}</div>
+    ${task.failureReason ? `<p class="taobao-failure">${escapeHtml(task.failureReason)}</p>` : ''}
+    ${rows.length ? `<dl>${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>` : ''}
+    ${inputs.length ? `<div class="taobao-diagnostics-block"><b>上传控件</b><pre>${escapeHtml(JSON.stringify(inputs, null, 2))}</pre></div>` : ''}
+    ${buttons.length ? `<div class="taobao-diagnostics-block"><b>页面按钮</b><pre>${escapeHtml(buttons.join('\n'))}</pre></div>` : ''}
+  </section>`;
+}
+
+async function copyTaobaoPublishDiagnostics() {
+  const task = state.taobaoPublishTasks.find(item => (item.id || item.folder) === state.activeTaobaoPublishTaskId);
+  if (!task) return toast('请先选择任务', true);
+  await window.caishen.copyText(JSON.stringify({
+    id: task.id,
+    name: task.name,
+    status: task.status,
+    failureReason: task.failureReason,
+    detail: task.detail || {}
+  }, null, 2));
+  toast('插件诊断已复制');
+}
+
 function renderTaobaoPublishDetail() {
   const detail = $('#taobaoPublishDetail');
   const title = $('#taobaoPublishDetailTitle');
@@ -3394,7 +3429,7 @@ function renderTaobaoPublishDetail() {
       <div><dt>详情图</dt><dd>${task.detailImageCount || 0} 张</dd></div>
       <div><dt>状态</dt><dd>${escapeHtml(task.status || '未配置')}</dd></div>
     </dl>
-    ${task.failureReason ? `<p class="taobao-failure">${escapeHtml(task.failureReason)}</p>` : ''}
+    ${renderTaobaoPublishDiagnostics(task)}
     <div class="taobao-publish-actions"><button class="primary" id="queueTaobaoPublishButton" type="button">发布到淘宝草稿</button><button class="secondary" id="openTaobaoTaskFolderButton" type="button">查看任务文件</button></div>
   </div>`;
 }
@@ -5001,6 +5036,7 @@ function bindEvents() {
   };
   if ($('#taobaoPublishDetail')) $('#taobaoPublishDetail').onclick = event => {
     if (event.target.closest('#queueTaobaoPublishButton')) return queueActiveTaobaoPublishTask();
+    if (event.target.closest('#copyTaobaoPublishDiagnosticsButton')) return copyTaobaoPublishDiagnostics();
     if (event.target.closest('#openTaobaoTaskFolderButton')) {
       const task = state.taobaoPublishTasks.find(item => (item.id || item.folder) === state.activeTaobaoPublishTaskId);
       if (task?.folder) return window.caishen.openFolder(task.folder);
