@@ -24,6 +24,8 @@ assert.match(content, /input\[type="file"\]/);
 assert.match(content, /dataUrlToFile/);
 assert.match(content, /selectors\(task\)/);
 assert.match(content, /selectOptionByText/);
+assert.match(content, /isSelectLike/);
+assert.match(content, /setSelectValue/);
 assert.match(content, /fallbackAllImages/);
 assert.match(content, /collectDiagnostics/);
 assert.match(content, /collectVisibleFields/);

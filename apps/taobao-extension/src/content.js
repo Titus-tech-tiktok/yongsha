@@ -90,6 +90,34 @@ function findField(keywords, selector = '') {
   return byKeywords(fields(), keywords);
 }
 
+function isSelectLike(element) {
+  if (!element) return false;
+  return element.tagName === 'SELECT'
+    || ['combobox', 'listbox'].includes(String(element.getAttribute('role') || '').toLowerCase())
+    || ['listbox', 'menu'].includes(String(element.getAttribute('aria-haspopup') || '').toLowerCase());
+}
+
+async function setSelectValue(element, value) {
+  const wanted = text(value);
+  if (!element || !wanted) return false;
+  if (element.tagName === 'SELECT') {
+    const option = [...element.options].find(item => {
+      const label = text(item.textContent || item.label || item.value).toLocaleLowerCase('zh-CN');
+      const lower = wanted.toLocaleLowerCase('zh-CN');
+      return label === lower || label.includes(lower);
+    });
+    if (!option) return false;
+    element.value = option.value;
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    await sleep(180);
+    return true;
+  }
+  element.click();
+  await sleep(260);
+  return selectOptionByText(wanted);
+}
+
 function setNativeValue(element, value) {
   if (!element) return false;
   element.focus();
@@ -112,6 +140,7 @@ async function fillField(keywords, value, selector = '') {
   if (!text(value)) return false;
   const field = findField(keywords, selector);
   if (!field) return false;
+  if (isSelectLike(field)) return setSelectValue(field, value);
   setNativeValue(field, text(value));
   await sleep(180);
   return true;
