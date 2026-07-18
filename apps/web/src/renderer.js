@@ -3532,10 +3532,14 @@ function renderTaobaoPublishDiagnostics(task) {
   const fields = Array.isArray(taskDetail.visibleFields) ? taskDetail.visibleFields : [];
   const selects = Array.isArray(taskDetail.visibleSelects) ? taskDetail.visibleSelects : [];
   const buttons = Array.isArray(taskDetail.visibleButtons) ? taskDetail.visibleButtons : [];
+  const frame = taskDetail.frame && typeof taskDetail.frame === 'object' ? taskDetail.frame : null;
+  const frames = Array.isArray(taskDetail.frameCandidates) ? taskDetail.frameCandidates : [];
   return `<section class="taobao-diagnostics">
     <div class="taobao-diagnostics-head"><b>插件诊断</b>${hasDetail ? '<button type="button" id="copyTaobaoPublishDiagnosticsButton">复制诊断</button>' : ''}</div>
     ${task.failureReason ? `<p class="taobao-failure">${escapeHtml(task.failureReason)}</p>` : ''}
     ${rows.length ? `<dl>${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>` : ''}
+    ${frame ? `<div class="taobao-diagnostics-block"><b>选中 Frame</b><pre>${escapeHtml(JSON.stringify(frame, null, 2))}</pre></div>` : ''}
+    ${frames.length ? `<div class="taobao-diagnostics-block"><b>Frame 候选</b><pre>${escapeHtml(JSON.stringify(frames, null, 2))}</pre></div>` : ''}
     ${inputs.length ? `<div class="taobao-diagnostics-block"><b>上传控件</b><pre>${escapeHtml(JSON.stringify(inputs, null, 2))}</pre></div>` : ''}
     ${fields.length ? `<div class="taobao-diagnostics-block"><b>输入控件</b><pre>${escapeHtml(JSON.stringify(fields, null, 2))}</pre></div>` : ''}
     ${selects.length ? `<div class="taobao-diagnostics-block"><b>下拉控件</b><pre>${escapeHtml(JSON.stringify(selects, null, 2))}</pre></div>` : ''}
