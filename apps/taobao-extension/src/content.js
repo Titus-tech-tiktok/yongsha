@@ -465,9 +465,20 @@ function fileInputs() {
   return [...document.querySelectorAll('input[type="file"]')];
 }
 
+function fileInputFromSelector(selector = '') {
+  const selected = query(selector);
+  if (!selected) return null;
+  if (selected.matches?.('input[type="file"]')) return selected;
+  return selected.querySelector?.('input[type="file"]') || null;
+}
+
+function queryFileInput(task, selectorKey) {
+  return fileInputFromSelector(selectors(task)[selectorKey]);
+}
+
 function findFileInput(task, selectorKey, keywords) {
-  const selected = query(selectors(task)[selectorKey]);
-  if (selected?.type === 'file') return selected;
+  const selected = queryFileInput(task, selectorKey);
+  if (selected) return selected;
   const candidates = fileInputs();
   return byKeywords(candidates, keywords) || null;
 }
@@ -496,7 +507,7 @@ async function uploadImages(task) {
 
   const allSelector = selectors(task).allImages;
   if (allSelector) {
-    const target = query(allSelector);
+    const target = fileInputFromSelector(allSelector);
     if (await assignFiles(task, target, allImages, 'main', 'allImages')) return;
   }
 

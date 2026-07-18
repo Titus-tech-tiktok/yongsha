@@ -36,6 +36,8 @@ assert.match(content, /selectOptionByText/);
 assert.match(content, /isSelectLike/);
 assert.match(content, /setSelectValue/);
 assert.match(content, /fallbackAllImages/);
+assert.match(content, /fileInputFromSelector/);
+assert.match(content, /queryFileInput/);
 assert.match(content, /uploadBusyElements/);
 assert.match(content, /waitForUploadSettled/);
 assert.match(content, /upload-settled/);
