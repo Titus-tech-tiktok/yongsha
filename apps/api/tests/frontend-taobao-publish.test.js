@@ -63,7 +63,10 @@ test('web app exposes Taobao publish assistant page and bridge methods', async (
   assert.match(styles, /\.taobao-template-form\s*\{[\s\S]*max-height: min\(58vh, 620px\)/);
   assert.match(server, /runTaobaoPublishWithToken/);
   assert.match(server, /\/api\/taobao\/publish\/extension-options/);
+  assert.match(server, /app\.get\('\/api\/taobao\/publish\/tasks',/);
+  assert.match(server, /runTaobaoPublishWithToken\(token, async \(\) => \{[\s\S]*?runtime\.listTaobaoPublishTasks\(\)/);
   assert.match(server, /\/images\/:group\/:index/);
   assert.match(await fs.readFile(path.join(__dirname, '../src/runtime.js'), 'utf8'), /detail: saved\.detail \|\| \{\}/);
   assert.ok(server.indexOf("app.post('/api/taobao/publish/claim'") < server.indexOf("app.use('/api'"));
+  assert.ok(server.indexOf("app.get('/api/taobao/publish/tasks'") < server.indexOf("app.use('/api'"));
 });

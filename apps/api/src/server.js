@@ -1096,6 +1096,18 @@ async function startServer() {
     }
   });
 
+  app.get('/api/taobao/publish/tasks', async (req, res) => {
+    try {
+      const token = String(req.query.token || req.get('x-caishen-taobao-token') || '');
+      return res.json({ data: await runTaobaoPublishWithToken(token, async () => {
+        const { tasks, blockedTasks } = await runtime.listTaobaoPublishTasks();
+        return { tasks, blockedTasks };
+      }) });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || String(error) });
+    }
+  });
+
   app.get('/api/taobao/publish/tasks/:id/package', async (req, res) => {
     try {
       const token = String(req.query.token || req.get('x-caishen-taobao-token') || '');
