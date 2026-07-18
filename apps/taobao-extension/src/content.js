@@ -280,7 +280,8 @@ async function preparePublishForm(task) {
   if (!isCategoryEntryPage()) return false;
   await report(task.id, STATUS.filling, { detail: { step: 'select-category', url: location.href } });
   await selectTaobaoCategory(task);
-  return isCategoryEntryPage();
+  await sleep(800);
+  return false;
 }
 
 function pageText() {
@@ -548,7 +549,7 @@ function collectDiagnostics(step) {
 
 async function runPublish(task) {
   if (!task?.id) throw fail('任务包缺少 ID', 'start');
-  if (await preparePublishForm(task)) return;
+  await preparePublishForm(task);
   await report(task.id, STATUS.filling, { detail: { step: 'fill' } });
   await fillDefaults(task);
   await report(task.id, STATUS.uploading, { detail: { step: 'upload' } });

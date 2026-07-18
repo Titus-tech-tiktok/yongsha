@@ -46,6 +46,7 @@ assert.match(content, /isCategoryEntryPage/);
 assert.match(content, /selectTaobaoCategory/);
 assert.match(content, /preparePublishForm/);
 assert.match(content, /KeyboardEvent/);
+assert.doesNotMatch(content, /if \(await preparePublishForm\(task\)\) return/);
 assert.doesNotMatch(content, /successKeywords[\s\S]*'\\u8349\\u7a3f'/);
 assert.match(webBridge, /CAISHEN_TAOBAO_WEB_TRIGGER/);
 assert.match(webBridge, /CAISHEN_TAOBAO_TRIGGER_POLL/);
