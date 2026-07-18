@@ -8,6 +8,7 @@ const STATUS = {
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 let runningTaskId = '';
+let categoryAttempt = {};
 
 chrome.runtime.sendMessage({ type: 'CAISHEN_TAOBAO_CONTENT_READY' });
 
@@ -282,8 +283,13 @@ function categoryKeyword(task) {
 
 function isCategoryEntryPage() {
   return /\/sell\/ai\/category\.htm/i.test(location.pathname)
-    || /category\.htm/i.test(location.href)
     || pageText().includes('搜索发品');
+}
+
+function isTaobaoLoginPage() {
+  return /login\.taobao\.com/i.test(location.hostname)
+    || /\/login\//i.test(location.pathname)
+    || Boolean(document.querySelector('#fm-login-id, #login-form'));
 }
 
 function dispatchEnter(element) {
@@ -312,7 +318,8 @@ const genericCategoryLabels = new Set([
   '\u4e0b\u4e00\u6b65',
   '\u5f00\u59cb',
   '\u53d1\u5e03',
-  '\u9009\u62e9'
+  '\u9009\u62e9',
+  '\u9009\u62e9\u7c7b\u76ee'
 ]);
 
 const categoryActionWords = ['\u53d1\u5e03', '\u9009\u62e9', '\u4e0b\u4e00\u6b65', '\u5f00\u59cb', '\u786e\u8ba4'];
@@ -327,13 +334,24 @@ function categoryCandidateText(element) {
   return [...new Set(chunks)].join(' ');
 }
 
+function categoryOwnLabelIncludesKeyword(element, keyword) {
+  const label = text(
+    element?.innerText
+    || element?.textContent
+    || element?.getAttribute?.('aria-label')
+    || element?.title
+  ).toLocaleLowerCase('zh-CN');
+  const wanted = text(keyword).toLocaleLowerCase('zh-CN');
+  return Boolean(wanted && label.includes(wanted));
+}
+
 function scoreCategoryCandidate(element, keyword) {
   if (!visible(element)) return 0;
   const ownLabel = text(element.innerText || element.textContent || element.getAttribute('aria-label') || element.title);
   const compactLabel = ownLabel.replace(/\s+/g, '');
   if (!compactLabel || genericCategoryLabels.has(compactLabel) || ownLabel.length > 600) return 0;
   const lowerKeyword = text(keyword).toLocaleLowerCase('zh-CN');
-  const ownKeywordHit = ownLabel.toLocaleLowerCase('zh-CN').includes(lowerKeyword);
+  const ownKeywordHit = categoryOwnLabelIncludesKeyword(element, keyword);
   const haystack = categoryCandidateText(element).toLocaleLowerCase('zh-CN');
   const keywordHit = lowerKeyword && haystack.includes(lowerKeyword);
   const actionHit = categoryActionWords.some(word => haystack.includes(word));
@@ -351,7 +369,8 @@ function findCategoryCandidate(keyword) {
     .map(element => ({ element, score: scoreCategoryCandidate(element, keyword) }))
     .filter(item => item.score > 0)
     .sort((left, right) => right.score - left.score);
-  return candidates[0]?.element || null;
+  const directCandidates = candidates.filter(item => categoryOwnLabelIncludesKeyword(item.element, keyword));
+  return directCandidates[0]?.element || null;
 }
 
 function categoryActionLabel(element) {
@@ -392,7 +411,12 @@ function findCategoryContinuation(selected, excluded) {
     .filter(element => element !== excluded)
     .filter(isCategoryAction)
     .sort((left, right) => {
-      const preferred = label => /^(\u53d1\u5e03|\u4e0b\u4e00\u6b65|\u5f00\u59cb|\u786e\u8ba4)/.test(label) ? 0 : 1;
+      const preferred = label => {
+        if (label.includes('\u4e0b\u4e00\u6b65') || label.includes('\u786e\u8ba4')) return 0;
+        if (label.includes('\u9009\u62e9')) return 1;
+        if (label.includes('\u53d1\u5e03')) return 2;
+        return 3;
+      };
       return preferred(categoryActionLabel(left)) - preferred(categoryActionLabel(right))
         || categoryActionLabel(left).length - categoryActionLabel(right).length;
     });
@@ -425,19 +449,43 @@ async function selectTaobaoCategory(task) {
   }
   const selected = query(selectors(task).categoryResult) || findCategoryCandidate(keyword);
   if (!selected) throw fail(`未找到淘宝类目候选：${keyword}`, 'select-category');
-  const action = findCategoryAction(selected, keyword);
-  const clicked = action || selected;
-  clickElement(clicked);
-  if (await waitForPublishForm(3500)) return;
-  const continuation = findCategoryContinuation(selected, clicked);
+  categoryAttempt = {
+    keyword,
+    selected: {
+      selector: cssSelectorForDiagnostics(selected),
+      tag: selected.tagName?.toLowerCase() || '',
+      text: categoryActionLabel(selected).slice(0, 240),
+      href: selected.href || ''
+    }
+  };
+  clickElement(selected);
+  await sleep(600);
+  if (await waitForPublishForm(1500)) return;
+  const continuation = findCategoryContinuation(selected, selected);
   if (continuation) {
+    categoryAttempt.continuation = {
+      selector: cssSelectorForDiagnostics(continuation),
+      text: categoryActionLabel(continuation),
+      href: continuation.href || ''
+    };
     clickElement(continuation);
+    if (await waitForPublishForm(3500)) return;
+  }
+  const fallbackAction = findCategoryAction(selected, keyword);
+  if (fallbackAction && fallbackAction !== selected && fallbackAction !== continuation) {
+    categoryAttempt.fallback = {
+      selector: cssSelectorForDiagnostics(fallbackAction),
+      text: categoryActionLabel(fallbackAction),
+      href: fallbackAction.href || ''
+    };
+    clickElement(fallbackAction);
     await sleep(1200);
   }
   if (!(await waitForPublishForm())) throw fail(`已选择淘宝类目但未进入发布表单：${keyword}`, 'select-category');
 }
 
 async function preparePublishForm(task) {
+  if (isTaobaoLoginPage()) throw fail('淘宝登录已失效，请先登录淘宝后重试', 'login');
   if (!isCategoryEntryPage()) return false;
   await report(task.id, STATUS.filling, { detail: { step: 'select-category', url: location.href } });
   await selectTaobaoCategory(task);
@@ -723,7 +771,8 @@ function collectDiagnostics(step) {
     .slice(0, 40)
     .map(element => ({
       selector: cssSelectorForDiagnostics(element),
-      text: text(element.innerText || element.textContent || element.getAttribute('aria-label') || element.title)
+      text: text(element.innerText || element.textContent || element.getAttribute('aria-label') || element.title),
+      href: element.href || ''
     }))
     .filter(item => item.text);
   const inputs = fileInputs().map((input, index) => ({
@@ -742,7 +791,8 @@ function collectDiagnostics(step) {
     fileInputs: inputs,
     visibleFields: collectVisibleFields(),
     visibleSelects: collectVisibleSelects(),
-    visibleButtons: buttons
+    visibleButtons: buttons,
+    categoryAttempt
   };
 }
 
