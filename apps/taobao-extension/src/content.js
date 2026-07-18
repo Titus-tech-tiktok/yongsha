@@ -230,20 +230,51 @@ function findCategorySearchInput(task) {
   return findField(['产品名称', '类目关键词', '条码信息', '搜索发品', '搜索']) || fields()[0] || null;
 }
 
+const genericCategoryLabels = new Set([
+  '\u5546\u54c1\u53d1\u5e03',
+  '\u641c\u7d22\u53d1\u54c1',
+  '\u70ed\u95e8\u63a8\u8350',
+  '\u4e0b\u4e00\u6b65',
+  '\u5f00\u59cb',
+  '\u53d1\u5e03',
+  '\u9009\u62e9'
+]);
+
+const categoryActionWords = ['\u53d1\u5e03', '\u9009\u62e9', '\u4e0b\u4e00\u6b65', '\u5f00\u59cb', '\u786e\u8ba4'];
+
+function categoryCandidateText(element) {
+  const chunks = [];
+  let node = element;
+  for (let index = 0; node && index < 4 && node !== document.body; index += 1, node = node.parentElement) {
+    const value = text(node.innerText || node.textContent || node.getAttribute?.('aria-label') || node.title || '');
+    if (value && value.length <= 600) chunks.push(value);
+  }
+  return [...new Set(chunks)].join(' ');
+}
+
+function scoreCategoryCandidate(element, keyword) {
+  if (!visible(element)) return 0;
+  const ownLabel = text(element.innerText || element.textContent || element.getAttribute('aria-label') || element.title);
+  const compactLabel = ownLabel.replace(/\s+/g, '');
+  if (!compactLabel || genericCategoryLabels.has(compactLabel) || ownLabel.length > 600) return 0;
+  const lowerKeyword = text(keyword).toLocaleLowerCase('zh-CN');
+  const haystack = categoryCandidateText(element).toLocaleLowerCase('zh-CN');
+  const keywordHit = lowerKeyword && haystack.includes(lowerKeyword);
+  const actionHit = categoryActionWords.some(word => haystack.includes(word));
+  if (!keywordHit) return 0;
+  let score = 100;
+  if (actionHit) score += 40;
+  if (['BUTTON', 'A'].includes(element.tagName) || element.getAttribute('role') === 'button') score += 15;
+  if (['LI', 'DIV'].includes(element.tagName)) score += 5;
+  return score - Math.min(Math.floor(ownLabel.length / 80), 10);
+}
+
 function findCategoryCandidate(keyword) {
-  const lower = text(keyword).toLocaleLowerCase('zh-CN');
   const candidates = [...document.querySelectorAll('button, [role="button"], a, li, div, span')]
-    .filter(visible)
-    .filter(element => {
-      const label = text(element.innerText || element.textContent || element.getAttribute('aria-label') || element.title).toLocaleLowerCase('zh-CN');
-      if (!label) return false;
-      if (label.includes('发布') || label.includes('选择') || label.includes('下一步') || label.includes('开始')) return true;
-      return lower && label.includes(lower);
-    });
-  return candidates.find(element => {
-    const label = text(element.innerText || element.textContent || '').toLocaleLowerCase('zh-CN');
-    return label.includes('发布') || label.includes('选择') || label.includes('下一步') || label.includes('开始');
-  }) || candidates[0] || null;
+    .map(element => ({ element, score: scoreCategoryCandidate(element, keyword) }))
+    .filter(item => item.score > 0)
+    .sort((left, right) => right.score - left.score);
+  return candidates[0]?.element || null;
 }
 
 async function waitForPublishForm(timeoutMs = 15000) {
@@ -262,6 +293,7 @@ async function selectTaobaoCategory(task) {
   const field = findCategorySearchInput(task);
   if (!field) throw fail('未找到淘宝类目搜索输入框', 'select-category');
   setNativeValue(field, keyword);
+  field.focus();
   dispatchEnter(field);
   await sleep(1200);
   const searchButton = findButton(['搜索', '查询'], selectors(task).categorySearchButton);
