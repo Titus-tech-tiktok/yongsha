@@ -3735,6 +3735,12 @@ label input, label textarea {
   min-height: 92px;
 }
 
+.taobao-template-form .secondary {
+  min-height: 36px;
+  color: var(--ink);
+  background: #e8e4d9;
+}
+
 .empty-inline {
   color: var(--subtle);
   background: #f7f6f1;

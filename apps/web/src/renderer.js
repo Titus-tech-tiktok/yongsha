@@ -3318,6 +3318,61 @@ function collectTaobaoSelectors(data) {
   return selectors;
 }
 
+function taobaoDiagnosticText(item = {}) {
+  return [item.label, item.text, item.placeholder, item.name, item.id, item.value]
+    .map(value => String(value || '').toLocaleLowerCase('zh-CN'))
+    .join(' ');
+}
+
+function taobaoDiagnosticSelector(items = [], keywords = []) {
+  const wanted = keywords.map(item => String(item || '').toLocaleLowerCase('zh-CN'));
+  const hit = items.find(item => item?.selector && wanted.some(keyword => taobaoDiagnosticText(item).includes(keyword)));
+  return hit?.selector || '';
+}
+
+function applyTaobaoDiagnosticsSelectors() {
+  const form = $('#taobaoCategoryTemplateForm');
+  if (!form) return toast('请先选择类目模板', true);
+  const raw = String(form.querySelector('[name="taobaoDiagnosticsImport"]')?.value || '').trim();
+  if (!raw) return toast('请先粘贴插件诊断 JSON', true);
+  let payload = null;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return toast('插件诊断必须是 JSON', true);
+  }
+  const detail = payload.detail && typeof payload.detail === 'object' ? payload.detail : payload;
+  const fields = [...(Array.isArray(detail.visibleFields) ? detail.visibleFields : []), ...(Array.isArray(detail.visibleSelects) ? detail.visibleSelects : [])];
+  const buttons = Array.isArray(detail.visibleButtons) ? detail.visibleButtons : [];
+  const files = Array.isArray(detail.fileInputs) ? detail.fileInputs : [];
+  const next = {
+    categorySearch: taobaoDiagnosticSelector(fields, ['搜索发品', '类目关键词', '产品名称', '条码信息', '搜索']),
+    categorySearchButton: taobaoDiagnosticSelector(buttons, ['搜索', '查询']),
+    categoryResult: taobaoDiagnosticSelector(buttons, ['选择', '下一步', '开始发布', '发布']),
+    title: taobaoDiagnosticSelector(fields, ['标题', '宝贝标题', '商品标题']),
+    price: taobaoDiagnosticSelector(fields, ['价格', '一口价', '销售价']),
+    stock: taobaoDiagnosticSelector(fields, ['库存', '数量']),
+    shipFrom: taobaoDiagnosticSelector(fields, ['发货地']),
+    freightTemplate: taobaoDiagnosticSelector(fields, ['运费模板']),
+    serviceTemplate: taobaoDiagnosticSelector(fields, ['服务模板']),
+    uploadButton: taobaoDiagnosticSelector(buttons, ['上传图片', '上传', '选择图片', '添加图片', '图片空间']),
+    allImages: files.length === 1 ? files[0].selector : '',
+    mainImages: taobaoDiagnosticSelector(files, ['主图', '商品图片', '宝贝图片']),
+    ratioImages: taobaoDiagnosticSelector(files, ['3:4', '3-4', '长图', '竖图']),
+    detailImages: taobaoDiagnosticSelector(files, ['详情', '描述', '详情图']),
+    saveDraft: taobaoDiagnosticSelector(buttons, ['保存草稿', '存草稿', '保存'])
+  };
+  let count = 0;
+  for (const [key, value] of Object.entries(next)) {
+    if (!value) continue;
+    const input = form.querySelector(`[name="selector.${CSS.escape(key)}"]`);
+    if (!input || input.value.trim()) continue;
+    input.value = value;
+    count += 1;
+  }
+  toast(count ? `已套用 ${count} 个 selector，请保存类目模板` : '诊断里没有找到新的可套用 selector');
+}
+
 function renderTaobaoCategoryEditor() {
   const editor = $('#taobaoCategoryEditor');
   if (!editor) return;
@@ -3338,6 +3393,8 @@ function renderTaobaoCategoryEditor() {
     <label>服务模板<input name="serviceTemplate" value="${escapeHtml(defaults.serviceTemplate || '')}" placeholder="服务模板名称"></label>
     <label>属性 JSON<textarea name="attributes" rows="4" placeholder='{"材质":"实木"}'>${escapeHtml(JSON.stringify(defaults.attributes || {}, null, 2))}</textarea></label>
     <label>自定义必填字段 JSON<textarea name="customFields" rows="5" placeholder='[{"label":"品牌","value":"其他","type":"text","selector":""}]'>${escapeHtml(JSON.stringify(defaults.customFields || [], null, 2))}</textarea></label>
+    <label>插件诊断 JSON<textarea name="taobaoDiagnosticsImport" rows="5" placeholder="从浏览器插件弹窗复制当前淘宝页诊断后粘贴到这里"></textarea></label>
+    <button type="button" class="secondary" id="importTaobaoDiagnosticsButton">从诊断套用 selector</button>
     ${renderTaobaoSelectorInputs(selectors)}
     <label>高级选择器 JSON<textarea name="selectorJson" rows="4" placeholder='{"attribute.材质":"input[name=material]"}'>${escapeHtml(JSON.stringify(Object.fromEntries(Object.entries(selectors).filter(([key]) => !TAOBAO_SELECTOR_FIELDS.some(([field]) => field === key))), null, 2))}</textarea></label>
     <button type="submit" class="primary">保存类目模板</button>
@@ -5110,6 +5167,9 @@ function bindEvents() {
     state.activeTaobaoCategoryId = event.target.value;
     renderTaobaoCategoryList();
     renderTaobaoCategoryEditor();
+  };
+  if ($('#taobaoCategoryEditor')) $('#taobaoCategoryEditor').onclick = event => {
+    if (event.target.closest('#importTaobaoDiagnosticsButton')) applyTaobaoDiagnosticsSelectors();
   };
   if ($('#taobaoCategoryEditor')) $('#taobaoCategoryEditor').onsubmit = saveActiveTaobaoCategoryTemplate;
   $('#saveSettingsButton').onclick = saveSettings;
