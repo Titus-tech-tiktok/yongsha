@@ -37,6 +37,8 @@ assert.match(content, /upload-settled/);
 assert.match(content, /collectDiagnostics/);
 assert.match(content, /collectVisibleFields/);
 assert.match(content, /collectVisibleSelects/);
+assert.match(content, /fillCustomFields/);
+assert.match(content, /customFields/);
 assert.match(content, /saveDraft/);
 assert.match(content, /waitForDraftSaved/);
 assert.match(content, /findValidationError/);

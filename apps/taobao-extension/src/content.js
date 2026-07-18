@@ -461,6 +461,27 @@ async function fillDefaults(task) {
   for (const [key, value] of Object.entries(defaults.attributes || {})) {
     await fillField([key], value, map[`attribute.${key}`]);
   }
+  await fillCustomFields(task);
+}
+
+async function fillCustomFields(task) {
+  const customFields = Array.isArray(task.category?.defaults?.customFields) ? task.category.defaults.customFields : [];
+  for (const item of customFields) {
+    const label = text(item?.label);
+    const value = text(item?.value);
+    const selector = text(item?.selector);
+    const type = text(item?.type || 'text');
+    if (!label || !value) continue;
+    if (type === 'click') {
+      await clickFieldOrOption([label], value, selector);
+    } else if (type === 'select') {
+      const field = findField([label], selector);
+      if (field) await setSelectValue(field, value);
+      else await clickFieldOrOption([label], value, selector);
+    } else {
+      await fillField([label], value, selector);
+    }
+  }
 }
 
 async function saveDraft(task) {

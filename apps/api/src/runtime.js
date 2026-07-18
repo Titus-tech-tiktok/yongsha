@@ -3521,6 +3521,16 @@ function normalizePlainObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function normalizeTaobaoCustomFields(value = []) {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => ({
+    label: String(item?.label || '').trim(),
+    value: String(item?.value || '').trim(),
+    type: ['select', 'click'].includes(String(item?.type || '').trim()) ? String(item.type).trim() : 'text',
+    selector: String(item?.selector || '').trim()
+  })).filter(item => item.label && item.value);
+}
+
 function normalizeTaobaoPublishDefaults(templateDefaults = {}, savedDefaults = {}) {
   const saved = normalizePlainObject(savedDefaults);
   return {
@@ -3533,7 +3543,8 @@ function normalizeTaobaoPublishDefaults(templateDefaults = {}, savedDefaults = {
     selectors: {
       ...normalizePlainObject(templateDefaults.selectors),
       ...normalizePlainObject(saved.selectors)
-    }
+    },
+    customFields: normalizeTaobaoCustomFields(saved.customFields || templateDefaults.customFields)
   };
 }
 

@@ -3337,6 +3337,7 @@ function renderTaobaoCategoryEditor() {
     <label>运费模板<input name="freightTemplate" value="${escapeHtml(defaults.freightTemplate || '')}" placeholder="运费模板名称"></label>
     <label>服务模板<input name="serviceTemplate" value="${escapeHtml(defaults.serviceTemplate || '')}" placeholder="服务模板名称"></label>
     <label>属性 JSON<textarea name="attributes" rows="4" placeholder='{"材质":"实木"}'>${escapeHtml(JSON.stringify(defaults.attributes || {}, null, 2))}</textarea></label>
+    <label>自定义必填字段 JSON<textarea name="customFields" rows="5" placeholder='[{"label":"品牌","value":"其他","type":"text","selector":""}]'>${escapeHtml(JSON.stringify(defaults.customFields || [], null, 2))}</textarea></label>
     ${renderTaobaoSelectorInputs(selectors)}
     <label>高级选择器 JSON<textarea name="selectorJson" rows="4" placeholder='{"attribute.材质":"input[name=material]"}'>${escapeHtml(JSON.stringify(Object.fromEntries(Object.entries(selectors).filter(([key]) => !TAOBAO_SELECTOR_FIELDS.some(([field]) => field === key))), null, 2))}</textarea></label>
     <button type="submit" class="primary">保存类目模板</button>
@@ -3352,6 +3353,18 @@ function parseJsonField(value, label) {
     return parsed;
   } catch {
     throw new Error(`${label} 必须是 JSON 对象`);
+  }
+}
+
+function parseJsonArrayField(value, label) {
+  const text = String(value || '').trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed)) throw new Error('must be array');
+    return parsed;
+  } catch {
+    throw new Error(`${label} 必须是 JSON 数组`);
   }
 }
 
@@ -3374,6 +3387,7 @@ async function saveActiveTaobaoCategoryTemplate(event) {
         freightTemplate: String(data.get('freightTemplate') || '').trim(),
         serviceTemplate: String(data.get('serviceTemplate') || '').trim(),
         attributes: parseJsonField(data.get('attributes'), '属性 JSON'),
+        customFields: parseJsonArrayField(data.get('customFields'), '自定义必填字段 JSON'),
         selectors: collectTaobaoSelectors(data)
       }
     };

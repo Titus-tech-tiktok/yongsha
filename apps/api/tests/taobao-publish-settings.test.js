@@ -18,7 +18,11 @@ test('taobao publish settings normalize selector and attribute objects', () => {
           },
           attributes: {
             材质: '实木'
-          }
+          },
+          customFields: [
+            { label: '品牌', value: '其他', type: 'text', selector: 'input[name=brand]' },
+            { label: '风格', value: '中古风', type: 'select' }
+          ]
         }
       },
       {
@@ -36,6 +40,11 @@ test('taobao publish settings normalize selector and attribute objects', () => {
   assert.equal(sideboard.defaults.selectors.title, 'input[name=title]');
   assert.equal(sideboard.defaults.selectors['attribute.材质'], 'input[name=material]');
   assert.equal(sideboard.defaults.attributes.材质, '实木');
+  assert.deepEqual(sideboard.defaults.customFields, [
+    { label: '品牌', value: '其他', type: 'text', selector: 'input[name=brand]' },
+    { label: '风格', value: '中古风', type: 'select', selector: '' }
+  ]);
   assert.deepEqual(corner.defaults.selectors, {});
   assert.deepEqual(corner.defaults.attributes, {});
+  assert.deepEqual(corner.defaults.customFields, []);
 });
