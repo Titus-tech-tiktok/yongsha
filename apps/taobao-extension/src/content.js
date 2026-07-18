@@ -61,6 +61,38 @@ function visible(element) {
   return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
 }
 
+function selectorForElement(element) {
+  if (!element?.tagName) return '';
+  const tag = element.tagName.toLowerCase();
+  if (element.id) return `${tag}#${CSS.escape(element.id)}`;
+  const name = element.getAttribute('name');
+  if (name) return `${tag}[name="${CSS.escape(name)}"]`;
+  const aria = element.getAttribute('aria-label');
+  if (aria) return `${tag}[aria-label="${CSS.escape(aria)}"]`;
+  const placeholder = element.getAttribute('placeholder');
+  if (placeholder) return `${tag}[placeholder="${CSS.escape(placeholder)}"]`;
+  const role = element.getAttribute('role');
+  const type = element.getAttribute('type');
+  const parts = [tag];
+  if (type) parts.push(`[type="${CSS.escape(type)}"]`);
+  if (role) parts.push(`[role="${CSS.escape(role)}"]`);
+  const parent = element.parentElement;
+  if (!parent || parent === document.body) return parts.join('');
+  const siblings = [...parent.children].filter(item => item.tagName === element.tagName);
+  const index = siblings.indexOf(element);
+  return `${selectorForElement(parent)} > ${parts.join('')}${siblings.length > 1 && index >= 0 ? `:nth-of-type(${index + 1})` : ''}`;
+}
+
+function cssSelectorForDiagnostics(element) {
+  const selector = selectorForElement(element);
+  if (!selector) return '';
+  try {
+    return document.querySelector(selector) === element ? selector : '';
+  } catch {
+    return '';
+  }
+}
+
 function fields() {
   return [...document.querySelectorAll('input, textarea, [contenteditable="true"]')].filter(element => {
     if (element.type === 'file' || element.type === 'hidden') return false;
@@ -529,6 +561,7 @@ async function saveDraft(task) {
 function collectVisibleFields() {
   return fields().slice(0, 40).map((element, index) => ({
     index,
+    selector: cssSelectorForDiagnostics(element),
     tag: element.tagName.toLowerCase(),
     type: element.type || '',
     id: element.id || '',
@@ -545,6 +578,7 @@ function collectVisibleSelects() {
     .slice(0, 40)
     .map((element, index) => ({
       index,
+      selector: cssSelectorForDiagnostics(element),
       tag: element.tagName.toLowerCase(),
       id: element.id || '',
       name: element.name || '',
@@ -558,10 +592,14 @@ function collectDiagnostics(step) {
   const buttons = [...document.querySelectorAll('button, [role="button"], a')]
     .filter(visible)
     .slice(0, 40)
-    .map(element => text(element.innerText || element.textContent || element.getAttribute('aria-label') || element.title))
-    .filter(Boolean);
+    .map(element => ({
+      selector: cssSelectorForDiagnostics(element),
+      text: text(element.innerText || element.textContent || element.getAttribute('aria-label') || element.title)
+    }))
+    .filter(item => item.text);
   const inputs = fileInputs().map((input, index) => ({
     index,
+    selector: cssSelectorForDiagnostics(input),
     id: input.id || '',
     name: input.name || '',
     accept: input.accept || '',

@@ -50,6 +50,8 @@ assert.match(content, /preparePublishForm/);
 assert.match(content, /scoreCategoryCandidate/);
 assert.match(content, /categoryCandidateText/);
 assert.match(content, /genericCategoryLabels/);
+assert.match(content, /cssSelectorForDiagnostics/);
+assert.match(content, /selectorForElement/);
 assert.match(content, /KeyboardEvent/);
 assert.doesNotMatch(content, /if \(await preparePublishForm\(task\)\) return/);
 assert.doesNotMatch(content, /successKeywords[\s\S]*'\\u8349\\u7a3f'/);
