@@ -196,6 +196,93 @@ function findButton(keywords, selector = '') {
     });
 }
 
+function categoryKeyword(task) {
+  return text(
+    task?.category?.defaults?.categoryKeyword
+    || task?.category?.product
+    || task?.category?.name
+    || task?.categoryName
+  );
+}
+
+function isCategoryEntryPage() {
+  return /\/sell\/ai\/category\.htm/i.test(location.pathname)
+    || /category\.htm/i.test(location.href)
+    || pageText().includes('搜索发品');
+}
+
+function dispatchEnter(element) {
+  for (const type of ['keydown', 'keypress', 'keyup']) {
+    element.dispatchEvent(new KeyboardEvent(type, {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+      cancelable: true
+    }));
+  }
+}
+
+function findCategorySearchInput(task) {
+  const selected = query(selectors(task).categorySearch);
+  if (selected) return selected;
+  return findField(['产品名称', '类目关键词', '条码信息', '搜索发品', '搜索']) || fields()[0] || null;
+}
+
+function findCategoryCandidate(keyword) {
+  const lower = text(keyword).toLocaleLowerCase('zh-CN');
+  const candidates = [...document.querySelectorAll('button, [role="button"], a, li, div, span')]
+    .filter(visible)
+    .filter(element => {
+      const label = text(element.innerText || element.textContent || element.getAttribute('aria-label') || element.title).toLocaleLowerCase('zh-CN');
+      if (!label) return false;
+      if (label.includes('发布') || label.includes('选择') || label.includes('下一步') || label.includes('开始')) return true;
+      return lower && label.includes(lower);
+    });
+  return candidates.find(element => {
+    const label = text(element.innerText || element.textContent || '').toLocaleLowerCase('zh-CN');
+    return label.includes('发布') || label.includes('选择') || label.includes('下一步') || label.includes('开始');
+  }) || candidates[0] || null;
+}
+
+async function waitForPublishForm(timeoutMs = 15000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (!isCategoryEntryPage()) return true;
+    if (findField(['标题', '宝贝标题', '商品标题']) || fileInputs().length) return true;
+    await sleep(500);
+  }
+  return false;
+}
+
+async function selectTaobaoCategory(task) {
+  const keyword = categoryKeyword(task);
+  if (!keyword) throw fail('缺少淘宝类目搜索词', 'select-category');
+  const field = findCategorySearchInput(task);
+  if (!field) throw fail('未找到淘宝类目搜索输入框', 'select-category');
+  setNativeValue(field, keyword);
+  dispatchEnter(field);
+  await sleep(1200);
+  const searchButton = findButton(['搜索', '查询'], selectors(task).categorySearchButton);
+  if (searchButton) {
+    searchButton.click();
+    await sleep(1200);
+  }
+  const selected = query(selectors(task).categoryResult) || findCategoryCandidate(keyword);
+  if (!selected) throw fail(`未找到淘宝类目候选：${keyword}`, 'select-category');
+  selected.click();
+  await sleep(1800);
+  if (!(await waitForPublishForm())) throw fail(`已选择淘宝类目但未进入发布表单：${keyword}`, 'select-category');
+}
+
+async function preparePublishForm(task) {
+  if (!isCategoryEntryPage()) return false;
+  await report(task.id, STATUS.filling, { detail: { step: 'select-category', url: location.href } });
+  await selectTaobaoCategory(task);
+  return isCategoryEntryPage();
+}
+
 function pageText() {
   return text(document.body?.innerText || document.body?.textContent || '');
 }
@@ -440,6 +527,7 @@ function collectDiagnostics(step) {
 
 async function runPublish(task) {
   if (!task?.id) throw fail('任务包缺少 ID', 'start');
+  if (await preparePublishForm(task)) return;
   await report(task.id, STATUS.filling, { detail: { step: 'fill' } });
   await fillDefaults(task);
   await report(task.id, STATUS.uploading, { detail: { step: 'upload' } });
