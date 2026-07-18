@@ -3556,7 +3556,11 @@ function renderTaobaoPublishPage() {
 
 function notifyTaobaoExtensionPoll() {
   try {
-    window.postMessage({ type: 'CAISHEN_TAOBAO_WEB_TRIGGER' }, window.location.origin);
+    window.postMessage({
+      type: 'CAISHEN_TAOBAO_WEB_TRIGGER',
+      baseUrl: window.location.origin,
+      token: state.taobaoPublishSettings?.token || ''
+    }, window.location.origin);
   } catch {}
 }
 
